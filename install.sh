@@ -238,7 +238,7 @@ RestartSec=3
 WantedBy=multi-user.target
 EOF
 
-printf 'ADMIN_USER=spiderman\nADMIN_PASSWORD=spiderman\nPANEL_PORT=6080\nSERVER_DOMAIN=%s\nACME_EMAIL=%s\n' "$DOMAIN" "$ACME_EMAIL" > /etc/unified-vps/panel.env
+printf 'ADMIN_USER=spiderman\nADMIN_PASSWORD=spiderman\nPANEL_PORT=6080\nSERVER_DOMAIN=%s\nACME_EMAIL=%s\nHY2_STATS_SECRET=%s\n' "$DOMAIN" "$ACME_EMAIL" "$HY2_STATS_SECRET" > /etc/unified-vps/panel.env
 chmod 600 /etc/unified-vps/panel.env
 
 curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/panel/app.py" -o /opt/unified-vps/panel.py
