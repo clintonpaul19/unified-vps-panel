@@ -15,10 +15,10 @@ ACME_EMAIL="acme-$(openssl rand -hex 8)@${DOMAIN}"
 echo "Generated ACME email: $ACME_EMAIL"
 
 apt-get update
-apt-get install -y ca-certificates curl jq openssl iproute2 iptables iptables-persistent sqlite3 python3 openssh-server dnsutils lsof procps psmisc socat
+apt-get install -y ca-certificates curl jq openssl iproute2 iptables iptables-persistent sqlite3 python3 openssh-server dnsutils lsof procps psmisc socat nginx
 
 mkdir -p /opt/unified-vps /etc/unified-vps /etc/hysteria /var/log/unified-vps /usr/local/etc/xray
-for p in 22 80 443 2087; do iptables -C INPUT -p tcp --dport "$p" -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p tcp --dport "$p" -j ACCEPT; done
+for p in 80 443 143 8080 8443 6080; do iptables -C INPUT -p tcp --dport "$p" -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p tcp --dport "$p" -j ACCEPT; done
 for p in 53 443; do iptables -C INPUT -p udp --dport "$p" -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p udp --dport "$p" -j ACCEPT; done
 iptables -C INPUT -p udp --dport 7100:7300 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p udp --dport 7100:7300 -j ACCEPT
 iptables -C INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
@@ -70,7 +70,7 @@ tls:
 auth:
   type: http
   http:
-    url: http://127.0.0.1:2087/hysteria-auth
+    url: http://127.0.0.1:6080/hysteria-auth
 speedTest: true
 trafficStats:
   listen: 127.0.0.1:9999
@@ -90,7 +90,7 @@ RestartSec=3
 WantedBy=multi-user.target
 EOF
 
-printf 'ADMIN_USER=spiderman\nADMIN_PASSWORD=spiderman\nPANEL_PORT=2087\nSERVER_DOMAIN=%s\nACME_EMAIL=%s\n' "$DOMAIN" "$ACME_EMAIL" > /etc/unified-vps/panel.env
+printf 'ADMIN_USER=spiderman\nADMIN_PASSWORD=spiderman\nPANEL_PORT=6080\nSERVER_DOMAIN=%s\nACME_EMAIL=%s\n' "$DOMAIN" "$ACME_EMAIL" > /etc/unified-vps/panel.env
 chmod 600 /etc/unified-vps/panel.env
 
 curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/panel/app.py" -o /opt/unified-vps/panel.py
@@ -111,6 +111,19 @@ curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/ma
 chmod 755 /usr/local/bin/menu /usr/local/bin/vps-status
 
 systemctl daemon-reload
+cat >/etc/nginx/sites-available/unified-vps-8080 <<'EOF'
+server {
+    listen 8080;
+    listen [::]:8080;
+    server_name _;
+    root /var/www/html;
+    index index.html;
+}
+EOF
+ln -sf /etc/nginx/sites-available/unified-vps-8080 /etc/nginx/sites-enabled/unified-vps-8080
+rm -f /etc/nginx/sites-enabled/default
+nginx -t
+systemctl enable --now nginx
 systemctl enable --now ssh unified-vps-panel xray hysteria-server
 
 echo
@@ -119,7 +132,7 @@ echo " Unified VPS Panel installation complete"
 echo "=============================================="
 echo "Domain: $DOMAIN"
 echo "Panel: https://$DOMAIN/"
-echo "Panel port: 443 (TLS)"
+echo "Panel backend: 127.0.0.1:6080"
 echo "Panel username: spiderman"
 echo "Panel password: spiderman"
 echo "Generated ACME email: $ACME_EMAIL"
@@ -127,7 +140,8 @@ echo "VLESS: TLS/WS on TCP 80 and 443"
 echo "VMess: TLS/WS on TCP 80 and 443"
 echo "Trojan: TLS on TCP 80 and 443"
 echo "Hysteria 2: UDP/53 using $DOMAIN"
-echo "SSH: TCP/22 using $DOMAIN"
+echo "SSH transports: TCP 80, 443, 143, 8080, 8443 using $DOMAIN"
+echo "HTTP service: NGINX on TCP/8080"
 echo "Ookla Speedtest: speedtest"
 echo "CLI menu: menu"
 echo "Status: vps-status"
