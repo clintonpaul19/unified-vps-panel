@@ -200,9 +200,10 @@ def record(row):
     return d
 
 def create_user(d):
-    p=d.get('protocol'); u=str(d.get('username','')); q=int(d.get('quota_bytes',0) or 0); days=int(d.get('days',0) or 0)
+    p=d.get('protocol'); u=str(d.get('username','')); quota_gb=float(d.get('quota_gb',0) or 0); q=int(quota_gb*(1024**3)); days=int(d.get('days',0) or 0)
+    if quota_gb < 0: raise ValueError('quota cannot be negative')
     if p not in XRAY_TAGS and p not in ('Hysteria','SSH'): raise ValueError('invalid protocol')
-    if p=='SSH' and int(d.get('quota_bytes',0) or 0): raise ValueError('Per-user byte quotas are supported for Xray and Hysteria only')
+    if p=='SSH' and quota_gb: raise ValueError('Per-user quotas are supported for Xray and Hysteria only')
     if not re.fullmatch(r'[A-Za-z0-9_.-]{1,32}',u): raise ValueError('invalid username')
     secret=d.get('secret') or secrets.token_urlsafe(18)
     exp=int(time.time())+days*86400 if days else 0
@@ -267,20 +268,22 @@ class H(BaseHTTPRequestHandler):
                     uri=next(iter(x['uris'].values()),'')
                     connection=f'<textarea id="u{xid}" readonly>{html.escape(uri,quote=True)}</textarea><button onclick="copyUri(\'u{xid}\')">Copy URI</button>'
                 enabled_text='Yes' if enabled else 'No'
-                quota_text=quota or 'Unlimited'
-                trs+=f'<tr><td>{html.escape(username)}</td><td>{protocol}</td><td>{port_value}</td><td>{html.escape(secret)}</td><td>{used}</td><td>{quota_text}</td><td>{enabled_text}</td><td>{connection}</td></tr>'
+                used_text='Unlimited' if False else f'{used/(1024**3):.2f} GB'
+                quota_text='Unlimited' if not quota else f'{quota/(1024**3):.2f} GB'
+                trs+=f'<tr><td>{html.escape(username)}</td><td>{protocol}</td><td>{port_value}</td><td>{html.escape(secret)}</td><td>{used_text}</td><td>{quota_text}</td><td>{enabled_text}</td><td>{connection}</td></tr>'
             b=f'''<!doctype html><html><head><meta name="viewport" content="width=device-width"><title>Unified VPS Panel</title>
 <style>body{{font-family:system-ui;background:#111;color:#eee;padding:20px}}input,select,button,textarea{{padding:8px;margin:4px;background:#222;color:#eee;border:1px solid #555}}textarea{{width:360px;height:45px}}table{{border-collapse:collapse;width:100%}}td,th{{border:1px solid #444;padding:8px;text-align:left}}button{{cursor:pointer}}</style></head>
 <body><h1>Unified VPS Panel</h1><p>Panel: https://{html.escape(public_host())}/</p>
-<h2>Create account</h2><form id="f"><div><label>Username<br><input name="username" placeholder="Username" required></label></div><div><label>Protocol<br><select id="protocol" name="protocol"><option>Hysteria</option><option>SSH</option><option>VLESS</option><option>VMess</option><option>Trojan</option></select></label></div><div id="passwordRow" style="display:none"><label>SSH Password<br><input id="sshPassword" name="secret" type="password" placeholder="Password" autocomplete="new-password"></label></div><div><label>Duration (days)<br><input name="days" type="number" value="0" min="0" placeholder="0 = unlimited"></label></div><div><label>Quota (bytes)<br><input name="quota_bytes" type="number" value="0" min="0" placeholder="0 = unlimited"></label></div><button>Create</button></form>
+<h2>Create account</h2><form id="f"><div><label>Username<br><input name="username" placeholder="Username" required></label></div><div><label>Protocol<br><select id="protocol" name="protocol"><option>Hysteria</option><option>SSH</option><option>VLESS</option><option>VMess</option><option>Trojan</option></select></label></div><div id="passwordRow" style="display:none"><label>SSH Password<br><input id="sshPassword" name="secret" type="password" placeholder="Password" autocomplete="new-password"></label></div><div><label>Duration (days)<br><input name="days" type="number" value="0" min="0" placeholder="0 = unlimited"></label></div><div id="quotaRow"><label>Quota (GB)<br><input id="quotaGb" name="quota_gb" type="number" value="0" min="0" step="0.1" placeholder="0 = unlimited"></label></div><button>Create</button></form>
 <p><button onclick="runSpeedtest()">Run Ookla Speedtest</button></p><pre id="speed"></pre>
 <h2>Accounts</h2><table><tr><th>User</th><th>Protocol</th><th>Port</th><th>Password / UUID</th><th>Used</th><th>Quota</th><th>Enabled</th><th>Connection</th></tr>{trs}</table>
 <script>
 async function copyUri(id){{let e=document.getElementById('u'+id); try{{if(navigator.clipboard&&window.isSecureContext){{await navigator.clipboard.writeText(e.value);}}else{{e.focus();e.select();document.execCommand('copy');}} alert('URI copied');}}catch(_){{e.focus();e.select();alert('URI selected — copy it manually.');}}}}
 const protocolSelect=document.getElementById('protocol'),passwordRow=document.getElementById('passwordRow'),sshPassword=document.getElementById('sshPassword');
-function updateProtocolFields(){{let ssh=protocolSelect.value==='SSH';passwordRow.style.display=ssh?'block':'none';sshPassword.required=ssh;if(!ssh)sshPassword.value='';}}
+const quotaRow=document.getElementById('quotaRow'),quotaGb=document.getElementById('quotaGb');
+function updateProtocolFields(){{let ssh=protocolSelect.value==='SSH';passwordRow.style.display=ssh?'block':'none';sshPassword.required=ssh;if(!ssh)sshPassword.value='';quotaRow.style.opacity=ssh?'0.5':'1';quotaGb.disabled=ssh;if(ssh)quotaGb.value='0';}}
 protocolSelect.onchange=updateProtocolFields;updateProtocolFields();
-document.getElementById('f').onsubmit=async(e)=>{{e.preventDefault();let o=Object.fromEntries(new FormData(e.target));o.days=+o.days;o.quota_bytes=+o.quota_bytes;let r=await fetch('/api/users',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(o)}});let j=await r.json();alert(j.error||'Created. Connection details are shown in the account list.');if(r.ok) location.reload();}};
+document.getElementById('f').onsubmit=async(e)=>{{e.preventDefault();let o=Object.fromEntries(new FormData(e.target));o.days=+o.days;o.quota_gb=+o.quota_gb;let r=await fetch('/api/users',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(o)}});let j=await r.json();alert(j.error||'Created. Connection details are shown in the account list.');if(r.ok) location.reload();}};
 async function runSpeedtest(){{document.getElementById('speed').textContent='Running Ookla Speedtest...';let r=await fetch('/api/speedtest');let j=await r.json();document.getElementById('speed').textContent=j.output||j.error||'No result';}}
 </script></body></html>'''.encode()
             self.send_response(200); self.send_header('Content-Type','text/html; charset=utf-8'); self.send_header('Content-Length',str(len(b))); self.end_headers(); self.wfile.write(b); return
