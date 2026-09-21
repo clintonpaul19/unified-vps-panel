@@ -58,13 +58,7 @@ insert_firewall_rule() {
   if "$bin" -C "$chain" "$@" -j ACCEPT 2>/dev/null; then
     return 0
   fi
-  terminal_pos="$("$bin" -L "$chain" --line-numbers -n 2>/dev/null |
-    awk '$1 ~ /^[0-9]+$/ && ($4=="DROP" || $4=="REJECT") {pos=$1} END {print pos}')"
-  if [ -n "$terminal_pos" ]; then
-    "$bin" -I "$chain" "$terminal_pos" "$@" -j ACCEPT
-  else
-    "$bin" -A "$chain" "$@" -j ACCEPT
-  fi
+  terminal_pos="$("$bin" -L "$chain" --line-numbers -n 2>/dev/null |\n    awk '$1 ~ /^[0-9]+$/ && ($4=="DROP" || $4=="REJECT") {print $1; exit}')"\n  if [ -n "$terminal_pos" ]; then\n    # Insert immediately before the first terminal DROP/REJECT. Never append\n    # an allow rule after a rule that already terminates INPUT processing.\n    "$bin" -I "$chain" "$terminal_pos" "$@" -j ACCEPT\n  else\n    "$bin" -A "$chain" "$@" -j ACCEPT\n  fi
 }
 for p in 80 443 143 8080 8443 8880; do
   insert_firewall_rule iptables INPUT -p tcp --dport "$p"
