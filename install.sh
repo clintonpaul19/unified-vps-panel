@@ -7,7 +7,7 @@ case "$(dpkg --print-architecture)" in amd64|arm64) ;; *) echo 'Supported archit
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y ca-certificates curl jq openssl iproute2 iptables iptables-persistent sqlite3 python3 openssh-server dnsutils lsof procps psmisc
-mkdir -p /opt/unified-vps /etc/unified-vps /var/log/unified-vps
+mkdir -p /opt/unified-vps /etc/unified-vps /etc/hysteria /var/log/unified-vps
 for p in 22 80 443 2087; do iptables -C INPUT -p tcp --dport "$p" -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p tcp --dport "$p" -j ACCEPT; done
 for p in 53 443; do iptables -C INPUT -p udp --dport "$p" -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p udp --dport "$p" -j ACCEPT; done
 iptables -C INPUT -p udp --dport 7100:7300 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p udp --dport 7100:7300 -j ACCEPT
@@ -72,7 +72,7 @@ auth:
 speedTest: true
 trafficStats:
   listen: 127.0.0.1:9999
-  secret: \${HY2_STATS_SECRET}
+  secret: ${HY2_STATS_SECRET}
 YAML
 fi
 cat >/etc/systemd/system/hysteria-server.service <<'EOF'
@@ -116,7 +116,6 @@ EOF
 curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/menu.sh" -o /usr/local/bin/menu
 curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/vps-status.sh" -o /usr/local/bin/vps-status 2>/dev/null || true
 chmod 755 /usr/local/bin/menu
-systemctl daemon-reload
 systemctl daemon-reload
 systemctl enable --now ssh unified-vps-panel xray hysteria-server
 
