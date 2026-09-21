@@ -191,7 +191,15 @@ def make_uri(row):
                 out[str(port)]=f'trojan://{quote(s,safe="")}@{host}:{port}?security=tls&sni={quote(host,safe="")}&type=tcp#{quote(u)}'
         return out
     if p=='Hysteria': return {'53':f'hysteria2://{quote(s,safe="")}@{host}:53/?sni={quote(host,safe="")}#{quote(u)}'}
-    if p=='SSH': return {}
+    if p=='SSH':
+        ws_path=os.environ.get('SSH_WS_PATH','ssh')
+        ws_port=os.environ.get('SSH_WS_PORT','443')
+        return {
+            'WebSocket': f'wss://{host}:{ws_port}/{quote(ws_path.strip("/"),safe="")}',
+            'Host': host,
+            'Port': ws_port,
+            'Path': '/'+ws_path.strip('/')
+        }
     return {}
 
 def record(row):
@@ -261,7 +269,9 @@ class H(BaseHTTPRequestHandler):
                     connection=f'<textarea id="u{xid}a" readonly>{a}</textarea><button onclick="copyUri(\'u{xid}a\')">Copy 80</button><br><textarea id="u{xid}b" readonly>{b2}</textarea><button onclick="copyUri(\'u{xid}b\')">Copy 443</button>'
                 elif protocol=='SSH':
                     host=html.escape(x['host'],quote=True)
-                    connection=f'Host: {host}<br>Ports: 22, 80, 443, 143, 8080, 8443'
+                    ws_uri=html.escape(x['uris'].get('WebSocket',''),quote=True)
+                    ws_path=html.escape(x['uris'].get('Path','/ssh'),quote=True)
+                    connection=f'Host: {host}<br>WS Port: 443<br>WS Path: {ws_path}<br>WSS: <textarea id="u{xid}ws" readonly>{ws_uri}</textarea><button onclick="copyUri(\'u{xid}ws\')">Copy WSS</button><br>Payload: <code>GET {ws_path} HTTP/1.1 | Host: {host} | Upgrade: websocket | Connection: Upgrade</code>'
                 else:
                     uri=next(iter(x['uris'].values()),'')
                     connection=f'<textarea id="u{xid}" readonly>{html.escape(uri,quote=True)}</textarea><button onclick="copyUri(\'u{xid}\')">Copy URI</button>'
