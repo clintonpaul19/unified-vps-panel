@@ -51,23 +51,24 @@ cat /etc/unified-vps/panel.env
 
 The web panel backend listens on **127.0.0.1:6080**. Public access is through `https://YOUR-DOMAIN/` on TCP 443.
 
+## HAProxy transport layout
+
+The installer uses HAProxy as the public L4/L7 multiplexer. This replaces SSLH and allows raw SSH, HTTP, WebSocket, and TLS traffic to share the same public ports.
+
+- TCP 80, 8080, 8880: HTTP/WebSocket/SSH multiplexing. WebSocket requests are sent to the SSH wstunnel unless the path is `/vless` or `/vmess`, which are routed to the Xray WS inbounds.
+- TCP 443, 8443: TLS is passed through to Xray; non-TLS traffic is sent to SSH.
+- TCP 143: SSH.
+- UDP 53: Hysteria 2.
+
+For SSH-over-WebSocket, the server accepts arbitrary HTTP WebSocket payload paths on the cleartext WS ports and normalizes the path internally to `/ssh` for wstunnel. The generated panel connection details include WS on 80/8080/8880 and WSS on 443/8443.
+
+HAProxy's WebSocket handling is designed to preserve the HTTP upgrade and then tunnel the upgraded connection, with `timeout tunnel` used for long-lived sessions. citeturn5search2turn5search7
+
+Xray remains the TLS terminator on 443/8443, so existing Trojan/TLS fallback routing remains under Xray. Xray fallbacks can route TLS traffic by HTTP path to separate WebSocket services. citeturn4search0turn4search7
+
 ## Xray port layout
 
-The installer uses the requested public Xray ports:
-
-| Protocol | Public port | Transport |
-|---|---:|---|
-| VLESS | TCP 80, 443 | WebSocket + TLS, path `/vless` |
-| VMess | TCP 80, 443 | WebSocket + TLS, path `/vmess` |
-| Trojan | TCP 80, 443 | TLS |
-
-VMess and Trojan share TCP 443 through Xray fallback/path routing. The VMess backend listens only on `127.0.0.1:18445`; port 18445 is not exposed publicly.
-
-VLESS on both 80 and 443 uses a TLS handshake followed by WebSocket on `/vless`. SSLH distinguishes TLS from SSH/HTTP before forwarding the connection to Xray.
-
-Xray documents fallback as a mechanism for sharing a common port and routing by HTTP path, and both VLESS and Trojan support fallbacks. citeturn1search3turn1search4
-
-### Client settings
+## Client settings
 
 VLESS:
 
