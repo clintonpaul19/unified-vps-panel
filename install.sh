@@ -270,7 +270,10 @@ curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/ma
 chmod 755 /usr/local/bin/menu /usr/local/bin/vps-status
 
 systemctl daemon-reload
-systemctl enable ssh nginx unified-vps-panel xray hysteria-server unified-vps-sslh-xray unified-vps-sslh-web unified-vps-sslh-ssh
+# Enabling units must not prevent installation from reaching the explicit
+# startup/diagnostic checks below. Some systemd environments may report a
+# stale/failed job while creating the enablement links.
+systemctl enable ssh nginx unified-vps-panel xray hysteria-server unified-vps-sslh-xray unified-vps-sslh-web unified-vps-sslh-ssh || true
 systemctl start ssh nginx
 if ! systemctl start unified-vps-panel; then
   echo "ERROR: unified-vps-panel.service failed to start."
