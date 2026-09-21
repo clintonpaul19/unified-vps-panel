@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import base64,hmac,html,json,os,secrets,sqlite3,subprocess,time,re,threading
+import base64,hmac,html,json,os,secrets,sqlite3,subprocess,time,re,threading,uuid
 from urllib.request import Request,urlopen
 from urllib.parse import quote
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
@@ -182,10 +182,16 @@ def make_uri(row):
     if p in XRAY_TAGS:
         out={}
         for port in (80,443):
+            tls = port == 443
             if p=='VLESS':
-                out[str(port)]=f'vless://{quote(s,safe="")}@{host}:{port}?type=ws&security=tls&sni={quote(host,safe="")}&path=%2Fvless#{quote(u)}'
+                params = f'type=ws&security={"tls" if tls else "none"}&path=%2Fvless'
+                if tls:
+                    params += f'&sni={quote(host,safe="")}'
+                out[str(port)]=f'vless://{quote(s,safe="")}@{host}:{port}?{params}#{quote(u)}'
             elif p=='VMess':
-                obj={'v':'2','ps':u,'add':host,'port':str(port),'id':s,'aid':'0','scy':'auto','net':'ws','type':'none','host':host,'path':'/vmess','tls':'tls','sni':host}
+                obj={'v':'2','ps':u,'add':host,'port':str(port),'id':s,'aid':'0','scy':'auto','net':'ws','type':'none','host':host,'path':'/vmess','tls':'tls' if tls else 'none'}
+                if tls:
+                    obj['sni']=host
                 out[str(port)]='vmess://'+base64.b64encode(json.dumps(obj,separators=(',',':')).encode()).decode()
             else:
                 out[str(port)]=f'trojan://{quote(s,safe="")}@{host}:{port}?security=tls&sni={quote(host,safe="")}&type=tcp#{quote(u)}'
@@ -215,7 +221,12 @@ def create_user(d):
     if p not in XRAY_TAGS and p not in ('Hysteria','SSH'): raise ValueError('invalid protocol')
     if p=='SSH' and quota_gb: raise ValueError('Per-user quotas are supported for Xray and Hysteria only')
     if not re.fullmatch(r'[A-Za-z0-9_.-]{1,32}',u): raise ValueError('invalid username')
-    secret=d.get('secret') or secrets.token_urlsafe(18)
+    secret=d.get('secret') or (str(uuid.uuid4()) if p in ('VLESS','VMess') else secrets.token_urlsafe(18))
+    if p in ('VLESS','VMess'):
+        try:
+            secret=str(uuid.UUID(secret))
+        except ValueError:
+            raise ValueError('VLESS/VMess ID must be a valid UUID')
     exp=int(time.time())+days*86400 if days else 0
     c=conn()
     ssh_created=False
