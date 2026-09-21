@@ -126,6 +126,24 @@ if ! command -v speedtest >/dev/null 2>&1; then
   apt-get install -y speedtest
 fi
 
+# Hysteria owns UDP/53. Clean up known legacy listeners from prior
+# Unified VPS/UDP-custom installations, then verify the socket is available.
+for legacy in udp-custom udp-mini; do
+  if systemctl list-unit-files --type=service --no-legend 2>/dev/null | awk '{print $1}' | grep -qx "$legacy.service"; then
+    systemctl disable --now "$legacy.service" 2>/dev/null || true
+  fi
+done
+
+# systemd-resolved's DNS stub must not occupy UDP/53 on the host.
+if systemctl is-active --quiet systemd-resolved 2>/dev/null; then
+  mkdir -p /etc/systemd/resolved.conf.d
+  cat >/etc/systemd/resolved.conf.d/99-unified-vps-no-stub.conf <<'EOF'
+[Resolve]
+DNSStubListener=no
+EOF
+  systemctl restart systemd-resolved
+fi
+
 cp /etc/unified-vps/xray.crt /etc/hysteria/server.crt
 cp /etc/unified-vps/xray.key /etc/hysteria/server.key
 chmod 640 /etc/hysteria/server.key
@@ -286,6 +304,13 @@ if ! systemctl start unified-vps-panel; then
 fi
 sleep 1
 systemctl start xray
+
+# Fail early with the actual owner if UDP/53 is still occupied.
+if ss -lunpH 2>/dev/null | awk '$5 ~ /:53$/ {found=1} END {exit found ? 0 : 1}'; then
+  echo "ERROR: UDP/53 is already in use; Hysteria 2 cannot start."
+  ss -lunp 2>/dev/null | grep -E '(:53[[:space:]])|(:53\\$)' || true
+  exit 1
+fi
 systemctl start hysteria-server
 systemctl start unified-vps-sslh-xray unified-vps-sslh-web unified-vps-sslh-ssh
 sshd -t
