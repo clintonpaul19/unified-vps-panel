@@ -197,37 +197,44 @@ while true; do
   echo
   echo "        >>>>>>>>>>>>>>>>>  MAIN MENU  <<<<<<<<<<<<<<<<<"
   echo
-  printf "%-38s %-38s %-38s\n" "[01] SERVER INFORMATION" "[08] SYSTEM OPTIMIZATION" "[15] RESTART SERVICES"
-  printf "%-38s %-38s %-38s\n" "[02] USER MANAGEMENT" "[09] CLEAN & MAINTENANCE" "[16] SPEEDTEST"
-  printf "%-38s %-38s %-38s\n" "[03] BACKUP / RESTORE" "[10] LOGS & REPORTS" "[17] VIEW CONNECTIONS"
-  printf "%-38s %-38s %-38s\n" "[04] SERVER SETTINGS" "[11] SECURITY" "[18] SYSTEM RESOURCE"
-  printf "%-38s %-38s %-38s\n" "[05] TOOLS & UTILITIES" "[12] DOMAIN & NETWORK" "[19] HELP / ABOUT"
-  printf "%-38s %-38s %-38s\n" "[06] MONITORING" "[13] CHANGE BANNER" "[20] UPDATE SCRIPT"
-  printf "%-38s %-38s %-38s\n" "[07] INSTALL EXTRA" "[14] TELEGRAM BOT" "[21] EXIT"
+  printf "%-38s %-38s %-38s
+" "[01] SSH MENU" "[08] SERVER INFORMATION" "[15] RESTART SERVICES"
+  printf "%-38s %-38s %-38s
+" "[02] VLESS MENU" "[09] BACKUP / RESTORE" "[16] SPEEDTEST"
+  printf "%-38s %-38s %-38s
+" "[03] VMESS MENU" "[10] SERVER SETTINGS" "[17] VIEW CONNECTIONS"
+  printf "%-38s %-38s %-38s
+" "[04] TROJAN MENU" "[11] TOOLS & UTILITIES" "[18] SYSTEM RESOURCE"
+  printf "%-38s %-38s %-38s
+" "[05] HYSTERIA MENU" "[12] MONITORING" "[19] SECURITY"
+  printf "%-38s %-38s %-38s
+" "[06] USER MANAGEMENT" "[13] DOMAIN & NETWORK" "[20] UPDATE SCRIPT"
+  printf "%-38s %-38s %-38s
+" "[07] INSTALL EXTRA" "[14] LOGS & REPORTS" "[21] EXIT"
   echo
   echo "Script Version = $VERSION | Last Update = $(date +%d-%m-%Y)"
   echo
   read -r -p "Select an option [1 - 21] >>> " n
   case "$n" in
-    1) server_info ;;
-    2) user_management ;;
-    3) echo "Backup / Restore module is ready for integration."; pause ;;
-    4) echo "Server Settings module is ready for integration."; pause ;;
-    5) echo "Tools & Utilities module is ready for integration."; pause ;;
-    6) echo "Monitoring module is ready for integration."; pause ;;
+    1) protocol_menu SSH ;;
+    2) protocol_menu VLESS ;;
+    3) protocol_menu VMess ;;
+    4) protocol_menu Trojan ;;
+    5) protocol_menu Hysteria ;;
+    6) user_management ;;
     7) echo "Install Extra module is ready for integration."; pause ;;
-    8) echo "System Optimization module is ready for integration."; pause ;;
-    9) echo "Clean & Maintenance module is ready for integration."; pause ;;
-    10) echo "Logs & Reports module is ready for integration."; pause ;;
-    11) echo "Security module is ready for integration."; pause ;;
-    12) echo "Domain & Network module is ready for integration."; pause ;;
-    13) echo "Banner module is ready for integration."; pause ;;
-    14) echo "Telegram Bot module is ready for integration."; pause ;;
+    8) server_info ;;
+    9) echo "Backup / Restore module is ready for integration."; pause ;;
+    10) echo "Server Settings module is ready for integration."; pause ;;
+    11) echo "Tools & Utilities module is ready for integration."; pause ;;
+    12) echo "Monitoring module is ready for integration."; pause ;;
+    13) echo "Domain & Network module is ready for integration."; pause ;;
+    14) echo "Logs & Reports module is ready for integration."; pause ;;
     15) systemctl restart xray hysteria-server unified-vps-panel; echo "Backend services restarted."; pause ;;
     16) speedtest_menu ;;
     17) api_get | python3 -m json.tool; pause ;;
     18) free -h; df -h; uptime; pause ;;
-    19) echo "Unified VPS Panel — $SERVER_DOMAIN"; pause ;;
+    19) echo "Security module is ready for integration."; pause ;;
     20) echo "Update the script from the official repository."; pause ;;
     21) exit 0 ;;
   esac
