@@ -134,14 +134,18 @@ for legacy in udp-custom udp-mini; do
   fi
 done
 
-# systemd-resolved's DNS stub must not occupy UDP/53 on the host.
-if systemctl is-active --quiet systemd-resolved 2>/dev/null; then
-  mkdir -p /etc/systemd/resolved.conf.d
-  cat >/etc/systemd/resolved.conf.d/99-unified-vps-no-stub.conf <<'EOF'
-[Resolve]
-DNSStubListener=no
+# Do not let systemd-resolved occupy UDP/53. Keep outbound DNS working
+# with static resolvers while Hysteria owns this port.
+if systemctl is-enabled --quiet systemd-resolved 2>/dev/null || systemctl is-active --quiet systemd-resolved 2>/dev/null; then
+  systemctl disable --now systemd-resolved.service 2>/dev/null || true
+fi
+if [ -L /etc/resolv.conf ] || grep -q '127\.0\.0\.53' /etc/resolv.conf 2>/dev/null; then
+  rm -f /etc/resolv.conf
+  cat >/etc/resolv.conf <<'EOF'
+nameserver 1.1.1.1
+nameserver 8.8.8.8
 EOF
-  systemctl restart systemd-resolved
+  chmod 644 /etc/resolv.conf
 fi
 
 cp /etc/unified-vps/xray.crt /etc/hysteria/server.crt
