@@ -33,6 +33,16 @@ apt-get install -y ca-certificates curl jq openssl iproute2 iptables iptables-pe
 systemctl disable --now sslh.service 2>/dev/null || true
 systemctl stop nginx.service 2>/dev/null || true
 
+# Stop any pre-existing Hysteria instance before ACME can invoke its reload hook.
+# This is intentionally limited to the Hysteria service/process name.
+for svc in hysteria-server hysteria; do
+  systemctl stop "$svc.service" 2>/dev/null || true
+  systemctl disable "$svc.service" 2>/dev/null || true
+done
+pkill -TERM -x hysteria 2>/dev/null || true
+sleep 1
+
+
 mkdir -p /opt/unified-vps /etc/unified-vps /etc/hysteria /var/log/unified-vps /usr/local/etc/xray
 # Open the required ports without flushing or bypassing an existing firewall.
 # Rules are inserted before the first terminal DROP/REJECT when one exists.
@@ -164,7 +174,7 @@ cp /etc/unified-vps/xray.key /etc/hysteria/server.key
 chmod 640 /etc/hysteria/server.key
 HY2_STATS_SECRET="$(openssl rand -hex 24)"
 cat >/etc/hysteria/config.yaml <<YAML
-listen: :53
+listen: 0.0.0.0:53
 tls:
   cert: /etc/hysteria/server.crt
   key: /etc/hysteria/server.key
