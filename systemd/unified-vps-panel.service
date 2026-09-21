@@ -1,0 +1,12 @@
+[Unit]
+Description=Unified VPS Panel
+After=network-online.target
+Wants=network-online.target
+[Service]
+EnvironmentFile=/etc/unified-vps/panel.env
+ExecStart=/usr/bin/python3 /opt/unified-vps/panel.py
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+[Install]
+WantedBy=multi-user.target
