@@ -192,13 +192,15 @@ def make_uri(row):
         return out
     if p=='Hysteria': return {'53':f'hysteria2://{quote(s,safe="")}@{host}:53/?sni={quote(host,safe="")}#{quote(u)}'}
     if p=='SSH':
-        ws_path=os.environ.get('SSH_WS_PATH','ssh')
-        ws_port=os.environ.get('SSH_WS_PORT','443')
+        ws_path=os.environ.get('SSH_WS_PATH','ssh').strip('/')
         return {
-            'WebSocket': f'wss://{host}:{ws_port}/{quote(ws_path.strip("/"),safe="")}',
+            'WebSocket': f'ws://{host}:80/{quote(ws_path,safe="")}',
+            'WebSocket8080': f'ws://{host}:8080/{quote(ws_path,safe="")}',
+            'WebSocket8880': f'ws://{host}:8880/{quote(ws_path,safe="")}',
+            'WebSocketTLS': f'wss://{host}:443/{quote(ws_path,safe="")}',
+            'WebSocketTLS8443': f'wss://{host}:8443/{quote(ws_path,safe="")}',
             'Host': host,
-            'Port': ws_port,
-            'Path': '/'+ws_path.strip('/')
+            'Path': '/'+ws_path
         }
     return {}
 
@@ -269,9 +271,13 @@ class H(BaseHTTPRequestHandler):
                     connection=f'<textarea id="u{xid}a" readonly>{a}</textarea><button onclick="copyUri(\'u{xid}a\')">Copy 80</button><br><textarea id="u{xid}b" readonly>{b2}</textarea><button onclick="copyUri(\'u{xid}b\')">Copy 443</button>'
                 elif protocol=='SSH':
                     host=html.escape(x['host'],quote=True)
-                    ws_uri=html.escape(x['uris'].get('WebSocket',''),quote=True)
                     ws_path=html.escape(x['uris'].get('Path','/ssh'),quote=True)
-                    connection=f'Host: {host}<br>WS Port: 443<br>WS Path: {ws_path}<br>WSS: <textarea id="u{xid}ws" readonly>{ws_uri}</textarea><button onclick="copyUri(\'u{xid}ws\')">Copy WSS</button><br>Payload: <code>GET {ws_path} HTTP/1.1 | Host: {host} | Upgrade: websocket | Connection: Upgrade</code>'
+                    ws80=html.escape(x['uris'].get('WebSocket',''),quote=True)
+                    ws8080=html.escape(x['uris'].get('WebSocket8080',''),quote=True)
+                    ws8880=html.escape(x['uris'].get('WebSocket8880',''),quote=True)
+                    wss443=html.escape(x['uris'].get('WebSocketTLS',''),quote=True)
+                    wss8443=html.escape(x['uris'].get('WebSocketTLS8443',''),quote=True)
+                    connection=f'Host: {host}<br>WS Path: {ws_path}<br>WS 80: <textarea id="u{xid}ws80" readonly>{ws80}</textarea><button onclick="copyUri(\'u{xid}ws80\')">Copy</button><br>WS 8080: <textarea id="u{xid}ws8080" readonly>{ws8080}</textarea><button onclick="copyUri(\'u{xid}ws8080\')">Copy</button><br>WS 8880: <textarea id="u{xid}ws8880" readonly>{ws8880}</textarea><button onclick="copyUri(\'u{xid}ws8880\')">Copy</button><br>WSS 443: <textarea id="u{xid}wss443" readonly>{wss443}</textarea><button onclick="copyUri(\'u{xid}wss443\')">Copy</button><br>WSS 8443: <textarea id="u{xid}wss8443" readonly>{wss8443}</textarea><button onclick="copyUri(\'u{xid}wss8443\')">Copy</button><br>Payload: <code>GET {ws_path} HTTP/1.1 | Host: {host} | Upgrade: websocket | Connection: Upgrade</code>'
                 else:
                     uri=next(iter(x['uris'].values()),'')
                     connection=f'<textarea id="u{xid}" readonly>{html.escape(uri,quote=True)}</textarea><button onclick="copyUri(\'u{xid}\')">Copy URI</button>'
