@@ -22,13 +22,13 @@ def save_xray(d):
 def add_xray(protocol,u,secret):
  d=xray()
  if d is None: raise RuntimeError('Xray config missing')
- tag={'VMess':'vmess','VLESS':'vless','Trojan':'trojan'}[protocol]
+ tag={'VMess':'vmess443','VLESS':'vless80','Trojan':'trojan443'}[protocol]
  ib=next((i for i in d.get('inbounds',[]) if i.get('tag')==tag),None)
  if ib is None: raise RuntimeError(f'{protocol} inbound missing')
  c={'email':u,'level':0}; c['id' if protocol in ('VMess','VLESS') else 'password']=secret
  ib.setdefault('settings',{}).setdefault('clients',[]).append(c); save_xray(d)
 def del_xray(protocol,u):
- d=xray(); tag={'VMess':'vmess','VLESS':'vless','Trojan':'trojan'}[protocol]
+ d=xray(); tag={'VMess':'vmess443','VLESS':'vless80','Trojan':'trojan443'}[protocol]
  ib=next((i for i in d.get('inbounds',[]) if i.get('tag')==tag),None)
  if ib: ib['settings']['clients']=[c for c in ib.get('settings',{}).get('clients',[]) if c.get('email')!=u]; save_xray(d)
 class H(BaseHTTPRequestHandler):
