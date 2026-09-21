@@ -158,14 +158,25 @@ class H(BaseHTTPRequestHandler):
             c=conn(); rows=[record(x) for x in c.execute('select * from users order by id desc')]; c.close()
             trs=''
             for x in rows:
-                safeuri=html.escape(x['uri'],quote=True)
-                trs+=f'<tr><td>{html.escape(x["username"])}</td><td>{x["protocol"]}</td><td>{x["port"]}</td><td>{html.escape(x["secret"])}</td><td>{x["used_bytes"]}</td><td>{x["quota_bytes"] or "Unlimited"}</td><td>{"Yes" if x["enabled"] else "No"}</td><td><textarea id="u{x["id"]}" readonly>{safeuri}</textarea><button onclick="copyUri({x["id"]})">Copy URI</button></td></tr>'
+                if x['protocol'] in XRAY_TAGS:
+                    a=html.escape(x['uris'].get('80',''),quote=True)
+                    b2=html.escape(x['uris'].get('443',''),quote=True)
+                    connection=f'<textarea id="u{x["id"]}a" readonly>{a}</textarea><button onclick="copyUri(\'u{x["id"]}a\')">Copy 80</button><br><textarea id="u{x["id"]}b" readonly>{b2}</textarea><button onclick="copyUri(\'u{x["id"]}b\')">Copy 443</button>'
+                elif x['protocol']=='SSH':
+                    parts=[]
+                    for port,uri in x['uris'].items():
+                        parts.append(f'<textarea id="u{x["id"]}{port}" readonly>{html.escape(uri,quote=True)}</textarea><button onclick="copyUri(\'u{x["id"]}{port}\')">Copy {port}</button>')
+                    connection='<br>'.join(parts)
+                else:
+                    uri=next(iter(x['uris'].values()),'')
+                    connection=f'<textarea id="u{x["id"]}" readonly>{html.escape(uri,quote=True)}</textarea><button onclick="copyUri(\'u{x["id"]}\')">Copy URI</button>'
+                trs+=f'<tr><td>{html.escape(x["username"])}</td><td>{x["protocol"]}</td><td>{x["port"]}</td><td>{html.escape(x["secret"])}</td><td>{x["used_bytes"]}</td><td>{x["quota_bytes"] or "Unlimited"}</td><td>{"Yes" if x["enabled"] else "No"}</td><td>{connection}</td></tr>'
             b=f'''<!doctype html><html><head><meta name="viewport" content="width=device-width"><title>Unified VPS Panel</title>
 <style>body{{font-family:system-ui;background:#111;color:#eee;padding:20px}}input,select,button,textarea{{padding:8px;margin:4px;background:#222;color:#eee;border:1px solid #555}}textarea{{width:360px;height:45px}}table{{border-collapse:collapse;width:100%}}td,th{{border:1px solid #444;padding:8px;text-align:left}}button{{cursor:pointer}}</style></head>
-<body><h1>Unified VPS Panel</h1><p>Panel: http://{html.escape(public_ip())}:{PORT}</p>
+<body><h1>Unified VPS Panel</h1><p>Panel: https://{html.escape(public_host())}/</p>
 <h2>Create account</h2><form id="f"><input name="username" placeholder="Username" required><select name="protocol"><option>Hysteria</option><option>SSH</option><option>VLESS</option><option>VMess</option><option>Trojan</option></select><input name="days" type="number" value="0" min="0" placeholder="Days"><input name="quota_bytes" type="number" value="0" min="0" placeholder="Quota bytes"><button>Create</button></form>
 <p><button onclick="runSpeedtest()">Run Ookla Speedtest</button></p><pre id="speed"></pre>
-<h2>Accounts</h2><table><tr><th>User</th><th>Protocol</th><th>Port</th><th>Password / UUID</th><th>Used</th><th>Quota</th><th>Enabled</th><th>Copy URI</th></tr>{trs}</table>
+<h2>Accounts</h2><table><tr><th>User</th><th>Protocol</th><th>Port</th><th>Password / UUID</th><th>Used</th><th>Quota</th><th>Enabled</th><th>Connection</th></tr>{trs}</table>
 <script>
 async function copyUri(id){let e=document.getElementById('u'+id); try{if(navigator.clipboard&&window.isSecureContext){await navigator.clipboard.writeText(e.value);}else{e.focus();e.select();document.execCommand('copy');} alert('URI copied');}catch(_){e.focus();e.select();alert('URI selected — copy it manually.');}}
 document.getElementById('f').onsubmit=async(e)=>{{e.preventDefault();let o=Object.fromEntries(new FormData(e.target));o.days=+o.days;o.quota_bytes=+o.quota_bytes;let r=await fetch('/api/users',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(o)}});let j=await r.json();alert(j.error||('Created: '+j.uri));if(r.ok) location.reload();}};
