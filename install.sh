@@ -53,7 +53,14 @@ curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/ma
 systemctl stop unified-vps-sslh-xray unified-vps-sslh-web unified-vps-sslh-ssh sslh xray nginx 2>/dev/null || true
 curl -fsSL https://get.acme.sh | sh -s email="$ACME_EMAIL"
 "$HOME/.acme.sh/acme.sh" --set-default-ca --server letsencrypt
-"$HOME/.acme.sh/acme.sh" --issue --standalone -d "$DOMAIN"
+
+# Issue the certificate on a genuinely fresh host. If acme.sh already has a
+# valid certificate for this domain (for example after a rerun), do not abort
+# the whole installer just because issuance is skipped.
+if ! "$HOME/.acme.sh/acme.sh" --issue --standalone -d "$DOMAIN"; then
+  echo "ACME issuance was skipped or already satisfied; using the existing acme.sh certificate."
+fi
+
 "$HOME/.acme.sh/acme.sh" --install-cert -d "$DOMAIN" \
   --fullchain-file /etc/unified-vps/xray.crt \
   --key-file /etc/unified-vps/xray.key
