@@ -31,7 +31,7 @@ View the generated panel credentials:
 cat /etc/unified-vps/panel.env
 ```
 
-The web panel listens on TCP **2087**.
+The web panel backend listens on **127.0.0.1:6080**. Public access is through `https://YOUR-DOMAIN/` on TCP 443.
 
 ## Xray port layout
 
@@ -39,7 +39,7 @@ The installer uses the requested public Xray ports:
 
 | Protocol | Public port | Transport |
 |---|---:|---|
-| VLESS | TCP 80 | WebSocket, path `/vless` |
+| VLESS | TCP 80, 443 | WebSocket, path `/vless` |
 | VMess | TCP 443 | WebSocket + TLS, path `/vmess` |
 | Trojan | TCP 443 | TLS |
 
@@ -122,6 +122,12 @@ Expected:
 
 Xray's statistics system is also enabled for user uplink/downlink/online statistics. citeturn2search0turn2search3
 
+## SSH multiplexing
+
+OpenSSH remains on loopback TCP 22. SSLH multiplexes SSH with the TLS/Xray services on TCP 80 and 443, with SSH and NGINX on TCP 8080, and SSH on TCP 143 and 8443. TCP 22 is not exposed publicly. The panel backend remains on 127.0.0.1:6080.
+
+The installer validates `sshd`, NGINX and Xray configurations and checks all Unified VPS services before reporting installation complete.
+
 ## Supported operating systems
 
 - Ubuntu 22.04
@@ -140,12 +146,12 @@ Supported architectures:
 
 | Service | Port |
 |---|---:|
-| SSH | TCP 22 |
+| SSH | TCP 80, 443, 143, 8080, 8443 |
 | VLESS | TCP 80 |
-| VMess + TLS | TCP 443 |
-| Trojan + TLS | TCP 443 |
+| VMess + TLS | TCP 80, 443 |
+| Trojan + TLS | TCP 80, 443 |
 | Hysteria | UDP 53 |
-| Unified Panel | TCP 2087 |
+| Unified Panel | TCP 443 (backend 6080) |
 | BadVPN UDPGW | UDP 7100–7300 |
 
 ## Important
@@ -167,7 +173,7 @@ Supported generated formats:
 - Trojan: `trojan://...`
 - SSH: `ssh://...` (generic SSH URI)
 
-The web panel provides a **Copy URI** button. The CLI displays the same URI in its JSON response so it can be copied directly from the VPS terminal.
+The web panel provides copy controls for each available port. The CLI displays the same connection URIs in its JSON response so they can be copied directly from the VPS terminal.
 
 Hysteria 2 uses the current `hysteria2://` URI format documented by the Hysteria project. citeturn0search0turn0search1
 
@@ -180,7 +186,7 @@ For a fresh installation, the installer sets:
 ```text
 Username: spiderman
 Password: spiderman
-Panel: http://SERVER_IP:2087
+Panel: https://YOUR-DOMAIN/
 ```
 
 This is intentionally fixed as requested. **Change these credentials before exposing the panel to an untrusted network.**
