@@ -116,8 +116,7 @@ server {
     listen 127.0.0.1:18080;
     listen [::1]:18080;
     server_name _;
-    root /var/www/html;
-    index index.html;
+    return 301 https://$host$request_uri;
 }
 EOF
 ln -sf /etc/nginx/sites-available/unified-vps-8080 /etc/nginx/sites-enabled/unified-vps-8080
@@ -134,7 +133,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStartPre=/usr/sbin/sshd -t
-ExecStart=$SSlh_BIN --foreground --numeric --user sslh --listen 0.0.0.0:80 --listen 0.0.0.0:443 --tls 127.0.0.1:18443 --ssh 127.0.0.1:22 --on-timeout ssh --timeout 5
+ExecStart=$SSlh_BIN --foreground --numeric --user sslh --listen 0.0.0.0:80 --listen 0.0.0.0:443 --tls 127.0.0.1:18443 --http 127.0.0.1:18080 --ssh 127.0.0.1:22 --on-timeout ssh --timeout 5
 Restart=always
 RestartSec=1
 KillMode=process
