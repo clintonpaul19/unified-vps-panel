@@ -6,17 +6,35 @@ All-in-one VPS management panel for Hysteria 2, Xray, SSH, SSH WebSocket/WSS, Ba
 
 ### Fresh VPS — recommended
 
-Run as root:
+Run as root. The installer is interactive and reads the domain from your terminal.
+
+Recommended one-line installation:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/install.sh | bash
+bash <(curl -fsSL https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/install.sh)
 ```
 
-Or with wget:
+Or download and run it:
 
 ```bash
-wget -qO- https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/install.sh -o /tmp/install.sh
+bash /tmp/install.sh
 ```
+
+The installer will prompt:
+
+```text
+Domain pointing to this VPS:
+```
+
+Enter the domain/subdomain already pointing to the VPS, for example:
+
+```text
+panel.example.com
+```
+
+Do not use the old `curl ... | bash` or `wget ... | bash` form because the installer requires interactive terminal input for the domain.
+
 
 After installation:
 
