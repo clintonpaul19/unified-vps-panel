@@ -30,7 +30,8 @@ fi
 XRAY_USER="$(systemctl cat xray 2>/dev/null | awk -F= '/^User=/{print $2; exit}')"
 XRAY_USER="${XRAY_USER:-nobody}"
 if id "$XRAY_USER" >/dev/null 2>&1; then
-  chown "$XRAY_USER:$XRAY_USER" /etc/unified-vps/xray.key /etc/unified-vps/xray.crt 2>/dev/null || true
+  XRAY_GROUP="$(id -gn "$XRAY_USER")"
+  chown "$XRAY_USER:$XRAY_GROUP" /etc/unified-vps/xray.key /etc/unified-vps/xray.crt
   chmod 640 /etc/unified-vps/xray.key
   chmod 644 /etc/unified-vps/xray.crt
 fi
