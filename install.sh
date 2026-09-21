@@ -102,7 +102,11 @@ chmod 644 /etc/unified-vps/xray.crt
 # Their final configurations are created below, after certificates are installed.
 echo "Certificate installed successfully."
 
-XRAY_USER="$(systemctl cat xray 2>/dev/null | awk -F= '/^User=/{print $2; exit}')"
+XRAY_USER=""
+if systemctl cat xray >/tmp/unified-vps-xray-unit.txt 2>/dev/null; then
+  XRAY_USER="$(awk -F= '/^User=/{print $2; exit}' /tmp/unified-vps-xray-unit.txt || true)"
+fi
+rm -f /tmp/unified-vps-xray-unit.txt
 XRAY_USER="${XRAY_USER:-nobody}"
 if id "$XRAY_USER" >/dev/null 2>&1; then
   XRAY_GROUP="$(id -gn "$XRAY_USER")"
