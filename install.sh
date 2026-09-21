@@ -271,7 +271,16 @@ chmod 755 /usr/local/bin/menu /usr/local/bin/vps-status
 
 systemctl daemon-reload
 systemctl enable ssh nginx unified-vps-panel xray hysteria-server unified-vps-sslh-xray unified-vps-sslh-web unified-vps-sslh-ssh
-systemctl start ssh nginx unified-vps-panel
+systemctl start ssh nginx
+if ! systemctl start unified-vps-panel; then
+  echo "ERROR: unified-vps-panel.service failed to start."
+  systemctl status unified-vps-panel --no-pager -l || true
+  echo "--- panel journal ---"
+  journalctl -u unified-vps-panel -n 80 --no-pager || true
+  echo "--- port 6080 ---"
+  ss -ltnp 2>/dev/null | grep ':6080' || true
+  exit 1
+fi
 sleep 1
 systemctl start xray
 systemctl start hysteria-server
