@@ -136,9 +136,8 @@ if ! command -v speedtest >/dev/null 2>&1; then
   apt-get install -y speedtest
 fi
 
-# Hysteria owns UDP/53. Clean up known legacy listeners from prior
-# Unified VPS/UDP-custom installations, then verify the socket is available.
-systemctl unmask hysteria-server.service 2>/dev/null || true
+# Hysteria owns UDP/53. Keep its service masked until all configuration
+# is complete so ACME hooks or stale unit state cannot restart it early.
 for legacy in udp-custom udp-mini; do
   if systemctl list-unit-files --type=service --no-legend 2>/dev/null | awk '{print $1}' | grep -qx "$legacy.service"; then
     systemctl disable --now "$legacy.service" 2>/dev/null || true
@@ -320,6 +319,9 @@ if ! systemctl start unified-vps-panel; then
 fi
 sleep 1
 systemctl start xray
+
+# Release the temporary mask only after all certificate/configuration work is done.
+systemctl unmask hysteria-server.service 2>/dev/null || true
 
 # Check immediately before starting Hysteria so any late listener is identified.
 if lsof -nP -iUDP:53 2>/dev/null | grep -q UDP; then
