@@ -6,6 +6,14 @@ case "$ID" in ubuntu|debian) ;; *) echo "Unsupported OS: $ID"; exit 1;; esac
 case "$(dpkg --print-architecture)" in amd64|arm64) ;; *) echo 'Supported architectures: amd64, arm64'; exit 1;; esac
 export DEBIAN_FRONTEND=noninteractive
 
+# IPv6 is intentionally disabled for this deployment.
+cat >/etc/sysctl.d/99-unified-vps-disable-ipv6.conf <<'EOF'
+net.ipv6.conf.all.disable_ipv6 = 1
+net.ipv6.conf.default.disable_ipv6 = 1
+net.ipv6.conf.lo.disable_ipv6 = 1
+EOF
+sysctl --system >/dev/null 2>&1 || true
+
 echo "=== Unified VPS Panel ==="
 if [ -r /dev/tty ]; then
   read -r -p "Domain pointing to this VPS: " DOMAIN < /dev/tty
@@ -74,7 +82,9 @@ curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/ma
 
 # Get a trusted Let's Encrypt certificate for the supplied domain.
 # Standalone ACME needs TCP/80 temporarily free.
-systemctl stop unified-vps-sslh-xray unified-vps-sslh-web unified-vps-sslh-ssh sslh xray nginx 2>/dev/null || true
+# Stop services that could rebind ports while the final configuration is built.
+systemctl stop unified-vps-sslh-xray unified-vps-sslh-web unified-vps-sslh-ssh sslh xray nginx hysteria-server 2>/dev/null || true
+systemctl mask hysteria-server.service 2>/dev/null || true
 curl -fsSL https://get.acme.sh | sh -s email="$ACME_EMAIL"
 "$HOME/.acme.sh/acme.sh" --set-default-ca --server letsencrypt
 
@@ -128,11 +138,13 @@ fi
 
 # Hysteria owns UDP/53. Clean up known legacy listeners from prior
 # Unified VPS/UDP-custom installations, then verify the socket is available.
+systemctl unmask hysteria-server.service 2>/dev/null || true
 for legacy in udp-custom udp-mini; do
   if systemctl list-unit-files --type=service --no-legend 2>/dev/null | awk '{print $1}' | grep -qx "$legacy.service"; then
     systemctl disable --now "$legacy.service" 2>/dev/null || true
   fi
 done
+systemctl stop hysteria-server.service 2>/dev/null || true
 
 # Do not let systemd-resolved occupy UDP/53. Keep outbound DNS working
 # with static resolvers while Hysteria owns this port.
