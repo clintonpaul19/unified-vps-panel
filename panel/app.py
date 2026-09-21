@@ -304,6 +304,53 @@ async function runSpeedtest(){{document.getElementById('speed').textContent='Run
         if self.path=='/api/users':
             try: return send(self,create_user(d))
             except Exception as e: return send(self,{'error':str(e)},500)
+        if self.path=='/api/users/action':
+            c=conn(); row=c.execute('select * from users where id=?',(int(d.get('id',0)),)).fetchone()
+            if not row: c.close(); return send(self,{'error':'not found'},404)
+            action=str(d.get('action','')).lower()
+            try:
+                if action=='renew':
+                    days=int(d.get('days',0) or 0)
+                    if days <= 0: raise ValueError('renewal days must be greater than 0')
+                    exp=int(time.time())+days*86400
+                    c.execute('update users set expiry=?,enabled=1,used_bytes=0,raw_bytes=0 where id=?',(exp,row['id']))
+                    if row['protocol'] in XRAY_TAGS:
+                        try: del_xray(row['protocol'],row['username'])
+                        except Exception: pass
+                        add_xray(row['protocol'],row['username'],row['secret'])
+                    elif row['protocol']=='SSH':
+                        subprocess.run(['usermod','-U',row['username']],capture_output=True)
+                    c.commit()
+                    return send(self,{'ok':True,'action':'renew','id':row['id']})
+                if action in ('enable','disable'):
+                    enable=action=='enable'
+                    if enable:
+                        if row['protocol'] in XRAY_TAGS:
+                            dcfg=load_xray()
+                            for tag in XRAY_TAGS[row['protocol']]:
+                                ib=next((i for i in dcfg.get('inbounds',[]) if i.get('tag')==tag),None)
+                                if ib:
+                                    clients=ib.setdefault('settings',{}).setdefault('clients',[])
+                                    if not any(x.get('email')==row['username'] for x in clients):
+                                        client={'email':row['username'],'level':0}
+                                        client['id' if row['protocol'] in ('VMess','VLESS') else 'password']=row['secret']
+                                        clients.append(client)
+                            save_xray(dcfg)
+                        elif row['protocol']=='SSH':
+                            subprocess.run(['usermod','-U',row['username']],capture_output=True)
+                    else:
+                        if row['protocol'] in XRAY_TAGS:
+                            del_xray(row['protocol'],row['username'])
+                        elif row['protocol']=='SSH':
+                            subprocess.run(['usermod','-L',row['username']],capture_output=True)
+                    c.execute('update users set enabled=? where id=?',(1 if enable else 0,row['id']))
+                    c.commit()
+                    return send(self,{'ok':True,'action':action,'id':row['id']})
+                return send(self,{'error':'unsupported action'},400)
+            except Exception as e:
+                c.rollback(); return send(self,{'error':str(e)},500)
+            finally: c.close()
+
         if self.path=='/api/users/delete':
             c=conn(); row=c.execute('select * from users where id=?',(int(d.get('id',0)),)).fetchone()
             if not row: c.close(); return send(self,{'error':'not found'},404)
