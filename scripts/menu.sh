@@ -97,7 +97,11 @@ for x in rows:
  print("Password/UUID: {}".format(x["secret"]))
  if x["protocol"]=="SSH":
   print("Host: {}".format(x["host"]))
-  print("Ports: 22, 80, 443, 143, 8080, 8443")
+  print("SSH Port: 22")
+  print("WebSocket Port: 443")
+  print("WebSocket Path: /ssh")
+  print("WSS: wss://{}/ssh".format(x["host"]))
+  print("Payload: GET /ssh HTTP/1.1 | Host: {} | Upgrade: websocket | Connection: Upgrade".format(x["host"]))
  print()
 ' "$p"
         pause ;;
