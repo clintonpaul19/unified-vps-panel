@@ -199,30 +199,40 @@ EOF
 sshd -t
 
 # NGINX is the plain HTTP service behind SSLH on TCP/8080.
+# Rebuild the NGINX configuration from scratch so no legacy IPv6 listener
+# can survive across repeated installations.
 mkdir -p /var/www/html
 cat >/var/www/html/index.html <<'EOF'
 <!doctype html><html><head><meta charset="utf-8"><title>Unified VPS</title></head><body><h1>Unified VPS</h1><p>Server is online.</p></body></html>
 EOF
-cat >/etc/nginx/sites-available/unified-vps-8080 <<'EOF'
-server {
-    listen 127.0.0.1:18080;
-    server_name _;
-    return 301 https://$host$request_uri;
+
+rm -f /etc/nginx/sites-enabled/* /etc/nginx/conf.d/* 2>/dev/null || true
+mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled /etc/nginx/conf.d
+cat >/etc/nginx/nginx.conf <<'EOF'
+user www-data;
+worker_processes auto;
+pid /run/nginx.pid;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    sendfile on;
+    keepalive_timeout 65;
+
+    access_log /var/log/nginx/access.log;
+    error_log /var/log/nginx/error.log;
+
+    server {
+        listen 127.0.0.1:18080;
+        server_name _;
+        return 301 https://$host$request_uri;
+    }
 }
 EOF
-ln -sf /etc/nginx/sites-available/unified-vps-8080 /etc/nginx/sites-enabled/unified-vps-8080
-rm -f /etc/nginx/sites-enabled/default
-
-# IPv6 is disabled on this deployment. Remove stale IPv6 listen
-# directives anywhere in NGINX's included configuration tree.
-while IFS= read -r -d '' f; do
-  sed -i -E '/^[[:space:]]*listen[[:space:]]*\[[^]]+\]:[0-9]+[[:space:]]*;/d' "$f"
-done < <(find /etc/nginx -type f -name '*.conf' -print0 2>/dev/null)
-
-# Also remove an IPv6 listen directive from extensionless NGINX site files.
-while IFS= read -r -d '' f; do
-  sed -i -E '/^[[:space:]]*listen[[:space:]]*\[[^]]+\]:[0-9]+[[:space:]]*;/d' "$f"
-done < <(find /etc/nginx/sites-enabled /etc/nginx/sites-available /etc/nginx/conf.d -type f -print0 2>/dev/null)
 
 nginx -t
 
