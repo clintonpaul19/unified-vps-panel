@@ -31,7 +31,7 @@ curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/ma
 
 # Get a trusted Let's Encrypt certificate for the supplied domain.
 # Standalone ACME needs TCP/80 temporarily free.
-systemctl stop unified-vps-sslh-xray unified-vps-sslh-web unified-vps-sslh-ssh xray nginx 2>/dev/null || true
+systemctl stop unified-vps-sslh-xray unified-vps-sslh-web unified-vps-sslh-ssh sslh xray nginx 2>/dev/null || true
 curl -fsSL https://get.acme.sh | sh -s email="$ACME_EMAIL"
 "$HOME/.acme.sh/acme.sh" --set-default-ca --server letsencrypt
 "$HOME/.acme.sh/acme.sh" --issue --standalone -d "$DOMAIN"
@@ -178,7 +178,6 @@ curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/ma
 curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/vps-status.sh" -o /usr/local/bin/vps-status 2>/dev/null || true
 chmod 755 /usr/local/bin/menu /usr/local/bin/vps-status
 
-systemctl daemon-reload
 cat >/etc/nginx/sites-available/unified-vps-8080 <<'EOF'
 server {
     listen 8080;
@@ -189,9 +188,6 @@ server {
 }
 EOF
 ln -sf /etc/nginx/sites-available/unified-vps-8080 /etc/nginx/sites-enabled/unified-vps-8080
-rm -f /etc/nginx/sites-enabled/default
-nginx -t
-systemctl enable --now nginx
 systemctl daemon-reload
 systemctl enable --now ssh nginx unified-vps-panel xray hysteria-server
 systemctl enable --now unified-vps-sslh-xray unified-vps-sslh-web unified-vps-sslh-ssh
