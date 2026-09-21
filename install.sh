@@ -212,6 +212,12 @@ server {
 EOF
 ln -sf /etc/nginx/sites-available/unified-vps-8080 /etc/nginx/sites-enabled/unified-vps-8080
 rm -f /etc/nginx/sites-enabled/default
+
+# Remove stale IPv6 loopback listeners from previous Unified VPS installs.
+for f in /etc/nginx/sites-enabled/* /etc/nginx/conf.d/*; do
+  [ -f "$f" ] || continue
+  sed -i '/listen[[:space:]]*\[::1\]:18080/d' "$f" 2>/dev/null || true
+done
 nginx -t
 
 SSlh_BIN="$(command -v sslh)"
