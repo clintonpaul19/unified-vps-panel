@@ -153,3 +153,65 @@ Supported architectures:
 The project is still under development. Test it on a fresh VPS before production use.
 
 Do not expose or commit `/etc/unified-vps/panel.env`; it contains the generated panel administrator password.
+
+
+## Account output and copy-ready URIs
+
+When an account is created from the web panel or the VPS `menu`, the result includes the username, password or UUID, server address, port, expiry and a copy-ready connection URI.
+
+Supported generated formats:
+
+- Hysteria 2: `hysteria2://...`
+- VLESS: `vless://...`
+- VMess: `vmess://...`
+- Trojan: `trojan://...`
+- SSH: `ssh://...` (generic SSH URI)
+
+The web panel provides a **Copy URI** button. The CLI displays the same URI in its JSON response so it can be copied directly from the VPS terminal.
+
+Hysteria 2 uses the current `hysteria2://` URI format documented by the Hysteria project. citeturn0search0turn0search1
+
+The default Xray certificate is self-signed. Therefore, the generated VMess/Trojan URIs are intended for clients where certificate verification is disabled until a trusted certificate is installed. For production use, install a trusted certificate for your domain.
+
+## Panel credentials
+
+For a fresh installation, the installer sets:
+
+```text
+Username: spiderman
+Password: spiderman
+Panel: http://SERVER_IP:2087
+```
+
+This is intentionally fixed as requested. **Change these credentials before exposing the panel to an untrusted network.**
+
+## Ookla Speedtest
+
+The installer installs the official Ookla Speedtest CLI for Ubuntu/Debian. Ookla documents the Debian/Ubuntu installation through its package repository and supports both x86_64 and arm64 Linux systems. citeturn1search0
+
+Run it directly:
+
+```bash
+speedtest
+```
+
+It is also available from:
+
+- VPS `menu` → **Ookla Speedtest**
+- Web panel → **Run Ookla Speedtest**
+
+The web panel runs the test and displays the returned Ookla result.
+
+## Installation completion
+
+At the end of an interactive installation, the installer displays the panel URL, panel username/password, Xray ports and Hysteria port. It then asks:
+
+```text
+Reboot now? [y/N]:
+```
+
+Answer `y` to reboot immediately or `N` to leave the VPS running.
+
+## Important security note
+
+The requested `spiderman/spiderman` panel credentials are weak. They are included for convenience/testing, not as a secure production credential. Change them before production use.
