@@ -271,7 +271,7 @@ class H(BaseHTTPRequestHandler):
 <p><button onclick="runSpeedtest()">Run Ookla Speedtest</button></p><pre id="speed"></pre>
 <h2>Accounts</h2><table><tr><th>User</th><th>Protocol</th><th>Port</th><th>Password / UUID</th><th>Used</th><th>Quota</th><th>Enabled</th><th>Connection</th></tr>{trs}</table>
 <script>
-async function copyUri(id){let e=document.getElementById('u'+id); try{if(navigator.clipboard&&window.isSecureContext){await navigator.clipboard.writeText(e.value);}else{e.focus();e.select();document.execCommand('copy');} alert('URI copied');}catch(_){e.focus();e.select();alert('URI selected — copy it manually.');}}
+async function copyUri(id){{let e=document.getElementById('u'+id); try{{if(navigator.clipboard&&window.isSecureContext){{await navigator.clipboard.writeText(e.value);}}else{{e.focus();e.select();document.execCommand('copy');}} alert('URI copied');}}catch(_){{e.focus();e.select();alert('URI selected — copy it manually.');}}}}
 document.getElementById('f').onsubmit=async(e)=>{{e.preventDefault();let o=Object.fromEntries(new FormData(e.target));o.days=+o.days;o.quota_bytes=+o.quota_bytes;let r=await fetch('/api/users',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(o)}});let j=await r.json();alert(j.error||'Created. Connection details are shown in the account list.');if(r.ok) location.reload();}};
 async function runSpeedtest(){{document.getElementById('speed').textContent='Running Ookla Speedtest...';let r=await fetch('/api/speedtest');let j=await r.json();document.getElementById('speed').textContent=j.output||j.error||'No result';}}
 </script></body></html>'''.encode()
