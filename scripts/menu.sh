@@ -3,14 +3,15 @@ set -Eeuo pipefail
 source /etc/unified-vps/panel.env
 while true; do
  clear; echo '=== Unified VPS Panel ==='; /usr/local/bin/vps-status; echo
- echo '1) Users'; echo '2) Add user'; echo '3) Delete user'; echo '4) Credentials'; echo '5) Restart'; echo '6) Exit'
+ echo '1) List users / copy connection URIs'; echo '2) Add user'; echo '3) Delete user'; echo '4) Panel credentials'; echo '5) Ookla Speedtest'; echo '6) Restart services'; echo '7) Exit'
  read -r -p 'Select: ' n
  case "$n" in
- 1) curl -fsS -u "$ADMIN_USER:$ADMIN_PASSWORD" "http://127.0.0.1:${PANEL_PORT}/api/users" | python3 -m json.tool; read -r -p 'Enter...' _;;
- 2) read -r -p 'Username: ' u; read -r -p 'Protocol (Hysteria/VMess/VLESS/Trojan): ' p; read -r -p 'Quota bytes (0 unlimited): ' q; read -r -p 'Days (0 unlimited): ' d; /opt/unified-vps/manage-user.sh add "{\"username\":\"$u\",\"protocol\":\"$p\",\"quota_bytes\":$q,\"days\":$d}"; read -r -p 'Enter...' _;;
- 3) read -r -p 'ID: ' id; /opt/unified-vps/manage-user.sh delete "$id"; read -r -p 'Enter...' _;;
- 4) echo "Panel: http://$(curl -4fsS --max-time 3 https://api.ipify.org):$PANEL_PORT"; echo "User: $ADMIN_USER"; echo "Password: $ADMIN_PASSWORD"; read -r -p 'Enter...' _;;
- 5) systemctl restart ssh xray hysteria-server unified-vps-panel; read -r -p 'Enter...' _;;
- 6) exit 0;;
+  1) curl -fsS -u "$ADMIN_USER:$ADMIN_PASSWORD" "http://127.0.0.1:${PANEL_PORT}/api/users" | python3 -m json.tool; read -r -p 'Enter...' _ ;;
+  2) read -r -p 'Username: ' u; read -r -p 'Protocol (Hysteria/SSH/VMess/VLESS/Trojan): ' p; read -r -p 'Quota bytes (0 unlimited): ' q; read -r -p 'Days (0 unlimited): ' d; curl -fsS -u "$ADMIN_USER:$ADMIN_PASSWORD" -H 'Content-Type: application/json' -d "{\"username\":\"$u\",\"protocol\":\"$p\",\"quota_bytes\":$q,\"days\":$d}" "http://127.0.0.1:${PANEL_PORT}/api/users" | python3 -m json.tool; echo; echo 'The response contains the generated password/UUID and copy-ready URI.'; read -r -p 'Enter...' _ ;;
+  3) read -r -p 'ID: ' id; curl -fsS -u "$ADMIN_USER:$ADMIN_PASSWORD" -H 'Content-Type: application/json' -d "{\"id\":$id}" "http://127.0.0.1:${PANEL_PORT}/api/users/delete" | python3 -m json.tool; read -r -p 'Enter...' _ ;;
+  4) IP="$(curl -4fsS --max-time 3 https://api.ipify.org || echo SERVER_IP)"; echo "Panel: http://${IP}:$PANEL_PORT"; echo "Username: $ADMIN_USER"; echo "Password: $ADMIN_PASSWORD"; read -r -p 'Enter...' _ ;;
+  5) if command -v speedtest >/dev/null 2>&1; then speedtest --accept-license --accept-gdpr || true; else echo 'Ookla Speedtest is not installed.'; fi; read -r -p 'Enter...' _ ;;
+  6) systemctl restart ssh xray hysteria-server unified-vps-panel; read -r -p 'Enter...' _ ;;
+  7) exit 0 ;;
  esac
 done
