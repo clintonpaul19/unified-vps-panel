@@ -178,16 +178,6 @@ curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/ma
 curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/vps-status.sh" -o /usr/local/bin/vps-status 2>/dev/null || true
 chmod 755 /usr/local/bin/menu /usr/local/bin/vps-status
 
-cat >/etc/nginx/sites-available/unified-vps-8080 <<'EOF'
-server {
-    listen 8080;
-    listen [::]:8080;
-    server_name _;
-    root /var/www/html;
-    index index.html;
-}
-EOF
-ln -sf /etc/nginx/sites-available/unified-vps-8080 /etc/nginx/sites-enabled/unified-vps-8080
 systemctl daemon-reload
 systemctl enable --now ssh nginx unified-vps-panel xray hysteria-server
 systemctl enable --now unified-vps-sslh-xray unified-vps-sslh-web unified-vps-sslh-ssh
