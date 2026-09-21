@@ -122,6 +122,16 @@ EOF
 systemctl daemon-reload
 systemctl enable --now unified-vps-wstunnel-ssh.service
 
+# Install the legacy payload bridge. It accepts both the minimal
+# GET/Host/Upgrade payload used by tunnel clients and a normal HTTPS GET.
+# Normal GET requests receive HTTP 200; WebSocket upgrades are proxied to SSH.
+curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/ws-payload-ssh.py" -o /opt/unified-vps/ws-payload-ssh.py
+chmod 755 /opt/unified-vps/ws-payload-ssh.py
+curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/systemd/unified-vps-ws-payload-ssh.service" -o /etc/systemd/system/unified-vps-ws-payload-ssh.service
+systemctl daemon-reload
+systemctl enable --now unified-vps-ws-payload-ssh.service
+
+
 
 # Get a trusted Let's Encrypt certificate for the supplied domain.
 # Standalone ACME needs TCP/80 temporarily free.
