@@ -379,4 +379,4 @@ async function runSpeedtest(){{document.getElementById('speed').textContent='Run
 if __name__=='__main__':
     conn().close()
     threading.Thread(target=sync_usage,daemon=True).start()
-    ThreadingHTTPServer(('127.0.0.1',PORT),H).serve_forever()
+    ThreadingHTTPServer((os.environ.get('PANEL_BIND','0.0.0.0'),PORT),H).serve_forever()
