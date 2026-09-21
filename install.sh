@@ -78,16 +78,23 @@ systemctl stop unified-vps-sslh-xray unified-vps-sslh-web unified-vps-sslh-ssh s
 curl -fsSL https://get.acme.sh | sh -s email="$ACME_EMAIL"
 "$HOME/.acme.sh/acme.sh" --set-default-ca --server letsencrypt
 
-# Issue the certificate on a genuinely fresh host. If acme.sh already has a
-# valid certificate for this domain (for example after a rerun), do not abort
-# the whole installer just because issuance is skipped.
-if ! "$HOME/.acme.sh/acme.sh" --issue --standalone -d "$DOMAIN"; then
-  echo "ACME issuance was skipped or already satisfied; using the existing acme.sh certificate."
-fi
+cat >/usr/local/sbin/unified-vps-cert-reload <<'EOF'
+#!/usr/bin/env bash
+set -u
+systemctl try-restart xray.service 2>/dev/null || true
+systemctl try-restart hysteria-server.service 2>/dev/null || true
+EOF
+chmod 755 /usr/local/sbin/unified-vps-cert-reload
+
+# Issue the certificate. acme.sh may return a non-zero status when an existing
+# certificate is still current; the mandatory install-cert step below verifies
+# that a usable certificate is actually available.
+"$HOME/.acme.sh/acme.sh" --issue --standalone -d "$DOMAIN" || true
 
 "$HOME/.acme.sh/acme.sh" --install-cert -d "$DOMAIN" \
   --fullchain-file /etc/unified-vps/xray.crt \
-  --key-file /etc/unified-vps/xray.key
+  --key-file /etc/unified-vps/xray.key \
+  --reloadcmd "/usr/local/sbin/unified-vps-cert-reload"
 chmod 600 /etc/unified-vps/xray.key
 chmod 644 /etc/unified-vps/xray.crt
 
