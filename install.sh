@@ -5,62 +5,64 @@ set -Eeuo pipefail
 case "$ID" in ubuntu|debian) ;; *) echo "Unsupported OS: $ID"; exit 1;; esac
 case "$(dpkg --print-architecture)" in amd64|arm64) ;; *) echo 'Supported architectures: amd64, arm64'; exit 1;; esac
 export DEBIAN_FRONTEND=noninteractive
+
+echo "=== Unified VPS Panel ==="
+read -r -p "Domain pointing to this VPS: " DOMAIN
+DOMAIN="${DOMAIN#http://}"; DOMAIN="${DOMAIN#https://}"; DOMAIN="${DOMAIN%%/*}"
+[[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]] || { echo "Invalid domain."; exit 1; }
+[[ "$DOMAIN" == *.* ]] || { echo "Enter a real domain/subdomain."; exit 1; }
+ACME_EMAIL="acme-$(openssl rand -hex 8)@${DOMAIN}"
+echo "Generated ACME email: $ACME_EMAIL"
+
 apt-get update
-apt-get install -y ca-certificates curl jq openssl iproute2 iptables iptables-persistent sqlite3 python3 openssh-server dnsutils lsof procps psmisc
-mkdir -p /opt/unified-vps /etc/unified-vps /etc/hysteria /var/log/unified-vps
+apt-get install -y ca-certificates curl jq openssl iproute2 iptables iptables-persistent sqlite3 python3 openssh-server dnsutils lsof procps psmisc socat
+
+mkdir -p /opt/unified-vps /etc/unified-vps /etc/hysteria /var/log/unified-vps /usr/local/etc/xray
 for p in 22 80 443 2087; do iptables -C INPUT -p tcp --dport "$p" -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p tcp --dport "$p" -j ACCEPT; done
 for p in 53 443; do iptables -C INPUT -p udp --dport "$p" -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p udp --dport "$p" -j ACCEPT; done
 iptables -C INPUT -p udp --dport 7100:7300 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p udp --dport 7100:7300 -j ACCEPT
 iptables -C INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 iptables-save >/etc/iptables/rules.v4
-if command -v ip6tables >/dev/null 2>&1; then ip6tables-save >/etc/iptables/rules.v6 2>/dev/null || true; fi
+command -v ip6tables-save >/dev/null 2>&1 && ip6tables-save >/etc/iptables/rules.v6 || true
+
 if ! command -v hysteria >/dev/null 2>&1; then curl -fsSL https://get.hy2.sh/ | bash; fi
 if ! command -v xray >/dev/null 2>&1; then bash -c "$(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install; fi
-# Xray public port layout: VLESS on 80; VMess and Trojan share 443 via fallback.
-mkdir -p /usr/local/etc/xray
-if [ ! -f /etc/unified-vps/xray.crt ]; then
-  openssl req -x509 -nodes -newkey rsa:2048 -days 825 \
-    -keyout /etc/unified-vps/xray.key \
-    -out /etc/unified-vps/xray.crt \
-    -subj "/CN=unified-vps" >/dev/null 2>&1
-  chmod 600 /etc/unified-vps/xray.key
-fi
-# The official Xray systemd installer normally runs Xray as "nobody".
-# Grant the service account read access to the TLS key without making it world-readable.
+curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/config/xray.json" -o /usr/local/etc/xray/config.json
+
+# Get a trusted Let's Encrypt certificate for the supplied domain.
+# Standalone ACME needs TCP/80 temporarily free.
+systemctl stop xray 2>/dev/null || true
+curl -fsSL https://get.acme.sh | sh -s email="$ACME_EMAIL"
+"$HOME/.acme.sh/acme.sh" --set-default-ca --server letsencrypt
+"$HOME/.acme.sh/acme.sh" --issue --standalone -d "$DOMAIN"
+"$HOME/.acme.sh/acme.sh" --install-cert -d "$DOMAIN" \
+  --fullchain-file /etc/unified-vps/xray.crt \
+  --key-file /etc/unified-vps/xray.key \
+  --reloadcmd "systemctl restart xray hysteria-server 2>/dev/null || true"
+chmod 600 /etc/unified-vps/xray.key
+chmod 644 /etc/unified-vps/xray.crt
+
 XRAY_USER="$(systemctl cat xray 2>/dev/null | awk -F= '/^User=/{print $2; exit}')"
 XRAY_USER="${XRAY_USER:-nobody}"
 if id "$XRAY_USER" >/dev/null 2>&1; then
   XRAY_GROUP="$(id -gn "$XRAY_USER")"
   chown "$XRAY_USER:$XRAY_GROUP" /etc/unified-vps/xray.key /etc/unified-vps/xray.crt
   chmod 640 /etc/unified-vps/xray.key
-  chmod 644 /etc/unified-vps/xray.crt
-fi
-if [ ! -f /usr/local/etc/xray/config.json ]; then
-  curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/config/xray.json" \
-    -o /usr/local/etc/xray/config.json
-fi
-if ! xray -test -config /usr/local/etc/xray/config.json >/tmp/unified-vps-xray-test.log 2>&1; then
-  cat /tmp/unified-vps-xray-test.log >&2
-  echo "Xray configuration test failed." >&2
-  exit 1
 fi
 
-# Install the official Ookla Speedtest CLI for Ubuntu/Debian.
+xray -test -config /usr/local/etc/xray/config.json
+
 if ! command -v speedtest >/dev/null 2>&1; then
   curl -fsSL https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | bash
   apt-get update
   apt-get install -y speedtest
 fi
 
-# Hysteria 2: UDP 53 with HTTP authentication handled by the panel.
-if [ ! -f /etc/hysteria/server.crt ]; then
-  cp /etc/unified-vps/xray.crt /etc/hysteria/server.crt
-  cp /etc/unified-vps/xray.key /etc/hysteria/server.key
-  chmod 640 /etc/hysteria/server.key
-fi
+cp /etc/unified-vps/xray.crt /etc/hysteria/server.crt
+cp /etc/unified-vps/xray.key /etc/hysteria/server.key
+chmod 640 /etc/hysteria/server.key
 HY2_STATS_SECRET="$(openssl rand -hex 24)"
-if [ ! -f /etc/hysteria/config.yaml ]; then
-  cat >/etc/hysteria/config.yaml <<YAML
+cat >/etc/hysteria/config.yaml <<YAML
 listen: :53
 tls:
   cert: /etc/hysteria/server.crt
@@ -74,7 +76,7 @@ trafficStats:
   listen: 127.0.0.1:9999
   secret: ${HY2_STATS_SECRET}
 YAML
-fi
+
 cat >/etc/systemd/system/hysteria-server.service <<'EOF'
 [Unit]
 Description=Hysteria 2 Server
@@ -87,7 +89,10 @@ RestartSec=3
 [Install]
 WantedBy=multi-user.target
 EOF
-if [ ! -f /etc/unified-vps/panel.env ]; then printf 'ADMIN_USER=spiderman\nADMIN_PASSWORD=spiderman\nPANEL_PORT=2087\n' > /etc/unified-vps/panel.env; chmod 600 /etc/unified-vps/panel.env; fi
+
+printf 'ADMIN_USER=spiderman\nADMIN_PASSWORD=spiderman\nPANEL_PORT=2087\nSERVER_DOMAIN=%s\nACME_EMAIL=%s\n' "$DOMAIN" "$ACME_EMAIL" > /etc/unified-vps/panel.env
+chmod 600 /etc/unified-vps/panel.env
+
 curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/panel/app.py" -o /opt/unified-vps/panel.py
 cat >/etc/systemd/system/unified-vps-panel.service <<'EOF'
 [Unit]
@@ -100,35 +105,29 @@ Restart=on-failure
 [Install]
 WantedBy=multi-user.target
 EOF
-cat >/usr/local/bin/vps-status <<'EOF'
-#!/usr/bin/env bash
-echo -n 'IP: '; curl -4fsS --max-time 3 https://api.ipify.org || true; echo
-echo -n 'Hostname: '; hostname -f 2>/dev/null || hostname
-. /etc/os-release; echo "OS: $PRETTY_NAME"; uptime -p
-for s in ssh hysteria-server xray unified-vps-panel; do echo "$s: $(systemctl is-active "$s" 2>/dev/null || echo inactive)"; done
-EOF
-chmod 755 /usr/local/bin/vps-status
-cat >/usr/local/bin/menu <<'EOF'
-#!/usr/bin/env bash
-source /etc/unified-vps/panel.env
-while true; do clear; vps-status; echo; echo '1) Users'; echo '2) Restart services'; echo '3) Panel credentials'; echo '4) Exit'; read -r -p 'Select: ' n; case "$n" in 1) sqlite3 -header -column /etc/unified-vps/panel.db 'select id,username,protocol,used_bytes,quota_bytes,enabled from users;'; read -r -p 'Enter...' _;; 2) systemctl restart ssh hysteria-server xray unified-vps-panel; read -r -p 'Enter...' _;; 3) echo "Panel: http://$(curl -4fsS --max-time 3 https://api.ipify.org):$PANEL_PORT"; echo "Username: $ADMIN_USER"; echo "Password: $ADMIN_PASSWORD"; read -r -p 'Enter...' _;; 4) exit;; esac; done
-EOF
+
 curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/menu.sh" -o /usr/local/bin/menu
 curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/vps-status.sh" -o /usr/local/bin/vps-status 2>/dev/null || true
-chmod 755 /usr/local/bin/menu
+chmod 755 /usr/local/bin/menu /usr/local/bin/vps-status
+
 systemctl daemon-reload
 systemctl enable --now ssh unified-vps-panel xray hysteria-server
 
-PUBLIC_IP="$(curl -4fsS --max-time 5 https://api.ipify.org || echo SERVER_IP)"
 echo
 echo "=============================================="
 echo " Unified VPS Panel installation complete"
 echo "=============================================="
-echo "Panel: http://${PUBLIC_IP}:2087"
+echo "Domain: $DOMAIN"
+echo "Panel: https://$DOMAIN/"
+echo "Panel port: 443 (TLS)"
 echo "Panel username: spiderman"
 echo "Panel password: spiderman"
-echo "Xray: VLESS=TCP/80, VMess=WS/TLS/443, Trojan=TLS/443"
-echo "Hysteria 2: UDP/53"
+echo "Generated ACME email: $ACME_EMAIL"
+echo "VLESS: TLS/WS on TCP 80 and 443"
+echo "VMess: TLS/WS on TCP 80 and 443"
+echo "Trojan: TLS on TCP 80 and 443"
+echo "Hysteria 2: UDP/53 using $DOMAIN"
+echo "SSH: TCP/22 using $DOMAIN"
 echo "Ookla Speedtest: speedtest"
 echo "CLI menu: menu"
 echo "Status: vps-status"
