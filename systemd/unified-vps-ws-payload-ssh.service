@@ -1,0 +1,16 @@
+[Unit]
+Description=Unified VPS Legacy WebSocket/SSH Payload Bridge
+After=network-online.target ssh.service
+Requires=ssh.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/unified-vps/ws-payload-ssh.py
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
