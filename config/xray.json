@@ -8,8 +8,7 @@
       "listen": "127.0.0.1", "port": 18443, "protocol": "trojan", "tag": "trojan443",
       "settings": {"clients": [], "fallbacks": [
         {"path": "/vless", "dest": "127.0.0.1:18444", "xver": 0},
-        {"path": "/vmess", "dest": "127.0.0.1:18445", "xver": 0},
-        {"dest": "127.0.0.1:6080", "xver": 0}
+        {"path": "/vmess", "dest": "127.0.0.1:18445", "xver": 0}
       ]},
       "streamSettings": {"network": "tcp", "security": "tls", "tlsSettings": {
         "alpn": ["http/1.1"],
