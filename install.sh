@@ -157,10 +157,25 @@ systemctl try-restart hysteria-server.service 2>/dev/null || true
 EOF
 chmod 755 /usr/local/sbin/unified-vps-cert-reload
 
-# Issue the certificate. acme.sh may return a non-zero status when an existing
-# certificate is still current; the mandatory install-cert step below verifies
-# that a usable certificate is actually available.
-"$HOME/.acme.sh/acme.sh" --issue --standalone -d "$DOMAIN" || true
+# Issue the certificate with HTTP-01 on TCP/80.
+# Never continue after a failed issuance. This prevents stale acme.sh state
+# from producing a misleading missing fullchain.cer error.
+rm -rf "$HOME/.acme.sh/${DOMAIN}_ecc" "$HOME/.acme.sh/${DOMAIN}"
+if ! "$HOME/.acme.sh/acme.sh" --issue --standalone -d "$DOMAIN"; then
+  echo "ERROR: Let's Encrypt could not validate $DOMAIN over TCP/80."
+  echo "Make sure the DNS A record points to this VPS and TCP/80 is reachable"
+  echo "through both iptables and the cloud provider security rules."
+  echo "Local IPv4 addresses:"
+  hostname -I || true
+  echo "DNS A records:"
+  getent ahostsv4 "$DOMAIN" | awk '{print $1}' | sort -u || true
+  exit 1
+fi
+
+if [ ! -s "$HOME/.acme.sh/${DOMAIN}_ecc/fullchain.cer" ] && [ ! -s "$HOME/.acme.sh/${DOMAIN}/fullchain.cer" ]; then
+  echo "ERROR: ACME succeeded but no fullchain certificate was produced."
+  exit 1
+fi
 
 "$HOME/.acme.sh/acme.sh" --install-cert -d "$DOMAIN" \
   --fullchain-file /etc/unified-vps/xray.crt \
