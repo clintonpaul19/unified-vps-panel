@@ -1,0 +1,13 @@
+name: validate
+on:
+  push:
+  pull_request:
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shell syntax
+        run: bash -n install.sh scripts/*.sh
+      - name: Python syntax
+        run: python3 -m py_compile panel/app.py
