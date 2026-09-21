@@ -7,7 +7,12 @@ case "$(dpkg --print-architecture)" in amd64|arm64) ;; *) echo 'Supported archit
 export DEBIAN_FRONTEND=noninteractive
 
 echo "=== Unified VPS Panel ==="
-read -r -p "Domain pointing to this VPS: " DOMAIN
+if [ -r /dev/tty ]; then
+  read -r -p "Domain pointing to this VPS: " DOMAIN < /dev/tty
+else
+  echo "Interactive terminal required for domain prompt."
+  exit 1
+fi
 DOMAIN="${DOMAIN#http://}"; DOMAIN="${DOMAIN#https://}"; DOMAIN="${DOMAIN%%/*}"
 [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]] || { echo "Invalid domain."; exit 1; }
 [[ "$DOMAIN" == *.* ]] || { echo "Enter a real domain/subdomain."; exit 1; }
@@ -15,7 +20,7 @@ ACME_EMAIL="acme-$(openssl rand -hex 8)@${DOMAIN}"
 echo "Generated ACME email: $ACME_EMAIL"
 
 apt-get update
-apt-get install -y ca-certificates curl jq openssl iproute2 iptables iptables-persistent sqlite3 python3 openssh-server dnsutils lsof procps psmisc socat nginx sslh
+apt-get install -y ca-certificates curl jq openssl iproute2 iptables iptables-persistent sqlite3 python3 openssh-server dnsutils lsof procps psmisc socat nginx sslh cron
 
 mkdir -p /opt/unified-vps /etc/unified-vps /etc/hysteria /var/log/unified-vps /usr/local/etc/xray
 for p in 80 443 143 8080 8443; do iptables -C INPUT -p tcp --dport "$p" -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p tcp --dport "$p" -j ACCEPT; done
