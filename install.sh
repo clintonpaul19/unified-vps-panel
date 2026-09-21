@@ -110,7 +110,13 @@ if id "$XRAY_USER" >/dev/null 2>&1; then
   chmod 640 /etc/unified-vps/xray.key
 fi
 
-xray -test -config /usr/local/etc/xray/config.json
+echo "Testing Xray configuration..."
+if ! xray -test -config /usr/local/etc/xray/config.json; then
+  echo "ERROR: Xray configuration test failed."
+  systemctl status xray --no-pager -l 2>/dev/null || true
+  journalctl -u xray -n 50 --no-pager 2>/dev/null || true
+  exit 1
+fi
 
 if ! command -v speedtest >/dev/null 2>&1; then
   curl -fsSL https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | bash
@@ -285,6 +291,8 @@ if [ "$FAILED" -ne 0 ]; then
   echo "Installation aborted because one or more required services failed."
   exit 1
 fi
+
+echo "Core configuration checks passed."
 
 echo
 echo "=============================================="
