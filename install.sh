@@ -71,20 +71,9 @@ insert_firewall_rule iptables INPUT -p tcp --dport 53
 insert_firewall_rule iptables INPUT -p udp --dport 7100:7300
 insert_firewall_rule iptables INPUT -m conntrack --ctstate ESTABLISHED,RELATED
 
-if command -v ip6tables >/dev/null 2>&1; then
-  for p in 80 443 143 8080 8443; do
-    insert_firewall_rule ip6tables INPUT -p tcp --dport "$p"
-  done
-  for p in 53 443; do
-    insert_firewall_rule ip6tables INPUT -p udp --dport "$p"
-  done
-  insert_firewall_rule ip6tables INPUT -p tcp --dport 53
-  insert_firewall_rule ip6tables INPUT -p udp --dport 7100:7300
-  insert_firewall_rule ip6tables INPUT -m conntrack --ctstate ESTABLISHED,RELATED
-fi
+# IPv6 is disabled for this deployment; do not configure IPv6 firewall rules.
 
 iptables-save >/etc/iptables/rules.v4
-command -v ip6tables-save >/dev/null 2>&1 && ip6tables-save >/etc/iptables/rules.v6 || true
 
 if ! command -v hysteria >/dev/null 2>&1; then curl -fsSL https://get.hy2.sh/ | bash; fi
 if ! command -v xray >/dev/null 2>&1; then bash -c "$(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install; fi
