@@ -82,6 +82,13 @@ insert_firewall_rule iptables INPUT -m conntrack --ctstate ESTABLISHED,RELATED
 iptables-save >/etc/iptables/rules.v4
 
 if ! command -v hysteria >/dev/null 2>&1; then curl -fsSL https://get.hy2.sh/ | bash; fi
+# Xray's upstream installer starts the service immediately after installation.
+# Seed a valid empty configuration first so a fresh install does not emit a
+# misleading "Failed to enable and start the Xray service" warning.
+mkdir -p /usr/local/etc/xray
+if [ ! -s /usr/local/etc/xray/config.json ]; then
+  printf '{}\n' >/usr/local/etc/xray/config.json
+fi
 if ! command -v xray >/dev/null 2>&1; then bash -c "$(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install; fi
 curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/config/xray.json" -o /usr/local/etc/xray/config.json
 
