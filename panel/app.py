@@ -6,11 +6,13 @@ from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 BASE='/etc/unified-vps'
 DB=f'{BASE}/panel.db'
 CFG='/usr/local/etc/xray/config.json'
-PORT=int(os.environ.get('PANEL_PORT','2087'))
+PORT=int(os.environ.get('PANEL_PORT','6080'))
+DOMAIN=os.environ.get('SERVER_DOMAIN','')
 ADMIN=os.environ.get('ADMIN_USER','spiderman')
 PASSWORD=os.environ.get('ADMIN_PASSWORD','spiderman')
 PUBLIC_IP_CACHE=None
-TAGS={'VMess':'vmess443','VLESS':'vless80','Trojan':'trojan443'}
+XRAY_TAGS={'VLESS':['vless80','vless443'],'VMess':['vmess80','vmess443'],'Trojan':['trojan80','trojan443']}
+SSH_PORTS=[80,443,143,8080,8443]
 
 def conn():
     c=sqlite3.connect(DB); c.row_factory=sqlite3.Row
@@ -33,6 +35,9 @@ def send(r,obj,status=200):
     r.end_headers(); r.wfile.write(b)
 
 def body(r): return json.loads(r.rfile.read(int(r.headers.get('Content-Length','0')) or 2))
+
+def public_host():
+    return DOMAIN or public_ip()
 
 def public_ip():
     global PUBLIC_IP_CACHE
@@ -59,20 +64,26 @@ def save_xray(d):
     if rr.returncode: raise RuntimeError('Xray restart failed: '+(rr.stderr or rr.stdout).strip())
 
 def add_xray(protocol,u,secret):
-    d=load_xray(); tag=TAGS[protocol]
-    ib=next((i for i in d.get('inbounds',[]) if i.get('tag')==tag),None)
-    if ib is None: raise RuntimeError(f'{protocol} inbound missing')
-    clients=ib.setdefault('settings',{}).setdefault('clients',[])
-    if any(c.get('email')==u for c in clients): raise RuntimeError('Username already exists in Xray')
-    c={'email':u,'level':0}; c['id' if protocol in ('VMess','VLESS') else 'password']=secret
-    clients.append(c); save_xray(d)
+    d=load_xray()
+    for tag in XRAY_TAGS[protocol]:
+        ib=next((i for i in d.get('inbounds',[]) if i.get('tag')==tag),None)
+        if ib is None: raise RuntimeError(f'{protocol} inbound missing: {tag}')
+        clients=ib.setdefault('settings',{}).setdefault('clients',[])
+        if any(c.get('email')==u for c in clients): raise RuntimeError('Username already exists in Xray')
+        c={'email':u,'level':0}
+        c['id' if protocol in ('VMess','VLESS') else 'password']=secret
+        clients.append(c)
+    save_xray(d)
 
 def del_xray(protocol,u):
-    d=load_xray(); tag=TAGS[protocol]
-    ib=next((i for i in d.get('inbounds',[]) if i.get('tag')==tag),None)
-    if ib is not None:
-        ib['settings']['clients']=[c for c in ib.get('settings',{}).get('clients',[]) if c.get('email')!=u]
-        save_xray(d)
+    d=load_xray(); changed=False
+    for tag in XRAY_TAGS[protocol]:
+        ib=next((i for i in d.get('inbounds',[]) if i.get('tag')==tag),None)
+        if ib:
+            old=len(ib['settings'].get('clients',[]))
+            ib['settings']['clients']=[x for x in ib['settings'].get('clients',[]) if x.get('email')!=u]
+            changed |= old != len(ib['settings']['clients'])
+    if changed: save_xray(d)
 
 def add_ssh(u,password,days):
     if subprocess.run(['id',u],capture_output=True).returncode==0:
@@ -89,30 +100,30 @@ def del_ssh(u):
     subprocess.run(['userdel','-r',u],capture_output=True)
 
 def make_uri(row):
-    host=public_ip(); u=row['username']; s=row['secret']; p=row['protocol']
-    if p=='VLESS':
-        return f'vless://{quote(s,safe="")}@{host}:80?type=ws&path=%2Fvless#'+quote(u)
-    if p=='VMess':
-        obj={'v':'2','ps':u,'add':host,'port':'443','id':s,'aid':'0','scy':'auto','net':'ws','type':'none','host':'','path':'/vmess','tls':'tls','sni':''}
-        raw=json.dumps(obj,separators=(',',':')).encode()
-        return 'vmess://'+base64.b64encode(raw).decode()
-    if p=='Trojan':
-        return f'trojan://{quote(s,safe="")}@{host}:443?security=tls&type=tcp#'+quote(u)
-    if p=='Hysteria':
-        return f'hysteria2://{quote(s,safe="")}@{host}:53/?insecure=1#'+quote(u)
-    if p=='SSH':
-        return f'ssh://{quote(u,safe="")}:{quote(s,safe="")}@{host}:22'
-    return ''
+    host=public_host(); u=row['username']; s=row['secret']; p=row['protocol']
+    if p in XRAY_TAGS:
+        out={}
+        for port in (80,443):
+            if p=='VLESS':
+                out[str(port)]=f'vless://{quote(s,safe="")}@{host}:{port}?type=ws&security=tls&sni={quote(host,safe="")}&path=%2Fvless#{quote(u)}'
+            elif p=='VMess':
+                obj={'v':'2','ps':u,'add':host,'port':str(port),'id':s,'aid':'0','scy':'auto','net':'ws','type':'none','host':host,'path':'/vmess','tls':'tls','sni':host}
+                out[str(port)]='vmess://'+base64.b64encode(json.dumps(obj,separators=(',',':')).encode()).decode()
+            else:
+                out[str(port)]=f'trojan://{quote(s,safe="")}@{host}:{port}?security=tls&sni={quote(host,safe="")}&type=tcp#{quote(u)}'
+        return out
+    if p=='Hysteria': return {'53':f'hysteria2://{quote(s,safe="")}@{host}:53/?sni={quote(host,safe="")}#{quote(u)}'}
+    if p=='SSH': return {str(port):f'ssh://{quote(u,safe="")}:{quote(s,safe="")}@{host}:{port}' for port in SSH_PORTS}
+    return {}
 
 def record(row):
-    d=dict(row); d['uri']=make_uri(row)
-    d['host']=public_ip()
-    d['port']={'VLESS':80,'VMess':443,'Trojan':443,'Hysteria':53,'SSH':22}.get(row['protocol'])
+    d=dict(row); d['uris']=make_uri(row); d['host']=public_host()
+    d['port']='80/443' if row['protocol'] in XRAY_TAGS else (','.join(map(str,SSH_PORTS)) if row['protocol']=='SSH' else {'Hysteria':53}.get(row['protocol']))
     return d
 
 def create_user(d):
     p=d.get('protocol'); u=str(d.get('username','')); q=int(d.get('quota_bytes',0) or 0); days=int(d.get('days',0) or 0)
-    if p not in TAGS and p not in ('Hysteria','SSH'): raise ValueError('invalid protocol')
+    if p not in XRAY_TAGS and p not in ('Hysteria','SSH'): raise ValueError('invalid protocol')
     if not re.fullmatch(r'[A-Za-z0-9_.-]{1,32}',u): raise ValueError('invalid username')
     secret=d.get('secret') or secrets.token_urlsafe(18)
     exp=int(time.time())+days*86400 if days else 0
@@ -190,4 +201,4 @@ async function runSpeedtest(){{document.getElementById('speed').textContent='Run
         return send(self,{'error':'not found'},404)
 
 if __name__=='__main__':
-    conn().close(); ThreadingHTTPServer(('0.0.0.0',PORT),H).serve_forever()
+    conn().close(); ThreadingHTTPServer(('127.0.0.1',PORT),H).serve_forever()
