@@ -191,12 +191,16 @@ YAML
 # SSH is kept on loopback; SSLH exposes it on the requested public ports.
 mkdir -p /etc/ssh/sshd_config.d
 cat >/etc/ssh/sshd_config.d/99-unified-vps.conf <<'EOF'
+AddressFamily inet
 Port 22
 ListenAddress 127.0.0.1:22
 PasswordAuthentication yes
 PermitEmptyPasswords no
 EOF
 sshd -t
+# Restart SSH so a pre-existing sshd listener cannot retain IPv6 or a
+# previous ListenAddress after repeated installations.
+systemctl restart ssh
 
 # NGINX is the plain HTTP service behind SSLH on TCP/8080.
 # Rebuild the NGINX configuration from scratch so no legacy IPv6 listener
