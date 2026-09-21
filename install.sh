@@ -36,7 +36,7 @@ insert_firewall_rule() {
     return 0
   fi
   terminal_pos="$("$bin" -L "$chain" --line-numbers -n 2>/dev/null |
-    awk '$1 ~ /^[0-9]+$/ && ($NF=="DROP" || $NF=="REJECT") {print $1; exit}')"
+    awk '$1 ~ /^[0-9]+$/ && ($NF=="DROP" || $NF=="REJECT") {pos=$1} END {print pos}')"
   if [ -n "$terminal_pos" ]; then
     "$bin" -I "$chain" "$terminal_pos" "$@" -j ACCEPT
   else
