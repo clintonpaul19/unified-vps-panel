@@ -64,6 +64,7 @@ insert_firewall_rule() {
 for p in 80 443 143 8080 8443; do
   insert_firewall_rule iptables INPUT -p tcp --dport "$p"
 done
+insert_firewall_rule iptables INPUT -p tcp --dport 22
 for p in 53 443; do
   insert_firewall_rule iptables INPUT -p udp --dport "$p"
 done
@@ -182,7 +183,7 @@ mkdir -p /etc/ssh/sshd_config.d
 cat >/etc/ssh/sshd_config.d/99-unified-vps.conf <<'EOF'
 AddressFamily inet
 Port 22
-ListenAddress 127.0.0.1:22
+ListenAddress 0.0.0.0:22
 PasswordAuthentication yes
 PermitEmptyPasswords no
 EOF
