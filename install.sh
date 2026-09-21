@@ -23,10 +23,24 @@ apt-get update
 apt-get install -y ca-certificates curl jq openssl iproute2 iptables iptables-persistent sqlite3 python3 openssh-server dnsutils lsof procps psmisc socat nginx sslh cron
 
 mkdir -p /opt/unified-vps /etc/unified-vps /etc/hysteria /var/log/unified-vps /usr/local/etc/xray
-for p in 80 443 143 8080 8443; do iptables -C INPUT -p tcp --dport "$p" -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p tcp --dport "$p" -j ACCEPT; done
-for p in 53 443; do iptables -C INPUT -p udp --dport "$p" -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p udp --dport "$p" -j ACCEPT; done
-iptables -C INPUT -p udp --dport 7100:7300 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p udp --dport 7100:7300 -j ACCEPT
-iptables -C INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+# Open every Unified VPS port before ACME. Let's Encrypt HTTP-01 needs TCP/80
+# reachable from the Internet, and the final services use the same firewall rules.
+for p in 80 443 143 8080 8443; do
+  iptables -C INPUT -p tcp --dport "$p" -j ACCEPT 2>/dev/null ||
+    iptables -I INPUT 1 -p tcp --dport "$p" -j ACCEPT
+done
+for p in 53 443; do
+  iptables -C INPUT -p udp --dport "$p" -j ACCEPT 2>/dev/null ||
+    iptables -I INPUT 1 -p udp --dport "$p" -j ACCEPT
+done
+iptables -C INPUT -p tcp --dport 53 -j ACCEPT 2>/dev/null ||
+  iptables -I INPUT 1 -p tcp --dport 53 -j ACCEPT
+iptables -C INPUT -p udp --dport 7100:7300 -j ACCEPT 2>/dev/null ||
+  iptables -I INPUT 1 -p udp --dport 7100:7300 -j ACCEPT
+iptables -C INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null ||
+  iptables -I INPUT 1 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+# Persist the complete IPv4 firewall before any certificate work starts.
 iptables-save >/etc/iptables/rules.v4
 command -v ip6tables-save >/dev/null 2>&1 && ip6tables-save >/etc/iptables/rules.v6 || true
 
