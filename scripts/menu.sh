@@ -11,7 +11,7 @@ while true; do
   3) read -r -p 'ID: ' id; curl -fsS -u "$ADMIN_USER:$ADMIN_PASSWORD" -H 'Content-Type: application/json' -d "{\"id\":$id}" "http://127.0.0.1:${PANEL_PORT}/api/users/delete" | python3 -m json.tool; read -r -p 'Enter...' _ ;;
   4) echo "Panel: https://$SERVER_DOMAIN/"; echo "Panel backend: 127.0.0.1:$PANEL_PORT"; echo "SSH ports: 80 443 143 8080 8443"; echo "Username: $ADMIN_USER"; echo "Password: $ADMIN_PASSWORD"; read -r -p 'Enter...' _ ;;
   5) if command -v speedtest >/dev/null 2>&1; then speedtest --accept-license --accept-gdpr || true; else echo 'Ookla Speedtest is not installed.'; fi; read -r -p 'Enter...' _ ;;
-  6) systemctl restart ssh xray hysteria-server unified-vps-panel; read -r -p 'Enter...' _ ;;
+  6) systemctl restart ssh nginx xray hysteria-server unified-vps-panel unified-vps-sslh-xray unified-vps-sslh-web unified-vps-sslh-ssh; read -r -p 'Enter...' _ ;;
   7) exit 0 ;;
  esac
 done
