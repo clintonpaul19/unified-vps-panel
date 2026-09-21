@@ -240,8 +240,13 @@ class H(BaseHTTPRequestHandler):
             c=conn(); rows=[record(x) for x in c.execute('select * from users order by id desc')]; c.close(); return send(self,rows)
         if self.path=='/api/speedtest':
             try:
-                p=subprocess.run(['speedtest','--accept-license','--accept-gdpr'],capture_output=True,text=True,timeout=180)
-                return send(self,{'ok':p.returncode==0,'output':(p.stdout or p.stderr).strip()},200 if p.returncode==0 else 500)
+                env=os.environ.copy()
+                env.update({'HOME':'/root','USER':'root','LOGNAME':'root','LANG':'C.UTF-8','LC_ALL':'C.UTF-8','PATH':'/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'})
+                p=subprocess.run(['speedtest','--accept-license','--accept-gdpr'],capture_output=True,text=True,timeout=180,env=env)
+                output=(p.stdout or p.stderr).strip()
+                if p.returncode != 0 and not output:
+                    output=f'Speedtest exited with code {p.returncode}'
+                return send(self,{'ok':p.returncode==0,'output':output},200 if p.returncode==0 else 500)
             except Exception as e: return send(self,{'ok':False,'output':str(e)},500)
         if self.path=='/':
             c=conn(); rows=[record(x) for x in c.execute('select * from users order by id desc')]; c.close()
