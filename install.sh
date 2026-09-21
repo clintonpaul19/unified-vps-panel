@@ -70,6 +70,7 @@ for p in 80 443 143 8080 8443 8880; do
   insert_firewall_rule iptables INPUT -p tcp --dport "$p"
 done
 insert_firewall_rule iptables INPUT -p tcp --dport 22
+insert_firewall_rule iptables INPUT -p tcp --dport 6080
 for p in 53 443; do
   insert_firewall_rule iptables INPUT -p udp --dport "$p"
 done
@@ -378,7 +379,7 @@ echo "=============================================="
 echo " Unified VPS Panel installation complete"
 echo "=============================================="
 echo "Domain: $DOMAIN"
-echo "Panel: http://127.0.0.1:6080/ (local only; not exposed on VPN ports)"
+echo "Panel: http://$DOMAIN:6080/"
 echo "Panel backend: 127.0.0.1:6080"
 echo "Panel username: spiderman"
 echo "Panel password: spiderman"
