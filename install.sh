@@ -213,11 +213,17 @@ EOF
 ln -sf /etc/nginx/sites-available/unified-vps-8080 /etc/nginx/sites-enabled/unified-vps-8080
 rm -f /etc/nginx/sites-enabled/default
 
-# Remove stale IPv6 loopback listeners from previous Unified VPS installs.
-for f in /etc/nginx/sites-enabled/* /etc/nginx/conf.d/*; do
-  [ -f "$f" ] || continue
-  sed -i '/listen[[:space:]]*\[::1\]:18080/d' "$f" 2>/dev/null || true
-done
+# IPv6 is disabled on this deployment. Remove stale IPv6 listen
+# directives anywhere in NGINX's included configuration tree.
+while IFS= read -r -d '' f; do
+  sed -i -E '/^[[:space:]]*listen[[:space:]]*\[[^]]+\]:[0-9]+[[:space:]]*;/d' "$f"
+done < <(find /etc/nginx -type f -name '*.conf' -print0 2>/dev/null)
+
+# Also remove an IPv6 listen directive from extensionless NGINX site files.
+while IFS= read -r -d '' f; do
+  sed -i -E '/^[[:space:]]*listen[[:space:]]*\[[^]]+\]:[0-9]+[[:space:]]*;/d' "$f"
+done < <(find /etc/nginx/sites-enabled /etc/nginx/sites-available /etc/nginx/conf.d -type f -print0 2>/dev/null)
+
 nginx -t
 
 SSlh_BIN="$(command -v sslh)"
