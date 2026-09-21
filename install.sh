@@ -128,12 +128,16 @@ SSlh_BIN="$(command -v sslh)"
 cat >/etc/systemd/system/unified-vps-sslh-xray.service <<EOF
 [Unit]
 Description=Unified VPS SSH and Xray TCP multiplexer
-After=network-online.target xray.service ssh.service
+After=network-online.target ssh.service xray.service
+Requires=ssh.service
 Wants=network-online.target
 [Service]
-ExecStart=$SSlh_BIN --foreground --numeric --user sslh --listen 0.0.0.0:80 --listen 0.0.0.0:443 --tls 127.0.0.1:18443 --ssh 127.0.0.1:22 --on-timeout ssh --timeout 2
-Restart=on-failure
-RestartSec=2
+Type=simple
+ExecStartPre=/usr/sbin/sshd -t
+ExecStart=$SSlh_BIN --foreground --numeric --user sslh --listen 0.0.0.0:80 --listen 0.0.0.0:443 --tls 127.0.0.1:18443 --ssh 127.0.0.1:22 --on-timeout ssh --timeout 5
+Restart=always
+RestartSec=1
+KillMode=process
 [Install]
 WantedBy=multi-user.target
 EOF
@@ -141,12 +145,16 @@ EOF
 cat >/etc/systemd/system/unified-vps-sslh-web.service <<EOF
 [Unit]
 Description=Unified VPS SSH and HTTP 8080 multiplexer
-After=network-online.target nginx.service ssh.service
+After=network-online.target ssh.service nginx.service
+Requires=ssh.service
 Wants=network-online.target
 [Service]
-ExecStart=$SSlh_BIN --foreground --numeric --user sslh --listen 0.0.0.0:8080 --http 127.0.0.1:18080 --ssh 127.0.0.1:22 --on-timeout ssh --timeout 2
-Restart=on-failure
-RestartSec=2
+Type=simple
+ExecStartPre=/usr/sbin/sshd -t
+ExecStart=$SSlh_BIN --foreground --numeric --user sslh --listen 0.0.0.0:8080 --http 127.0.0.1:18080 --ssh 127.0.0.1:22 --on-timeout ssh --timeout 5
+Restart=always
+RestartSec=1
+KillMode=process
 [Install]
 WantedBy=multi-user.target
 EOF
@@ -155,11 +163,15 @@ cat >/etc/systemd/system/unified-vps-sslh-ssh.service <<EOF
 [Unit]
 Description=Unified VPS SSH alternate ports
 After=network-online.target ssh.service
+Requires=ssh.service
 Wants=network-online.target
 [Service]
-ExecStart=$SSlh_BIN --foreground --numeric --user sslh --listen 0.0.0.0:143 --listen 0.0.0.0:8443 --ssh 127.0.0.1:22 --on-timeout ssh --timeout 2
-Restart=on-failure
-RestartSec=2
+Type=simple
+ExecStartPre=/usr/sbin/sshd -t
+ExecStart=$SSlh_BIN --foreground --numeric --user sslh --listen 0.0.0.0:143 --listen 0.0.0.0:8443 --ssh 127.0.0.1:22 --on-timeout ssh --timeout 5
+Restart=always
+RestartSec=1
+KillMode=process
 [Install]
 WantedBy=multi-user.target
 EOF
@@ -168,6 +180,7 @@ cat >/etc/systemd/system/hysteria-server.service <<'EOF'
 [Unit]
 Description=Hysteria 2 Server
 After=network-online.target unified-vps-panel.service
+Requires=unified-vps-panel.service
 Wants=network-online.target
 [Service]
 ExecStart=/usr/local/bin/hysteria server -c /etc/hysteria/config.yaml
@@ -187,8 +200,11 @@ Description=Unified VPS Panel
 After=network-online.target
 [Service]
 EnvironmentFile=/etc/unified-vps/panel.env
+WorkingDirectory=/opt/unified-vps
+ExecStartPre=/usr/bin/python3 -m py_compile /opt/unified-vps/panel.py
 ExecStart=/usr/bin/python3 /opt/unified-vps/panel.py
-Restart=on-failure
+Restart=always
+RestartSec=2
 [Install]
 WantedBy=multi-user.target
 EOF
@@ -198,8 +214,12 @@ curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/ma
 chmod 755 /usr/local/bin/menu /usr/local/bin/vps-status
 
 systemctl daemon-reload
-systemctl enable --now ssh nginx unified-vps-panel xray hysteria-server
-systemctl enable --now unified-vps-sslh-xray unified-vps-sslh-web unified-vps-sslh-ssh
+systemctl enable ssh nginx unified-vps-panel xray hysteria-server unified-vps-sslh-xray unified-vps-sslh-web unified-vps-sslh-ssh
+systemctl start ssh nginx unified-vps-panel
+sleep 1
+systemctl start xray
+systemctl start hysteria-server
+systemctl start unified-vps-sslh-xray unified-vps-sslh-web unified-vps-sslh-ssh
 sshd -t
 xray -test -config /usr/local/etc/xray/config.json
 nginx -t
