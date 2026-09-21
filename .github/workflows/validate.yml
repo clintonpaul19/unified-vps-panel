@@ -2,12 +2,29 @@ name: validate
 on:
   push:
   pull_request:
+
 jobs:
   syntax:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Shell syntax
         run: bash -n install.sh scripts/*.sh
+
       - name: Python syntax
         run: python3 -m py_compile panel/app.py
+
+      - name: JSON validation
+        run: python3 -m json.tool config/xray.json >/dev/null
+
+      - name: Install Xray for config validation
+        run: bash -c "$(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install -u root
+
+      - name: Generate test TLS certificate
+        run: |
+          sudo mkdir -p /etc/unified-vps
+          sudo openssl req -x509 -nodes -newkey rsa:2048 -days 1             -keyout /etc/unified-vps/xray.key             -out /etc/unified-vps/xray.crt             -subj "/CN=validation" >/dev/null 2>&1
+
+      - name: Xray configuration test
+        run: sudo xray -test -config config/xray.json
