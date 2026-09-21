@@ -22,6 +22,8 @@ server_ip(){
 
 api_get(){ curl -fsS $AUTH "$API/api/users"; }
 api_post(){ curl -fsS $AUTH -H 'Content-Type: application/json' -d "$1" "$API/api/users"; }
+api_action(){ curl -fsS $AUTH -H 'Content-Type: application/json' -d "$1" "$API/api/users/action"; }
+api_delete(){ curl -fsS $AUTH -H 'Content-Type: application/json' -d "$1" "$API/api/users/delete"; }
 
 status_word(){
   systemctl is-active "$1" 2>/dev/null || echo "OFF"
@@ -114,30 +116,35 @@ for x in rows:
           [[ -n "$secret" ]] || { echo "Password cannot be empty."; pause; continue; }
         fi
         read -r -p "Duration (days, 0 = unlimited): " days
+if [[ "$p" == "SSH" ]]; then
+          quota=0
+          echo "SSH quota: unlimited (SSH per-user quota is not supported)."
+        else
         read -r -p "Quota (GB, 0 = unlimited): " quota
+        fi
         days=${days:-0}; quota=${quota:-0}
         if [[ "$p" == "SSH" ]]; then
           json="$(jq -n --arg u "$id" --arg p "$p" --arg s "$secret" --argjson d "$days" --argjson q "$quota" '{username:$u,protocol:$p,secret:$s,days:$d,quota_gb:$q}')"
         else
           json="$(jq -n --arg u "$id" --arg p "$p" --argjson d "$days" --argjson q "$quota" '{username:$u,protocol:$p,days:$d,quota_gb:$q}')"
         fi
-        api_post "$json" | python3 -m json.tool
+        api_action "$json" | python3 -m json.tool
         pause ;;
       3)
         read -r -p "Account ID: " id
         [[ "$id" =~ ^[0-9]+$ ]] || { echo "Invalid ID."; pause; continue; }
-        api_post "$(jq -n --argjson id "$id" '{id:$id}')" | python3 -m json.tool
+        api_delete "$(jq -n --argjson id "$id" '{id:$id}')" | python3 -m json.tool
         pause ;;
       4)
         read -r -p "Account ID: " id
         read -r -p "Renew for how many days? " days
         json="$(jq -n --argjson id "$id" --arg action renew --argjson days "$days" '{id:$id,action:$action,days:$days}')"
-        api_post "$json" | python3 -m json.tool
+        api_action "$json" | python3 -m json.tool
         pause ;;
       5|6)
         read -r -p "Account ID: " id
         if [[ "$n" == 5 ]]; then action=enable; else action=disable; fi
-        api_post "$(jq -n --argjson id "$id" --arg action "$action" '{id:$id,action:$action}')" | python3 -m json.tool
+        api_action "$(jq -n --argjson id "$id" --arg action "$action" '{id:$id,action:$action}')" | python3 -m json.tool
         pause ;;
       7) return ;;
     esac
