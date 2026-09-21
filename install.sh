@@ -206,7 +206,6 @@ EOF
 cat >/etc/nginx/sites-available/unified-vps-8080 <<'EOF'
 server {
     listen 127.0.0.1:18080;
-    listen [::1]:18080;
     server_name _;
     return 301 https://$host$request_uri;
 }
