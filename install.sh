@@ -80,6 +80,43 @@ if ! command -v hysteria >/dev/null 2>&1; then curl -fsSL https://get.hy2.sh/ | 
 if ! command -v xray >/dev/null 2>&1; then bash -c "$(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install; fi
 curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/config/xray.json" -o /usr/local/etc/xray/config.json
 
+# Install wstunnel for SSH-over-WebSocket. TLS is terminated by Xray on 443;
+# wstunnel receives the resulting HTTP/WebSocket upgrade on localhost.
+WSTUNNEL_VERSION="10.6.2"
+case "$(dpkg --print-architecture)" in
+  amd64) WSTUNNEL_ARCH="amd64" ;;
+  arm64) WSTUNNEL_ARCH="arm64" ;;
+  *) echo "Unsupported architecture for wstunnel."; exit 1 ;;
+esac
+WSTUNNEL_TARBALL="wstunnel_${WSTUNNEL_VERSION}_linux_${WSTUNNEL_ARCH}.tar.gz"
+curl -fsSL "https://github.com/erebe/wstunnel/releases/download/v${WSTUNNEL_VERSION}/${WSTUNNEL_TARBALL}" -o /tmp/${WSTUNNEL_TARBALL}
+tar -xzf /tmp/${WSTUNNEL_TARBALL} -C /tmp
+install -m 0755 /tmp/wstunnel /usr/local/bin/wstunnel
+rm -f /tmp/${WSTUNNEL_TARBALL} /tmp/wstunnel
+
+tmp_xray=/usr/local/etc/xray/config.json.ws.tmp
+jq '(.inbounds[] | select(.tag=="trojan443") | .settings.fallbacks) |= ([{"path":"/ssh","dest":"127.0.0.1:18446","xver":0}] + .)' /usr/local/etc/xray/config.json > "$tmp_xray"
+mv "$tmp_xray" /usr/local/etc/xray/config.json
+
+cat >/etc/systemd/system/unified-vps-wstunnel-ssh.service <<'EOF'
+[Unit]
+Description=Unified VPS SSH over WebSocket
+After=network-online.target ssh.service
+Requires=ssh.service
+Wants=network-online.target
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/wstunnel server --restrict-http-upgrade-path-prefix ssh --restrict-to 127.0.0.1:22 ws://127.0.0.1:18446
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload
+systemctl enable --now unified-vps-wstunnel-ssh.service
+
+
 # Get a trusted Let's Encrypt certificate for the supplied domain.
 # Standalone ACME needs TCP/80 temporarily free.
 # Stop services that could rebind ports while the final configuration is built.
@@ -304,7 +341,7 @@ RestartSec=3
 WantedBy=multi-user.target
 EOF
 
-printf 'ADMIN_USER=spiderman\nADMIN_PASSWORD=spiderman\nPANEL_PORT=6080\nSERVER_DOMAIN=%s\nACME_EMAIL=%s\nHY2_STATS_SECRET=%s\n' "$DOMAIN" "$ACME_EMAIL" "$HY2_STATS_SECRET" > /etc/unified-vps/panel.env
+printf 'ADMIN_USER=spiderman\nADMIN_PASSWORD=spiderman\nPANEL_PORT=6080\nSERVER_DOMAIN=%s\nACME_EMAIL=%s\nHY2_STATS_SECRET=%s\nSSH_WS_PATH=ssh\nSSH_WS_PORT=443\n' "$DOMAIN" "$ACME_EMAIL" "$HY2_STATS_SECRET" > /etc/unified-vps/panel.env
 chmod 600 /etc/unified-vps/panel.env
 
 curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/panel/app.py" -o /opt/unified-vps/panel.py
