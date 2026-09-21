@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-import base64,hmac,html,json,os,secrets,sqlite3,subprocess,time,re
+import base64,hmac,html,json,os,secrets,sqlite3,subprocess,time,re,threading
+from urllib.request import Request,urlopen
 from urllib.parse import quote
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 
@@ -10,6 +11,7 @@ PORT=int(os.environ.get('PANEL_PORT','6080'))
 DOMAIN=os.environ.get('SERVER_DOMAIN','')
 ADMIN=os.environ.get('ADMIN_USER','spiderman')
 PASSWORD=os.environ.get('ADMIN_PASSWORD','spiderman')
+HY2_STATS_SECRET=os.environ.get('HY2_STATS_SECRET','')
 PUBLIC_IP_CACHE=None
 XRAY_TAGS={'VLESS':['vless443'],'VMess':['vmess443'],'Trojan':['trojan443']}
 SSH_PORTS=[80,443,143,8080,8443]
@@ -19,7 +21,9 @@ def conn():
     c.execute('''create table if not exists users(
         id integer primary key, username text unique, protocol text, secret text,
         quota_bytes integer default 0, used_bytes integer default 0,
-        expiry integer default 0, enabled integer default 1, created_at integer)''')
+        expiry integer default 0, enabled integer default 1, created_at integer, raw_bytes integer default 0)''')
+    try: c.execute('alter table users add column raw_bytes integer default 0')
+    except sqlite3.OperationalError: pass
     c.commit(); return c
 
 def auth(h):
@@ -99,6 +103,80 @@ def add_ssh(u,password,days):
 def del_ssh(u):
     subprocess.run(['userdel','-r',u],capture_output=True)
 
+
+def _xray_usage():
+    try:
+        p=subprocess.run(['xray','api','statsquery','--server=127.0.0.1:10085'],capture_output=True,text=True,timeout=10)
+        if p.returncode != 0: return {}
+        data=json.loads(p.stdout)
+        out={}
+        for item in data.get('stat',[]):
+            name=item.get('name','')
+            parts=name.split('>>>')
+            if len(parts)==4 and parts[0]=='user' and parts[2]=='traffic' and parts[3] in ('uplink','downlink'):
+                out.setdefault(parts[1],0)
+                out[parts[1]] += int(item.get('value',0))
+        return out
+    except Exception:
+        return {}
+
+def _hysteria_usage():
+    if not HY2_STATS_SECRET: return {}
+    try:
+        req=Request('http://127.0.0.1:9999/traffic',headers={'Authorization':HY2_STATS_SECRET})
+        with urlopen(req,timeout=5) as r: data=json.loads(r.read())
+        return {str(k): int(v.get('tx',0))+int(v.get('rx',0)) for k,v in data.items()}
+    except Exception:
+        return {}
+
+def sync_usage():
+    while True:
+        try:
+            xusage=_xray_usage()
+            husage=_hysteria_usage()
+            c=conn()
+            rows=c.execute('select * from users').fetchall()
+            now=int(time.time())
+            disable=[]
+            for row in rows:
+                if row['protocol'] in XRAY_TAGS:
+                    raw=xusage.get(row['username'],0)
+                elif row['protocol']=='Hysteria':
+                    raw=husage.get(row['username'],0)
+                else:
+                    raw=0
+                prev=int(row['raw_bytes'] or 0)
+                delta=max(raw-prev,0)
+                used=int(row['used_bytes'] or 0)+delta
+                expired=bool(row['expiry'] and row['expiry']<=now)
+                quota_hit=bool(row['quota_bytes'] and used>=row['quota_bytes'])
+                if row['enabled'] and (expired or quota_hit):
+                    disable.append(row)
+                c.execute('update users set used_bytes=?,raw_bytes=? where id=?',(used,raw,row['id']))
+            c.commit(); c.close()
+
+            xrows=[r for r in disable if r['protocol'] in XRAY_TAGS]
+            if xrows:
+                d=load_xray(); changed=False
+                for row in xrows:
+                    for tag in XRAY_TAGS[row['protocol']]:
+                        ib=next((i for i in d.get('inbounds',[]) if i.get('tag')==tag),None)
+                        if ib:
+                            before=len(ib.get('settings',{}).get('clients',[]))
+                            ib['settings']['clients']=[u for u in ib['settings'].get('clients',[]) if u.get('email')!=row['username']]
+                            changed |= before != len(ib['settings']['clients'])
+                if changed: save_xray(d)
+
+            c=conn()
+            for row in disable:
+                if row['protocol']=='SSH':
+                    subprocess.run(['usermod','-L',row['username']],capture_output=True)
+                c.execute('update users set enabled=0 where id=?',(row['id'],))
+            c.commit(); c.close()
+        except Exception:
+            pass
+        time.sleep(15)
+
 def make_uri(row):
     host=public_host(); u=row['username']; s=row['secret']; p=row['protocol']
     if p in XRAY_TAGS:
@@ -124,6 +202,7 @@ def record(row):
 def create_user(d):
     p=d.get('protocol'); u=str(d.get('username','')); q=int(d.get('quota_bytes',0) or 0); days=int(d.get('days',0) or 0)
     if p not in XRAY_TAGS and p not in ('Hysteria','SSH'): raise ValueError('invalid protocol')
+    if p=='SSH' and int(d.get('quota_bytes',0) or 0): raise ValueError('Per-user byte quotas are supported for Xray and Hysteria only')
     if not re.fullmatch(r'[A-Za-z0-9_.-]{1,32}',u): raise ValueError('invalid username')
     secret=d.get('secret') or secrets.token_urlsafe(18)
     exp=int(time.time())+days*86400 if days else 0
@@ -222,4 +301,6 @@ async function runSpeedtest(){{document.getElementById('speed').textContent='Run
         return send(self,{'error':'not found'},404)
 
 if __name__=='__main__':
-    conn().close(); ThreadingHTTPServer(('127.0.0.1',PORT),H).serve_forever()
+    conn().close()
+    threading.Thread(target=sync_usage,daemon=True).start()
+    ThreadingHTTPServer(('127.0.0.1',PORT),H).serve_forever()
