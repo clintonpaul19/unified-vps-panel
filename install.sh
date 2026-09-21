@@ -28,7 +28,12 @@ ACME_EMAIL="acme-$(openssl rand -hex 8)@${DOMAIN}"
 echo "Generated ACME email: $ACME_EMAIL"
 
 apt-get update
-apt-get install -y ca-certificates curl jq openssl iproute2 iptables iptables-persistent sqlite3 python3 openssh-server dnsutils lsof procps psmisc socat nginx sslh cron
+apt-get install -y ca-certificates curl jq openssl iproute2 iptables iptables-persistent sqlite3 python3 openssh-server dnsutils lsof procps psmisc socat nginx haproxy cron
+
+# HAProxy replaces SSLH as the public TCP/HTTP multiplexer.
+# Remove any legacy SSLH instance so it cannot compete for ports 80/443/8443/143/8080.
+systemctl disable --now sslh.service 2>/dev/null || true
+apt-get purge -y sslh 2>/dev/null || true
 
 systemctl disable --now sslh.service 2>/dev/null || true
 systemctl stop nginx.service 2>/dev/null || true
@@ -61,7 +66,7 @@ insert_firewall_rule() {
     "$bin" -A "$chain" "$@" -j ACCEPT
   fi
 }
-for p in 80 443 143 8080 8443; do
+for p in 80 443 143 8080 8443 8880; do
   insert_firewall_rule iptables INPUT -p tcp --dport "$p"
 done
 insert_firewall_rule iptables INPUT -p tcp --dport 22
@@ -80,8 +85,8 @@ if ! command -v hysteria >/dev/null 2>&1; then curl -fsSL https://get.hy2.sh/ | 
 if ! command -v xray >/dev/null 2>&1; then bash -c "$(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install; fi
 curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/config/xray.json" -o /usr/local/etc/xray/config.json
 
-# Install wstunnel for SSH-over-WebSocket. TLS is terminated by Xray on 443;
-# wstunnel receives the resulting HTTP/WebSocket upgrade on localhost.
+# Install wstunnel for SSH-over-WebSocket. HAProxy handles cleartext WS on
+# 80/8880, while Xray's TLS fallback handles WSS on 443/8443.
 WSTUNNEL_VERSION="10.6.2"
 case "$(dpkg --print-architecture)" in
   amd64) WSTUNNEL_ARCH="amd64" ;;
@@ -120,7 +125,7 @@ systemctl enable --now unified-vps-wstunnel-ssh.service
 # Get a trusted Let's Encrypt certificate for the supplied domain.
 # Standalone ACME needs TCP/80 temporarily free.
 # Stop services that could rebind ports while the final configuration is built.
-systemctl stop unified-vps-sslh-xray unified-vps-sslh-web unified-vps-sslh-ssh sslh xray nginx hysteria-server 2>/dev/null || true
+systemctl stop haproxy unified-vps-sslh-xray unified-vps-sslh-web unified-vps-sslh-ssh sslh xray nginx hysteria-server 2>/dev/null || true
 systemctl mask hysteria-server.service 2>/dev/null || true
 curl -fsSL https://get.acme.sh | sh -s email="$ACME_EMAIL"
 "$HOME/.acme.sh/acme.sh" --set-default-ca --server letsencrypt
@@ -267,57 +272,11 @@ EOF
 
 nginx -t
 
-SSlh_BIN="$(command -v sslh)"
-cat >/etc/systemd/system/unified-vps-sslh-xray.service <<EOF
-[Unit]
-Description=Unified VPS SSH and Xray TCP multiplexer
-After=network-online.target ssh.service xray.service
-Requires=ssh.service
-Wants=network-online.target
-[Service]
-Type=simple
-ExecStartPre=/usr/sbin/sshd -t
-ExecStart=$SSlh_BIN --foreground --numeric --user sslh --listen 0.0.0.0:80 --listen 0.0.0.0:443 --tls 127.0.0.1:18443 --http 127.0.0.1:18080 --ssh 127.0.0.1:22 --on-timeout ssh --timeout 5
-Restart=always
-RestartSec=1
-KillMode=process
-[Install]
-WantedBy=multi-user.target
-EOF
-
-cat >/etc/systemd/system/unified-vps-sslh-web.service <<EOF
-[Unit]
-Description=Unified VPS SSH and HTTP 8080 multiplexer
-After=network-online.target ssh.service nginx.service
-Requires=ssh.service
-Wants=network-online.target
-[Service]
-Type=simple
-ExecStartPre=/usr/sbin/sshd -t
-ExecStart=$SSlh_BIN --foreground --numeric --user sslh --listen 0.0.0.0:8080 --http 127.0.0.1:18080 --ssh 127.0.0.1:22 --on-timeout ssh --timeout 5
-Restart=always
-RestartSec=1
-KillMode=process
-[Install]
-WantedBy=multi-user.target
-EOF
-
-cat >/etc/systemd/system/unified-vps-sslh-ssh.service <<EOF
-[Unit]
-Description=Unified VPS SSH alternate ports
-After=network-online.target ssh.service
-Requires=ssh.service
-Wants=network-online.target
-[Service]
-Type=simple
-ExecStartPre=/usr/sbin/sshd -t
-ExecStart=$SSlh_BIN --foreground --numeric --user sslh --listen 0.0.0.0:143 --listen 0.0.0.0:8443 --ssh 127.0.0.1:22 --on-timeout ssh --timeout 5
-Restart=always
-RestartSec=1
-KillMode=process
-[Install]
-WantedBy=multi-user.target
-EOF
+# HAProxy is the public transport multiplexer. It preserves raw SSH,
+# detects cleartext HTTP/WebSocket traffic on 80/8880, and sends TLS traffic
+# on 443/8443 to Xray without terminating TLS itself.
+curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/config/haproxy.cfg" -o /etc/haproxy/haproxy.cfg
+haproxy -c -f /etc/haproxy/haproxy.cfg
 
 chown hysteria:hysteria /etc/hysteria/server.crt /etc/hysteria/server.key
 chmod 640 /etc/hysteria/server.crt /etc/hysteria/server.key
@@ -368,7 +327,7 @@ systemctl daemon-reload
 # Enabling units must not prevent installation from reaching the explicit
 # startup/diagnostic checks below. Some systemd environments may report a
 # stale/failed job while creating the enablement links.
-systemctl enable ssh nginx unified-vps-panel xray hysteria-server unified-vps-sslh-xray unified-vps-sslh-web unified-vps-sslh-ssh || true
+systemctl enable ssh nginx haproxy unified-vps-panel xray hysteria-server || true
 systemctl start ssh nginx
 if ! systemctl start unified-vps-panel; then
   echo "ERROR: unified-vps-panel.service failed to start."
@@ -392,11 +351,12 @@ if lsof -nP -iUDP:53 2>/dev/null | grep -q UDP; then
   exit 1
 fi
 systemctl start hysteria-server
-systemctl start unified-vps-sslh-xray unified-vps-sslh-web unified-vps-sslh-ssh
+systemctl start haproxy
 sshd -t
 xray -test -config /usr/local/etc/xray/config.json
 nginx -t
-SERVICES=(ssh nginx unified-vps-panel xray hysteria-server unified-vps-sslh-xray unified-vps-sslh-web unified-vps-sslh-ssh)
+haproxy -c -f /etc/haproxy/haproxy.cfg
+SERVICES=(ssh nginx haproxy unified-vps-panel xray hysteria-server)
 FAILED=0
 for s in "${SERVICES[@]}"; do
   if ! systemctl is-active --quiet "$s"; then
@@ -427,7 +387,7 @@ echo "VLESS: TLS/WS on TCP 80 and 443"
 echo "VMess: TLS/WS on TCP 80 and 443"
 echo "Trojan: TLS on TCP 80 and 443"
 echo "Hysteria 2: UDP/53 using $DOMAIN"
-echo "SSH transports: TCP 80, 443, 143, 8080, 8443 using $DOMAIN"
+echo "SSH transports: WS 80/8880, WSS 443/8443, raw TCP 143/8080/8443 using $DOMAIN"
 echo "HTTP service: NGINX on TCP/8080"
 echo "Ookla Speedtest: speedtest"
 echo "CLI menu: menu"
