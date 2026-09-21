@@ -128,17 +128,27 @@ def create_user(d):
     secret=d.get('secret') or secrets.token_urlsafe(18)
     exp=int(time.time())+days*86400 if days else 0
     c=conn()
+    ssh_created=False
+    xray_created=False
     try:
         if c.execute('select 1 from users where username=?',(u,)).fetchone(): raise ValueError('username already exists')
-        if p=='SSH': add_ssh(u,secret,days)
-        elif p!='Hysteria': add_xray(p,u,secret)
+        if p=='SSH':
+            add_ssh(u,secret,days)
+            ssh_created=True
+        elif p!='Hysteria':
+            add_xray(p,u,secret)
+            xray_created=True
         c.execute('insert into users(username,protocol,secret,quota_bytes,expiry,created_at) values(?,?,?,?,?,?)',(u,p,secret,q,exp,int(time.time())))
         c.commit()
         row=c.execute('select * from users where username=?',(u,)).fetchone()
         return record(row)
     except Exception:
         c.rollback()
-        if p=='SSH': subprocess.run(['userdel','-r',u],capture_output=True)
+        if ssh_created:
+            del_ssh(u)
+        if xray_created:
+            try: del_xray(p,u)
+            except Exception: pass
         raise
     finally: c.close()
 
