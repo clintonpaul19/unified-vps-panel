@@ -191,7 +191,7 @@ def make_uri(row):
                 out[str(port)]=f'trojan://{quote(s,safe="")}@{host}:{port}?security=tls&sni={quote(host,safe="")}&type=tcp#{quote(u)}'
         return out
     if p=='Hysteria': return {'53':f'hysteria2://{quote(s,safe="")}@{host}:53/?sni={quote(host,safe="")}#{quote(u)}'}
-    if p=='SSH': return {str(port):f'ssh://{quote(u,safe="")}:{quote(s,safe="")}@{host}:{port}' for port in SSH_PORTS}
+    if p=='SSH': return {}
     return {}
 
 def record(row):
@@ -260,10 +260,8 @@ class H(BaseHTTPRequestHandler):
                     b2=html.escape(x['uris'].get('443',''),quote=True)
                     connection=f'<textarea id="u{xid}a" readonly>{a}</textarea><button onclick="copyUri(\'u{xid}a\')">Copy 80</button><br><textarea id="u{xid}b" readonly>{b2}</textarea><button onclick="copyUri(\'u{xid}b\')">Copy 443</button>'
                 elif protocol=='SSH':
-                    parts=[]
-                    for pnum,uri in x['uris'].items():
-                        parts.append(f'<textarea id="u{xid}{pnum}" readonly>{html.escape(uri,quote=True)}</textarea><button onclick="copyUri(\'u{xid}{pnum}\')">Copy {pnum}</button>')
-                    connection='<br>'.join(parts)
+                    host=html.escape(x['host'],quote=True)
+                    connection=f'Host: {host}<br>Ports: 22, 80, 443, 143, 8080, 8443'
                 else:
                     uri=next(iter(x['uris'].values()),'')
                     connection=f'<textarea id="u{xid}" readonly>{html.escape(uri,quote=True)}</textarea><button onclick="copyUri(\'u{xid}\')">Copy URI</button>'
