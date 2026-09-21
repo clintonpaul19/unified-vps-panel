@@ -157,14 +157,26 @@ systemctl try-restart hysteria-server.service 2>/dev/null || true
 EOF
 chmod 755 /usr/local/sbin/unified-vps-cert-reload
 
-# Issue the certificate with HTTP-01 on TCP/80.
-# Never continue after a failed issuance. This prevents stale acme.sh state
-# from producing a misleading missing fullchain.cer error.
+# Issue the certificate. Prefer HTTP-01 on TCP/80, then fall back to
+# TLS-ALPN-01 on TCP/443. This is useful on VPS providers where inbound
+# TCP/80 may be filtered even when the instance firewall permits it.
 rm -rf "$HOME/.acme.sh/${DOMAIN}_ecc" "$HOME/.acme.sh/${DOMAIN}"
-if ! "$HOME/.acme.sh/acme.sh" --issue --standalone -d "$DOMAIN"; then
-  echo "ERROR: Let's Encrypt could not validate $DOMAIN over TCP/80."
-  echo "Make sure the DNS A record points to this VPS and TCP/80 is reachable"
-  echo "through both iptables and the cloud provider security rules."
+ACME_OK=0
+echo "Attempting Let's Encrypt HTTP-01 validation on TCP/80..."
+if "$HOME/.acme.sh/acme.sh" --issue --standalone -d "$DOMAIN"; then
+  ACME_OK=1
+else
+  echo "HTTP-01 failed; attempting TLS-ALPN-01 validation on TCP/443..."
+  rm -rf "$HOME/.acme.sh/${DOMAIN}_ecc" "$HOME/.acme.sh/${DOMAIN}"
+  if "$HOME/.acme.sh/acme.sh" --issue --alpn -d "$DOMAIN"; then
+    ACME_OK=1
+  fi
+fi
+
+if [ "$ACME_OK" -ne 1 ]; then
+  echo "ERROR: Let's Encrypt could not validate $DOMAIN on TCP/80 or TCP/443."
+  echo "Verify that the DNS A record points to this VPS and that Oracle Cloud"
+  echo "allows inbound TCP/80 and TCP/443 to the instance."
   echo "Local IPv4 addresses:"
   hostname -I || true
   echo "DNS A records:"
