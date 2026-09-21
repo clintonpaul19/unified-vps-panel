@@ -211,8 +211,9 @@ def handle(conn, addr):
             return
 
         upgrade = headers.get("upgrade", "").lower() == "websocket"
-        connection = headers.get("connection", "").lower()
-        if not upgrade or "upgrade" not in connection:
+        # Legacy tunnel clients may send only Upgrade: websocket and omit
+        # Connection: Upgrade. Accept that documented payload form.
+        if not upgrade:
             send_http(conn, 200, b"Unified VPS\n")
             return
 
