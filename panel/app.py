@@ -148,13 +148,13 @@ class H(BaseHTTPRequestHandler):
             trs=''
             for x in rows:
                 safeuri=html.escape(x['uri'],quote=True)
-                trs+=f'<tr><td>{html.escape(x["username"])}</td><td>{x["protocol"]}</td><td>{x["port"]}</td><td>{x["used_bytes"]}</td><td>{x["quota_bytes"] or "Unlimited"}</td><td>{"Yes" if x["enabled"] else "No"}</td><td><textarea id="u{x["id"]}" readonly>{safeuri}</textarea><button onclick="copyUri({x["id"]})">Copy URI</button></td></tr>'
+                trs+=f'<tr><td>{html.escape(x["username"])}</td><td>{x["protocol"]}</td><td>{x["port"]}</td><td>{html.escape(x["secret"])}</td><td>{x["used_bytes"]}</td><td>{x["quota_bytes"] or "Unlimited"}</td><td>{"Yes" if x["enabled"] else "No"}</td><td><textarea id="u{x["id"]}" readonly>{safeuri}</textarea><button onclick="copyUri({x["id"]})">Copy URI</button></td></tr>'
             b=f'''<!doctype html><html><head><meta name="viewport" content="width=device-width"><title>Unified VPS Panel</title>
 <style>body{{font-family:system-ui;background:#111;color:#eee;padding:20px}}input,select,button,textarea{{padding:8px;margin:4px;background:#222;color:#eee;border:1px solid #555}}textarea{{width:360px;height:45px}}table{{border-collapse:collapse;width:100%}}td,th{{border:1px solid #444;padding:8px;text-align:left}}button{{cursor:pointer}}</style></head>
 <body><h1>Unified VPS Panel</h1><p>Panel: http://{html.escape(public_ip())}:{PORT}</p>
 <h2>Create account</h2><form id="f"><input name="username" placeholder="Username" required><select name="protocol"><option>Hysteria</option><option>SSH</option><option>VLESS</option><option>VMess</option><option>Trojan</option></select><input name="days" type="number" value="0" min="0" placeholder="Days"><input name="quota_bytes" type="number" value="0" min="0" placeholder="Quota bytes"><button>Create</button></form>
 <p><button onclick="runSpeedtest()">Run Ookla Speedtest</button></p><pre id="speed"></pre>
-<h2>Accounts</h2><table><tr><th>User</th><th>Protocol</th><th>Port</th><th>Used</th><th>Quota</th><th>Enabled</th><th>Copy URI</th></tr>{trs}</table>
+<h2>Accounts</h2><table><tr><th>User</th><th>Protocol</th><th>Port</th><th>Password / UUID</th><th>Used</th><th>Quota</th><th>Enabled</th><th>Copy URI</th></tr>{trs}</table>
 <script>
 async function copyUri(id){{let e=document.getElementById('u'+id); await navigator.clipboard.writeText(e.value); alert('URI copied');}}
 document.getElementById('f').onsubmit=async(e)=>{{e.preventDefault();let o=Object.fromEntries(new FormData(e.target));o.days=+o.days;o.quota_bytes=+o.quota_bytes;let r=await fetch('/api/users',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(o)}});let j=await r.json();alert(j.error||('Created: '+j.uri));if(r.ok) location.reload();}};
