@@ -113,6 +113,8 @@ cat >/usr/local/bin/menu <<'EOF'
 source /etc/unified-vps/panel.env
 while true; do clear; vps-status; echo; echo '1) Users'; echo '2) Restart services'; echo '3) Panel credentials'; echo '4) Exit'; read -r -p 'Select: ' n; case "$n" in 1) sqlite3 -header -column /etc/unified-vps/panel.db 'select id,username,protocol,used_bytes,quota_bytes,enabled from users;'; read -r -p 'Enter...' _;; 2) systemctl restart ssh hysteria-server xray unified-vps-panel; read -r -p 'Enter...' _;; 3) echo "Panel: http://$(curl -4fsS --max-time 3 https://api.ipify.org):$PANEL_PORT"; echo "Username: $ADMIN_USER"; echo "Password: $ADMIN_PASSWORD"; read -r -p 'Enter...' _;; 4) exit;; esac; done
 EOF
+curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/menu.sh" -o /usr/local/bin/menu
+curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/vps-status.sh" -o /usr/local/bin/vps-status 2>/dev/null || true
 chmod 755 /usr/local/bin/menu
 systemctl daemon-reload
 systemctl daemon-reload
