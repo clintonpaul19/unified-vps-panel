@@ -305,10 +305,10 @@ fi
 sleep 1
 systemctl start xray
 
-# Fail early with the actual owner if UDP/53 is still occupied.
-if ss -lunpH 2>/dev/null | awk '$5 ~ /:53$/ {found=1} END {exit found ? 0 : 1}'; then
-  echo "ERROR: UDP/53 is already in use; Hysteria 2 cannot start."
-  ss -lunp 2>/dev/null | grep -E '(:53[[:space:]])|(:53\\$)' || true
+# Check immediately before starting Hysteria so any late listener is identified.
+if lsof -nP -iUDP:53 2>/dev/null | grep -q UDP; then
+  echo "ERROR: UDP/53 is already in use:"
+  lsof -nP -iUDP:53 2>/dev/null || true
   exit 1
 fi
 systemctl start hysteria-server
