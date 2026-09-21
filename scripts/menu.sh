@@ -14,11 +14,17 @@ list_protocol(){
 import json,sys
 p=sys.argv[1]
 rows=[x for x in json.load(sys.stdin) if x["protocol"]==p]
-if not rows: print("No accounts."); raise SystemExit
+if not rows:
+ print("No accounts.")
+ raise SystemExit
 for x in rows:
- print(f"ID: {x['id']}  User: {x['username']}  Enabled: {'Yes' if x['enabled'] else 'No'}  Used: {x['used_bytes']/(1024**3):.2f} GB  Quota: {'Unlimited' if not x['quota_bytes'] else f'{x['quota_bytes']/(1024**3):.2f} GB'}")
- print(f"Password/UUID: {x['secret']}")
- for port,uri in x.get("uris",{}).items(): print(f"  {port}: {uri}")
+ used="{:.2f} GB".format(x["used_bytes"]/(1024**3))
+ quota="Unlimited" if not x["quota_bytes"] else "{:.2f} GB".format(x["quota_bytes"]/(1024**3))
+ enabled="Yes" if x["enabled"] else "No"
+ print("ID: {}  User: {}  Enabled: {}  Used: {}  Quota: {}".format(x["id"],x["username"],enabled,used,quota))
+ print("Password/UUID: {}".format(x["secret"]))
+ for port,uri in x.get("uris",{}).items():
+  print("  {}: {}".format(port,uri))
  print()
 ' "$p"
 }
