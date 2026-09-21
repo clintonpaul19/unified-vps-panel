@@ -15,10 +15,10 @@ ACME_EMAIL="acme-$(openssl rand -hex 8)@${DOMAIN}"
 echo "Generated ACME email: $ACME_EMAIL"
 
 apt-get update
-apt-get install -y ca-certificates curl jq openssl iproute2 iptables iptables-persistent sqlite3 python3 openssh-server dnsutils lsof procps psmisc socat nginx
+apt-get install -y ca-certificates curl jq openssl iproute2 iptables iptables-persistent sqlite3 python3 openssh-server dnsutils lsof procps psmisc socat nginx sslh
 
 mkdir -p /opt/unified-vps /etc/unified-vps /etc/hysteria /var/log/unified-vps /usr/local/etc/xray
-for p in 80 443 143 8080 8443 6080; do iptables -C INPUT -p tcp --dport "$p" -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p tcp --dport "$p" -j ACCEPT; done
+for p in 80 443 143 8080 8443; do iptables -C INPUT -p tcp --dport "$p" -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p tcp --dport "$p" -j ACCEPT; done
 for p in 53 443; do iptables -C INPUT -p udp --dport "$p" -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p udp --dport "$p" -j ACCEPT; done
 iptables -C INPUT -p udp --dport 7100:7300 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p udp --dport 7100:7300 -j ACCEPT
 iptables -C INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
@@ -31,7 +31,7 @@ curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/ma
 
 # Get a trusted Let's Encrypt certificate for the supplied domain.
 # Standalone ACME needs TCP/80 temporarily free.
-systemctl stop xray 2>/dev/null || true
+systemctl stop unified-vps-sslh-xray unified-vps-sslh-web unified-vps-sslh-ssh xray nginx 2>/dev/null || true
 curl -fsSL https://get.acme.sh | sh -s email="$ACME_EMAIL"
 "$HOME/.acme.sh/acme.sh" --set-default-ca --server letsencrypt
 "$HOME/.acme.sh/acme.sh" --issue --standalone -d "$DOMAIN"
@@ -76,6 +76,74 @@ trafficStats:
   listen: 127.0.0.1:9999
   secret: ${HY2_STATS_SECRET}
 YAML
+
+# SSH is kept on loopback; SSLH exposes it on the requested public ports.
+mkdir -p /etc/ssh/sshd_config.d
+cat >/etc/ssh/sshd_config.d/99-unified-vps.conf <<'EOF'
+Port 22
+ListenAddress 127.0.0.1:22
+PasswordAuthentication yes
+PermitEmptyPasswords no
+EOF
+sshd -t
+
+# NGINX is the plain HTTP service behind SSLH on TCP/8080.
+mkdir -p /var/www/html
+cat >/var/www/html/index.html <<'EOF'
+<!doctype html><html><head><meta charset="utf-8"><title>Unified VPS</title></head><body><h1>Unified VPS</h1><p>Server is online.</p></body></html>
+EOF
+cat >/etc/nginx/sites-available/unified-vps-8080 <<'EOF'
+server {
+    listen 127.0.0.1:18080;
+    listen [::1]:18080;
+    server_name _;
+    root /var/www/html;
+    index index.html;
+}
+EOF
+ln -sf /etc/nginx/sites-available/unified-vps-8080 /etc/nginx/sites-enabled/unified-vps-8080
+rm -f /etc/nginx/sites-enabled/default
+nginx -t
+
+SSlh_BIN="$(command -v sslh)"
+cat >/etc/systemd/system/unified-vps-sslh-xray.service <<EOF
+[Unit]
+Description=Unified VPS SSH and Xray TCP multiplexer
+After=network-online.target xray.service ssh.service
+Wants=network-online.target
+[Service]
+ExecStart=$SSlh_BIN --foreground --numeric --user sslh --listen 0.0.0.0:80 --listen 0.0.0.0:443 --tls 127.0.0.1:18443 --ssh 127.0.0.1:22 --on-timeout ssh --timeout 2
+Restart=on-failure
+RestartSec=2
+[Install]
+WantedBy=multi-user.target
+EOF
+
+cat >/etc/systemd/system/unified-vps-sslh-web.service <<EOF
+[Unit]
+Description=Unified VPS SSH and HTTP 8080 multiplexer
+After=network-online.target nginx.service ssh.service
+Wants=network-online.target
+[Service]
+ExecStart=$SSlh_BIN --foreground --numeric --user sslh --listen 0.0.0.0:8080 --http 127.0.0.1:18080 --ssh 127.0.0.1:22 --on-timeout ssh --timeout 2
+Restart=on-failure
+RestartSec=2
+[Install]
+WantedBy=multi-user.target
+EOF
+
+cat >/etc/systemd/system/unified-vps-sslh-ssh.service <<EOF
+[Unit]
+Description=Unified VPS SSH alternate ports
+After=network-online.target ssh.service
+Wants=network-online.target
+[Service]
+ExecStart=$SSlh_BIN --foreground --numeric --user sslh --listen 0.0.0.0:143 --listen 0.0.0.0:8443 --ssh 127.0.0.1:22 --on-timeout ssh --timeout 2
+Restart=on-failure
+RestartSec=2
+[Install]
+WantedBy=multi-user.target
+EOF
 
 cat >/etc/systemd/system/hysteria-server.service <<'EOF'
 [Unit]
@@ -124,7 +192,13 @@ ln -sf /etc/nginx/sites-available/unified-vps-8080 /etc/nginx/sites-enabled/unif
 rm -f /etc/nginx/sites-enabled/default
 nginx -t
 systemctl enable --now nginx
-systemctl enable --now ssh unified-vps-panel xray hysteria-server
+systemctl daemon-reload
+systemctl enable --now ssh nginx unified-vps-panel xray hysteria-server
+systemctl enable --now unified-vps-sslh-xray unified-vps-sslh-web unified-vps-sslh-ssh
+sshd -t
+xray -test -config /usr/local/etc/xray/config.json
+nginx -t
+systemctl is-active --quiet ssh nginx unified-vps-panel xray hysteria-server unified-vps-sslh-xray unified-vps-sslh-web unified-vps-sslh-ssh
 
 echo
 echo "=============================================="
