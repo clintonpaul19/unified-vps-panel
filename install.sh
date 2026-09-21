@@ -28,7 +28,7 @@ ACME_EMAIL="acme-$(openssl rand -hex 8)@${DOMAIN}"
 echo "Generated ACME email: $ACME_EMAIL"
 
 apt-get update
-apt-get install -y ca-certificates curl jq openssl iproute2 iptables iptables-persistent sqlite3 python3 openssh-server dnsutils lsof procps psmisc socat nginx haproxy cron
+apt-get install -y ca-certificates curl jq openssl iproute2 iptables iptables-persistent sqlite3 python3 openssh-server dnsutils lsof procps psmisc socat nginx haproxy cron git cmake build-essential
 
 # HAProxy replaces SSLH as the public TCP/HTTP multiplexer.
 # Remove any legacy SSLH instance so it cannot compete for ports 80/443/8443/143/8080.
@@ -130,6 +130,35 @@ chmod 755 /opt/unified-vps/ws-payload-ssh.py
 curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/systemd/unified-vps-ws-payload-ssh.service" -o /etc/systemd/system/unified-vps-ws-payload-ssh.service
 systemctl daemon-reload
 systemctl enable --now unified-vps-ws-payload-ssh.service
+
+# BadVPN UDPGW for SSH clients such as NetMod. It is intentionally bound
+# to loopback because compatible clients reach it through the SSH session.
+if ! command -v badvpn-udpgw >/dev/null 2>&1; then
+    rm -rf /tmp/badvpn
+    git clone --depth 1 https://github.com/ambrop72/badvpn.git /tmp/badvpn
+    cmake -S /tmp/badvpn -B /tmp/badvpn-build -DBUILD_NOTHING_BY_DEFAULT=1 -DBUILD_UDPGW=1
+    cmake --build /tmp/badvpn-build -j"\$(nproc)"
+    install -m 0755 /tmp/badvpn-build/udpgw/badvpn-udpgw /usr/local/bin/badvpn-udpgw
+    rm -rf /tmp/badvpn /tmp/badvpn-build
+fi
+cat >/etc/systemd/system/unified-vps-udpgw.service <<'EOF'
+[Unit]
+Description=BadVPN UDPGW for SSH UDP forwarding
+After=network-online.target ssh.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/badvpn-udpgw --loglevel warning --listen-addr 127.0.0.1:7300
+Restart=always
+RestartSec=2
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload
+systemctl enable --now unified-vps-udpgw.service
 
 
 
