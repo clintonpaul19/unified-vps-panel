@@ -247,19 +247,23 @@ class H(BaseHTTPRequestHandler):
             c=conn(); rows=[record(x) for x in c.execute('select * from users order by id desc')]; c.close()
             trs=''
             for x in rows:
-                if x['protocol'] in XRAY_TAGS:
+                xid=x['id']; username=x['username']; protocol=x['protocol']; port_value=x['port']; secret=x['secret']
+                used=x['used_bytes']; quota=x['quota_bytes']; enabled=x['enabled']
+                if protocol in XRAY_TAGS:
                     a=html.escape(x['uris'].get('80',''),quote=True)
                     b2=html.escape(x['uris'].get('443',''),quote=True)
-                    connection=f'<textarea id="u{x["id"]}a" readonly>{a}</textarea><button onclick="copyUri(\'u{x["id"]}a\')">Copy 80</button><br><textarea id="u{x["id"]}b" readonly>{b2}</textarea><button onclick="copyUri(\'u{x["id"]}b\')">Copy 443</button>'
-                elif x['protocol']=='SSH':
+                    connection=f'<textarea id="u{xid}a" readonly>{a}</textarea><button onclick="copyUri(\'u{xid}a\')">Copy 80</button><br><textarea id="u{xid}b" readonly>{b2}</textarea><button onclick="copyUri(\'u{xid}b\')">Copy 443</button>'
+                elif protocol=='SSH':
                     parts=[]
-                    for port,uri in x['uris'].items():
-                        parts.append(f'<textarea id="u{x["id"]}{port}" readonly>{html.escape(uri,quote=True)}</textarea><button onclick="copyUri(\'u{x["id"]}{port}\')">Copy {port}</button>')
+                    for pnum,uri in x['uris'].items():
+                        parts.append(f'<textarea id="u{xid}{pnum}" readonly>{html.escape(uri,quote=True)}</textarea><button onclick="copyUri(\'u{xid}{pnum}\')">Copy {pnum}</button>')
                     connection='<br>'.join(parts)
                 else:
                     uri=next(iter(x['uris'].values()),'')
-                    connection=f'<textarea id="u{x["id"]}" readonly>{html.escape(uri,quote=True)}</textarea><button onclick="copyUri(\'u{x["id"]}\')">Copy URI</button>'
-                trs+=f'<tr><td>{html.escape(x["username"])}</td><td>{x["protocol"]}</td><td>{x["port"]}</td><td>{html.escape(x["secret"])}</td><td>{x["used_bytes"]}</td><td>{x["quota_bytes"] or "Unlimited"}</td><td>{"Yes" if x["enabled"] else "No"}</td><td>{connection}</td></tr>'
+                    connection=f'<textarea id="u{xid}" readonly>{html.escape(uri,quote=True)}</textarea><button onclick="copyUri(\'u{xid}\')">Copy URI</button>'
+                enabled_text='Yes' if enabled else 'No'
+                quota_text=quota or 'Unlimited'
+                trs+=f'<tr><td>{html.escape(username)}</td><td>{protocol}</td><td>{port_value}</td><td>{html.escape(secret)}</td><td>{used}</td><td>{quota_text}</td><td>{enabled_text}</td><td>{connection}</td></tr>'
             b=f'''<!doctype html><html><head><meta name="viewport" content="width=device-width"><title>Unified VPS Panel</title>
 <style>body{{font-family:system-ui;background:#111;color:#eee;padding:20px}}input,select,button,textarea{{padding:8px;margin:4px;background:#222;color:#eee;border:1px solid #555}}textarea{{width:360px;height:45px}}table{{border-collapse:collapse;width:100%}}td,th{{border:1px solid #444;padding:8px;text-align:left}}button{{cursor:pointer}}</style></head>
 <body><h1>Unified VPS Panel</h1><p>Panel: https://{html.escape(public_host())}/</p>
