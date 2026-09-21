@@ -105,13 +105,11 @@ echo "Certificate installed successfully."
 XRAY_USER="$(systemctl show xray.service -p User --value 2>/dev/null || true)"
 XRAY_USER="${XRAY_USER:-nobody}"
 if id "$XRAY_USER" >/dev/null 2>&1; then
-  XRAY_GROUP="$(id -gn "$XRAY_USER")"
-  if ! chown "$XRAY_USER:$XRAY_GROUP" /etc/unified-vps/xray.key /etc/unified-vps/xray.crt; then
-    echo "Warning: certificate ownership could not be changed; continuing."
+  XRAY_GROUP="$(id -gn "$XRAY_USER" 2>/dev/null || true)"
+  if [ -n "$XRAY_GROUP" ]; then
+    chown "$XRAY_USER:$XRAY_GROUP" /etc/unified-vps/xray.key /etc/unified-vps/xray.crt 2>/dev/null || true
   fi
-  chmod 640 /etc/unified-vps/xray.key
-else
-  echo "Warning: Xray service user not found; continuing with existing certificate ownership."
+  chmod 640 /etc/unified-vps/xray.key 2>/dev/null || true
 fi
 
 echo "Testing Xray configuration..."
