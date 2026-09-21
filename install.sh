@@ -45,7 +45,49 @@ if ! xray -test -config /usr/local/etc/xray/config.json >/tmp/unified-vps-xray-t
   exit 1
 fi
 
-if [ ! -f /etc/unified-vps/panel.env ]; then printf 'ADMIN_USER=admin\nADMIN_PASSWORD=' > /etc/unified-vps/panel.env; openssl rand -base64 32 | tr -dc 'A-Za-z0-9' | head -c 24 >> /etc/unified-vps/panel.env; printf '\nPANEL_PORT=2087\n' >> /etc/unified-vps/panel.env; chmod 600 /etc/unified-vps/panel.env; fi
+# Install the official Ookla Speedtest CLI for Ubuntu/Debian.
+if ! command -v speedtest >/dev/null 2>&1; then
+  curl -fsSL https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | bash
+  apt-get update
+  apt-get install -y speedtest
+fi
+
+# Hysteria 2: UDP 53 with HTTP authentication handled by the panel.
+if [ ! -f /etc/hysteria/server.crt ]; then
+  cp /etc/unified-vps/xray.crt /etc/hysteria/server.crt
+  cp /etc/unified-vps/xray.key /etc/hysteria/server.key
+  chmod 640 /etc/hysteria/server.key
+fi
+HY2_STATS_SECRET="$(openssl rand -hex 24)"
+if [ ! -f /etc/hysteria/config.yaml ]; then
+  cat >/etc/hysteria/config.yaml <<YAML
+listen: :53
+tls:
+  cert: /etc/hysteria/server.crt
+  key: /etc/hysteria/server.key
+auth:
+  type: http
+  http:
+    url: http://127.0.0.1:2087/hysteria-auth
+speedTest: true
+trafficStats:
+  listen: 127.0.0.1:9999
+  secret: \${HY2_STATS_SECRET}
+YAML
+fi
+cat >/etc/systemd/system/hysteria-server.service <<'EOF'
+[Unit]
+Description=Hysteria 2 Server
+After=network-online.target unified-vps-panel.service
+Wants=network-online.target
+[Service]
+ExecStart=/usr/local/bin/hysteria server -c /etc/hysteria/config.yaml
+Restart=on-failure
+RestartSec=3
+[Install]
+WantedBy=multi-user.target
+EOF
+if [ ! -f /etc/unified-vps/panel.env ]; then printf 'ADMIN_USER=spiderman\nADMIN_PASSWORD=spiderman\nPANEL_PORT=2087\n' > /etc/unified-vps/panel.env; chmod 600 /etc/unified-vps/panel.env; fi
 curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/panel/app.py" -o /opt/unified-vps/panel.py
 cat >/etc/systemd/system/unified-vps-panel.service <<'EOF'
 [Unit]
@@ -73,11 +115,29 @@ while true; do clear; vps-status; echo; echo '1) Users'; echo '2) Restart servic
 EOF
 chmod 755 /usr/local/bin/menu
 systemctl daemon-reload
-systemctl enable --now ssh unified-vps-panel
-systemctl enable --now xray
+systemctl daemon-reload
+systemctl enable --now ssh unified-vps-panel xray hysteria-server
 
-echo 'Unified VPS Panel installation complete.'
-echo 'Xray: VLESS=TCP/80, VMess=WS/TLS/443, Trojan=TLS/443'
-echo 'Panel credentials: /etc/unified-vps/panel.env'
-echo 'Run: menu'
-echo 'Run: vps-status'
+PUBLIC_IP="$(curl -4fsS --max-time 5 https://api.ipify.org || echo SERVER_IP)"
+echo
+echo "=============================================="
+echo " Unified VPS Panel installation complete"
+echo "=============================================="
+echo "Panel: http://${PUBLIC_IP}:2087"
+echo "Panel username: spiderman"
+echo "Panel password: spiderman"
+echo "Xray: VLESS=TCP/80, VMess=WS/TLS/443, Trojan=TLS/443"
+echo "Hysteria 2: UDP/53"
+echo "Ookla Speedtest: speedtest"
+echo "CLI menu: menu"
+echo "Status: vps-status"
+echo
+if [ -t 0 ] && [ -t 1 ]; then
+  read -r -p "Reboot now? [y/N]: " REBOOT_NOW < /dev/tty
+  case "${REBOOT_NOW,,}" in
+    y|yes) echo "Rebooting..."; sleep 2; reboot ;;
+    *) echo "Installation finished without reboot." ;;
+  esac
+else
+  echo "No interactive terminal detected; skipping reboot prompt."
+fi
