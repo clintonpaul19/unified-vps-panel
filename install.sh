@@ -56,10 +56,13 @@ curl -fsSL https://get.acme.sh | sh -s email="$ACME_EMAIL"
 "$HOME/.acme.sh/acme.sh" --issue --standalone -d "$DOMAIN"
 "$HOME/.acme.sh/acme.sh" --install-cert -d "$DOMAIN" \
   --fullchain-file /etc/unified-vps/xray.crt \
-  --key-file /etc/unified-vps/xray.key \
-  --reloadcmd "systemctl restart xray hysteria-server 2>/dev/null || true"
+  --key-file /etc/unified-vps/xray.key
 chmod 600 /etc/unified-vps/xray.key
 chmod 644 /etc/unified-vps/xray.crt
+
+# Do not restart Xray/Hysteria from acme.sh during first installation.
+# Their final configurations are created below, after certificates are installed.
+echo "Certificate installed successfully."
 
 XRAY_USER="$(systemctl cat xray 2>/dev/null | awk -F= '/^User=/{print $2; exit}')"
 XRAY_USER="${XRAY_USER:-nobody}"
