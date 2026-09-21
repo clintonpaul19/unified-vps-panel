@@ -95,7 +95,9 @@ for x in rows:
  enabled="Yes" if x["enabled"] else "No"
  print("ID: {}  User: {}  Enabled: {}  Used: {}  Quota: {}".format(x["id"],x["username"],enabled,used,quota))
  print("Password/UUID: {}".format(x["secret"]))
- for port,uri in x.get("uris",{}).items(): print("  {}: {}".format(port,uri))
+ if x["protocol"]=="SSH":
+  print("Host: {}".format(x["host"]))
+  print("Ports: 22, 80, 443, 143, 8080, 8443"))
  print()
 ' "$p"
         pause ;;
