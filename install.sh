@@ -112,7 +112,7 @@ Requires=ssh.service
 Wants=network-online.target
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/wstunnel server --restrict-http-upgrade-path-prefix ssh --restrict-to 127.0.0.1:22 ws://127.0.0.1:18446
+ExecStart=/usr/local/bin/wstunnel server --restrict-to 127.0.0.1:22 ws://127.0.0.1:18446
 Restart=always
 RestartSec=2
 NoNewPrivileges=true
@@ -221,7 +221,7 @@ trafficStats:
   secret: ${HY2_STATS_SECRET}
 YAML
 
-# SSH is kept on loopback; SSLH exposes it on the requested public ports.
+# SSH is kept on loopback; HAProxy exposes it on the requested public ports.
 mkdir -p /etc/ssh/sshd_config.d
 cat >/etc/ssh/sshd_config.d/99-unified-vps.conf <<'EOF'
 AddressFamily inet
@@ -235,7 +235,7 @@ sshd -t
 # previous ListenAddress after repeated installations.
 systemctl restart ssh
 
-# NGINX is the plain HTTP service behind SSLH on TCP/8080.
+# NGINX is the plain HTTP service behind HAProxy on TCP/8080.
 # Rebuild the NGINX configuration from scratch so no legacy IPv6 listener
 # can survive across repeated installations.
 mkdir -p /var/www/html
