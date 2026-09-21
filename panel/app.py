@@ -97,6 +97,9 @@ def add_ssh(u,password,days):
     if p.returncode:
         subprocess.run(['userdel','-r',u],capture_output=True)
         raise RuntimeError('Failed to set SSH password')
+    # Explicitly unlock the account after creation. This prevents a locked
+    # shadow entry from causing password authentication to fail.
+    subprocess.run(['usermod','-U',u],capture_output=True)
     if days:
         subprocess.run(['chage','-E',str((int(time.time())+days*86400)//86400+1),u],check=False)
 
@@ -219,7 +222,10 @@ def create_user(d):
     p=d.get('protocol'); u=str(d.get('username','')); quota_gb=float(d.get('quota_gb',0) or 0); q=int(quota_gb*(1024**3)); days=int(d.get('days',0) or 0)
     if quota_gb < 0: raise ValueError('quota cannot be negative')
     if p not in XRAY_TAGS and p not in ('Hysteria','SSH'): raise ValueError('invalid protocol')
-    if p=='SSH' and quota_gb: raise ValueError('Per-user quotas are supported for Xray and Hysteria only')
+    # SSH quota accounting is not currently supported, but accept the field
+    # from CLI clients for compatibility and keep the stored quota at zero.
+    if p=='SSH':
+        q=0
     if not re.fullmatch(r'[A-Za-z0-9_.-]{1,32}',u): raise ValueError('invalid username')
     secret=d.get('secret') or (str(uuid.uuid4()) if p in ('VLESS','VMess') else secrets.token_urlsafe(18))
     if p in ('VLESS','VMess'):
