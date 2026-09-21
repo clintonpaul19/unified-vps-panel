@@ -8,7 +8,7 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y ca-certificates curl jq openssl iproute2 iptables iptables-persistent sqlite3 python3 openssh-server dnsutils lsof procps psmisc
 mkdir -p /opt/unified-vps /etc/unified-vps /var/log/unified-vps
-for p in 22 53 80 443 2087 10086 10087 10088; do iptables -C INPUT -p tcp --dport "$p" -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p tcp --dport "$p" -j ACCEPT; done
+for p in 22 80 443 2087; do iptables -C INPUT -p tcp --dport "$p" -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p tcp --dport "$p" -j ACCEPT; done
 for p in 53 443; do iptables -C INPUT -p udp --dport "$p" -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p udp --dport "$p" -j ACCEPT; done
 iptables -C INPUT -p udp --dport 7100:7300 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p udp --dport 7100:7300 -j ACCEPT
 iptables -C INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
@@ -16,6 +16,25 @@ iptables-save >/etc/iptables/rules.v4
 if command -v ip6tables >/dev/null 2>&1; then ip6tables-save >/etc/iptables/rules.v6 2>/dev/null || true; fi
 if ! command -v hysteria >/dev/null 2>&1; then curl -fsSL https://get.hy2.sh/ | bash; fi
 if ! command -v xray >/dev/null 2>&1; then bash -c "$(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install; fi
+# Xray public port layout: VLESS on 80; VMess and Trojan share 443 via fallback.
+mkdir -p /usr/local/etc/xray
+if [ ! -f /etc/unified-vps/xray.crt ]; then
+  openssl req -x509 -nodes -newkey rsa:2048 -days 825 \
+    -keyout /etc/unified-vps/xray.key \
+    -out /etc/unified-vps/xray.crt \
+    -subj "/CN=unified-vps" >/dev/null 2>&1
+  chmod 600 /etc/unified-vps/xray.key
+fi
+if [ ! -f /usr/local/etc/xray/config.json ]; then
+  curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/config/xray.json" \
+    -o /usr/local/etc/xray/config.json
+fi
+if ! xray -test -config /usr/local/etc/xray/config.json >/tmp/unified-vps-xray-test.log 2>&1; then
+  cat /tmp/unified-vps-xray-test.log >&2
+  echo "Xray configuration test failed." >&2
+  exit 1
+fi
+
 if [ ! -f /etc/unified-vps/panel.env ]; then printf 'ADMIN_USER=admin\nADMIN_PASSWORD=' > /etc/unified-vps/panel.env; openssl rand -base64 32 | tr -dc 'A-Za-z0-9' | head -c 24 >> /etc/unified-vps/panel.env; printf '\nPANEL_PORT=2087\n' >> /etc/unified-vps/panel.env; chmod 600 /etc/unified-vps/panel.env; fi
 cat >/opt/unified-vps/panel.py <<'PY'
 import os,sqlite3,base64,hmac
@@ -66,7 +85,10 @@ EOF
 chmod 755 /usr/local/bin/menu
 systemctl daemon-reload
 systemctl enable --now ssh unified-vps-panel
-echo 'Unified VPS Panel base installation complete.'
+systemctl enable --now xray
+
+echo 'Unified VPS Panel installation complete.'
+echo 'Xray: VLESS=TCP/80, VMess=WS/TLS/443, Trojan=TLS/443'
 echo 'Panel credentials: /etc/unified-vps/panel.env'
 echo 'Run: menu'
 echo 'Run: vps-status'
