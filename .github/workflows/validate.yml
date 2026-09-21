@@ -18,6 +18,12 @@ jobs:
       - name: JSON validation
         run: python3 -m json.tool config/xray.json >/dev/null
 
+      - name: HAProxy configuration test
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y haproxy
+          sudo haproxy -c -f config/haproxy.cfg
+
       - name: Install Xray for config validation
         run: bash -c "$(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install -u root
 
