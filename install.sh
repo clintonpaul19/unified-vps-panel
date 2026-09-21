@@ -22,25 +22,49 @@ echo "Generated ACME email: $ACME_EMAIL"
 apt-get update
 apt-get install -y ca-certificates curl jq openssl iproute2 iptables iptables-persistent sqlite3 python3 openssh-server dnsutils lsof procps psmisc socat nginx sslh cron
 
+systemctl disable --now sslh.service 2>/dev/null || true
+systemctl stop nginx.service 2>/dev/null || true
+
 mkdir -p /opt/unified-vps /etc/unified-vps /etc/hysteria /var/log/unified-vps /usr/local/etc/xray
-# Open every Unified VPS port before ACME. Let's Encrypt HTTP-01 needs TCP/80
-# reachable from the Internet, and the final services use the same firewall rules.
+# Open the required ports without flushing or bypassing an existing firewall.
+# Rules are inserted before the first terminal DROP/REJECT when one exists.
+insert_firewall_rule() {
+  local bin="$1"; shift
+  local chain="$1"; shift
+  local terminal_pos
+  if "$bin" -C "$chain" "$@" -j ACCEPT 2>/dev/null; then
+    return 0
+  fi
+  terminal_pos="$("$bin" -L "$chain" --line-numbers -n 2>/dev/null |
+    awk '$1 ~ /^[0-9]+$/ && ($NF=="DROP" || $NF=="REJECT") {print $1; exit}')"
+  if [ -n "$terminal_pos" ]; then
+    "$bin" -I "$chain" "$terminal_pos" "$@" -j ACCEPT
+  else
+    "$bin" -A "$chain" "$@" -j ACCEPT
+  fi
+}
 for p in 80 443 143 8080 8443; do
-  iptables -C INPUT -p tcp --dport "$p" -j ACCEPT 2>/dev/null ||
-    iptables -I INPUT 1 -p tcp --dport "$p" -j ACCEPT
+  insert_firewall_rule iptables INPUT -p tcp --dport "$p"
 done
 for p in 53 443; do
-  iptables -C INPUT -p udp --dport "$p" -j ACCEPT 2>/dev/null ||
-    iptables -I INPUT 1 -p udp --dport "$p" -j ACCEPT
+  insert_firewall_rule iptables INPUT -p udp --dport "$p"
 done
-iptables -C INPUT -p tcp --dport 53 -j ACCEPT 2>/dev/null ||
-  iptables -I INPUT 1 -p tcp --dport 53 -j ACCEPT
-iptables -C INPUT -p udp --dport 7100:7300 -j ACCEPT 2>/dev/null ||
-  iptables -I INPUT 1 -p udp --dport 7100:7300 -j ACCEPT
-iptables -C INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null ||
-  iptables -I INPUT 1 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+insert_firewall_rule iptables INPUT -p tcp --dport 53
+insert_firewall_rule iptables INPUT -p udp --dport 7100:7300
+insert_firewall_rule iptables INPUT -m conntrack --ctstate ESTABLISHED,RELATED
 
-# Persist the complete IPv4 firewall before any certificate work starts.
+if command -v ip6tables >/dev/null 2>&1; then
+  for p in 80 443 143 8080 8443; do
+    insert_firewall_rule ip6tables INPUT -p tcp --dport "$p"
+  done
+  for p in 53 443; do
+    insert_firewall_rule ip6tables INPUT -p udp --dport "$p"
+  done
+  insert_firewall_rule ip6tables INPUT -p tcp --dport 53
+  insert_firewall_rule ip6tables INPUT -p udp --dport 7100:7300
+  insert_firewall_rule ip6tables INPUT -m conntrack --ctstate ESTABLISHED,RELATED
+fi
+
 iptables-save >/etc/iptables/rules.v4
 command -v ip6tables-save >/dev/null 2>&1 && ip6tables-save >/etc/iptables/rules.v6 || true
 
@@ -185,6 +209,9 @@ KillMode=process
 WantedBy=multi-user.target
 EOF
 
+chown hysteria:hysteria /etc/hysteria/server.crt /etc/hysteria/server.key
+chmod 640 /etc/hysteria/server.crt /etc/hysteria/server.key
+
 cat >/etc/systemd/system/hysteria-server.service <<'EOF'
 [Unit]
 Description=Hysteria 2 Server
@@ -192,6 +219,11 @@ After=network-online.target unified-vps-panel.service
 Requires=unified-vps-panel.service
 Wants=network-online.target
 [Service]
+User=hysteria
+Group=hysteria
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
 ExecStart=/usr/local/bin/hysteria server -c /etc/hysteria/config.yaml
 Restart=on-failure
 RestartSec=3
@@ -232,7 +264,20 @@ systemctl start unified-vps-sslh-xray unified-vps-sslh-web unified-vps-sslh-ssh
 sshd -t
 xray -test -config /usr/local/etc/xray/config.json
 nginx -t
-systemctl is-active --quiet ssh nginx unified-vps-panel xray hysteria-server unified-vps-sslh-xray unified-vps-sslh-web unified-vps-sslh-ssh
+SERVICES=(ssh nginx unified-vps-panel xray hysteria-server unified-vps-sslh-xray unified-vps-sslh-web unified-vps-sslh-ssh)
+FAILED=0
+for s in "${SERVICES[@]}"; do
+  if ! systemctl is-active --quiet "$s"; then
+    echo "ERROR: service failed: $s"
+    systemctl status "$s" --no-pager -l || true
+    journalctl -u "$s" -n 40 --no-pager || true
+    FAILED=1
+  fi
+done
+if [ "$FAILED" -ne 0 ]; then
+  echo "Installation aborted because one or more required services failed."
+  exit 1
+fi
 
 echo
 echo "=============================================="
