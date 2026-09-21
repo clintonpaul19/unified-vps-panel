@@ -56,7 +56,7 @@ def load_xray():
     with open(CFG) as f: return json.load(f)
 
 def save_xray(d):
-    tmp=CFG+'.new'
+    tmp=CFG+'.tmp.json'
     with open(tmp,'w') as f: json.dump(d,f,indent=2)
     test=subprocess.run(['xray','-test','-config',tmp],capture_output=True,text=True)
     if test.returncode:
