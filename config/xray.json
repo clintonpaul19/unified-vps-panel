@@ -1,87 +1,57 @@
 {
   "log": {"loglevel": "warning"},
-  "api": {
-    "services": ["HandlerService", "LoggerService", "StatsService"],
-    "tag": "api"
-  },
+  "api": {"services": ["HandlerService", "LoggerService", "StatsService"], "tag": "api"},
   "stats": {},
-  "policy": {
-    "levels": {
-      "0": {
-        "statsUserUplink": true,
-        "statsUserDownlink": true,
-        "statsUserOnline": true
-      }
-    }
-  },
+  "policy": {"levels": {"0": {"statsUserUplink": true, "statsUserDownlink": true, "statsUserOnline": true}}},
   "inbounds": [
     {
-      "listen": "0.0.0.0",
-      "port": 80,
-      "protocol": "vless",
-      "tag": "vless80",
-      "settings": {
-        "clients": [],
-        "decryption": "none"
-      },
-      "streamSettings": {
-        "network": "ws",
-        "security": "none",
-        "wsSettings": {"path": "/vless"}
-      }
+      "listen": "0.0.0.0", "port": 443, "protocol": "trojan", "tag": "trojan443",
+      "settings": {"clients": [], "fallbacks": [
+        {"path": "/vless", "dest": "127.0.0.1:10087", "xver": 0},
+        {"path": "/vmess", "dest": "127.0.0.1:10086", "xver": 0},
+        {"dest": "127.0.0.1:2087", "xver": 0}
+      ]},
+      "streamSettings": {"network": "tcp", "security": "tls", "tlsSettings": {
+        "alpn": ["http/1.1"],
+        "certificates": [{"certificateFile": "/etc/unified-vps/xray.crt", "keyFile": "/etc/unified-vps/xray.key"}]
+      }}
     },
     {
-      "listen": "0.0.0.0",
-      "port": 443,
-      "protocol": "trojan",
-      "tag": "trojan443",
-      "settings": {
-        "clients": [],
-        "fallbacks": [
-          {"path": "/vmess", "dest": "127.0.0.1:10086", "xver": 0}
-        ]
-      },
-      "streamSettings": {
-        "network": "tcp",
-        "security": "tls",
-        "tlsSettings": {
-          "alpn": ["http/1.1"],
-          "certificates": [
-            {
-              "certificateFile": "/etc/unified-vps/xray.crt",
-              "keyFile": "/etc/unified-vps/xray.key"
-            }
-          ]
-        }
-      }
+      "listen": "0.0.0.0", "port": 80, "protocol": "trojan", "tag": "trojan80",
+      "settings": {"clients": [], "fallbacks": [
+        {"path": "/vless", "dest": "127.0.0.1:10089", "xver": 0},
+        {"path": "/vmess", "dest": "127.0.0.1:10088", "xver": 0}
+      ]},
+      "streamSettings": {"network": "tcp", "security": "tls", "tlsSettings": {
+        "alpn": ["http/1.1"],
+        "certificates": [{"certificateFile": "/etc/unified-vps/xray.crt", "keyFile": "/etc/unified-vps/xray.key"}]
+      }}
     },
     {
-      "listen": "127.0.0.1",
-      "port": 10086,
-      "protocol": "vmess",
-      "tag": "vmess443",
+      "listen": "127.0.0.1", "port": 10087, "protocol": "vless", "tag": "vless443",
+      "settings": {"clients": [], "decryption": "none"},
+      "streamSettings": {"network": "ws", "security": "none", "wsSettings": {"path": "/vless"}}
+    },
+    {
+      "listen": "127.0.0.1", "port": 10089, "protocol": "vless", "tag": "vless80",
+      "settings": {"clients": [], "decryption": "none"},
+      "streamSettings": {"network": "ws", "security": "none", "wsSettings": {"path": "/vless"}}
+    },
+    {
+      "listen": "127.0.0.1", "port": 10086, "protocol": "vmess", "tag": "vmess443",
       "settings": {"clients": []},
-      "streamSettings": {
-        "network": "ws",
-        "security": "none",
-        "wsSettings": {"path": "/vmess"}
-      }
+      "streamSettings": {"network": "ws", "security": "none", "wsSettings": {"path": "/vmess"}}
     },
     {
-      "listen": "127.0.0.1",
-      "port": 10085,
-      "protocol": "dokodemo-door",
-      "tag": "api",
+      "listen": "127.0.0.1", "port": 10088, "protocol": "vmess", "tag": "vmess80",
+      "settings": {"clients": []},
+      "streamSettings": {"network": "ws", "security": "none", "wsSettings": {"path": "/vmess"}}
+    },
+    {
+      "listen": "127.0.0.1", "port": 10085, "protocol": "dokodemo-door", "tag": "api",
       "settings": {"address": "127.0.0.1"}
     }
   ],
-  "outbounds": [
-    {"protocol": "freedom", "tag": "direct"},
-    {"protocol": "freedom", "tag": "api"}
-  ],
-  "routing": {
-    "rules": [
-      {"type": "field", "inboundTag": ["api"], "outboundTag": "api"}
-    ]
-  }
+  "outbounds": [{"protocol": "freedom", "tag": "direct"}, {"protocol": "freedom", "tag": "api"}],
+  "routing": {"rules": [{"type": "field", "inboundTag": ["api"], "outboundTag": "api"}]}
 }
