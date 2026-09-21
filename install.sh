@@ -36,28 +36,7 @@ if ! xray -test -config /usr/local/etc/xray/config.json >/tmp/unified-vps-xray-t
 fi
 
 if [ ! -f /etc/unified-vps/panel.env ]; then printf 'ADMIN_USER=admin\nADMIN_PASSWORD=' > /etc/unified-vps/panel.env; openssl rand -base64 32 | tr -dc 'A-Za-z0-9' | head -c 24 >> /etc/unified-vps/panel.env; printf '\nPANEL_PORT=2087\n' >> /etc/unified-vps/panel.env; chmod 600 /etc/unified-vps/panel.env; fi
-cat >/opt/unified-vps/panel.py <<'PY'
-import os,sqlite3,base64,hmac
-from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
-DB='/etc/unified-vps/panel.db'; PORT=int(os.environ.get('PANEL_PORT','2087'))
-def db():
- c=sqlite3.connect(DB); c.execute('create table if not exists users(id integer primary key,username text unique,protocol text,secret text,quota_bytes integer default 0,used_bytes integer default 0,expiry integer default 0,enabled integer default 1,created_at integer)'); c.commit(); return c
-def auth(h):
- v=h.get('Authorization','')
- if not v.startswith('Basic '): return False
- try: u,p=base64.b64decode(v[6:]).decode().split(':',1)
- except: return False
- return hmac.compare_digest(u,os.environ.get('ADMIN_USER','admin')) and hmac.compare_digest(p,os.environ.get('ADMIN_PASSWORD',''))
-class H(BaseHTTPRequestHandler):
- def do_GET(self):
-  if not auth(self.headers): self.send_response(401); self.send_header('WWW-Authenticate','Basic realm="Unified VPS"'); self.end_headers(); return
-  c=db(); rows=c.execute('select username,protocol,used_bytes,quota_bytes,enabled from users order by id desc').fetchall(); c.close()
-  html='<h1>Unified VPS Panel</h1><p>Hysteria UDP 53 · SSH 22 · SSH WS 80 · SSH WSS 443 · VMess 10086 · VLESS 10087 · Trojan 10088 · BadVPN 7100-7300</p><table border=1 cellpadding=8><tr><th>User</th><th>Protocol</th><th>Used</th><th>Quota</th><th>Enabled</th></tr>'
-  for r in rows: html += '<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>' % r
-  html+='</table>'; b=('<meta name="viewport" content="width=device-width"><body style="font-family:system-ui;background:#111;color:#eee;padding:25px">'+html+'</body>').encode()
-  self.send_response(200); self.send_header('Content-Type','text/html'); self.send_header('Content-Length',str(len(b))); self.end_headers(); self.wfile.write(b)
-db().close(); ThreadingHTTPServer(('0.0.0.0',PORT),H).serve_forever()
-PY
+curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/panel/app.py" -o /opt/unified-vps/panel.py
 cat >/etc/systemd/system/unified-vps-panel.service <<'EOF'
 [Unit]
 Description=Unified VPS Panel
