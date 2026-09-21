@@ -11,7 +11,7 @@ DOMAIN=os.environ.get('SERVER_DOMAIN','')
 ADMIN=os.environ.get('ADMIN_USER','spiderman')
 PASSWORD=os.environ.get('ADMIN_PASSWORD','spiderman')
 PUBLIC_IP_CACHE=None
-XRAY_TAGS={'VLESS':['vless80','vless443'],'VMess':['vmess80','vmess443'],'Trojan':['trojan80','trojan443']}
+XRAY_TAGS={'VLESS':['vless443'],'VMess':['vmess443'],'Trojan':['trojan443']}
 SSH_PORTS=[80,443,143,8080,8443]
 
 def conn():
