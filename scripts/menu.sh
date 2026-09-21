@@ -97,7 +97,7 @@ for x in rows:
  print("Password/UUID: {}".format(x["secret"]))
  if x["protocol"]=="SSH":
   print("Host: {}".format(x["host"]))
-  print("Ports: 22, 80, 443, 143, 8080, 8443"))
+  print("Ports: 22, 80, 443, 143, 8080, 8443")
  print()
 ' "$p"
         pause ;;
