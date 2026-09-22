@@ -54,11 +54,11 @@ mkdir -p /opt/unified-vps /etc/unified-vps /etc/hysteria /var/log/unified-vps /u
 insert_firewall_rule() {
   local bin="$1"; shift
   local chain="$1"; shift
-  local terminal_pos
+  local terminal_pos=""
   if "$bin" -C "$chain" "$@" -j ACCEPT 2>/dev/null; then
     return 0
   fi
-  terminal_pos="$("$bin" -L "$chain" --line-numbers -n 2>/dev/null | awk '$1 ~ /^[0-9]+$/ && ($4=="DROP" || $4=="REJECT") {print $1; exit}')"
+  terminal_pos="$("$bin" -L "$chain" --line-numbers -n 2>/dev/null | awk '$1 ~ /^[0-9]+$/ && ($4=="DROP" || $4=="REJECT") {print $1; exit}' || true)"
   if [ -n "$terminal_pos" ]; then
     # Insert immediately before the first terminal DROP/REJECT. Never append
     # an allow rule after a rule that already terminates INPUT processing.
