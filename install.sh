@@ -6,6 +6,54 @@ case "$ID" in ubuntu|debian) ;; *) echo "Unsupported OS: $ID"; exit 1;; esac
 case "$(dpkg --print-architecture)" in amd64|arm64) ;; *) echo 'Supported architectures: amd64, arm64'; exit 1;; esac
 export DEBIAN_FRONTEND=noninteractive
 
+DIAG_DIR="/var/log/unified-vps"
+DIAG_ACTIVE=0
+sanitize_diag() {
+  sed -E \
+    -e 's/(Authorization: Bearer )[A-Za-z0-9._-]+/\1[REDACTED]/g' \
+    -e 's/(token|password|passwd|secret|private[_-]?key)[=:][[:space:]]*[^[:space:]]+/\1=[REDACTED]/Ig'
+}
+collect_diagnostics() {
+  local rc="$?"
+  [ "$DIAG_ACTIVE" -eq 1 ] || return "$rc"
+  local stamp report archive tmp
+  stamp="$(date +%Y%m%d-%H%M%S)"
+  report="$DIAG_DIR/install-failure-$stamp.txt"
+  archive="$DIAG_DIR/install-failure-$stamp.tar.gz"
+  tmp="$(mktemp -d)"
+  {
+    echo "=== Unified VPS Installer Failure ==="
+    echo "Timestamp: $(date -Is)"
+    echo "Exit code: $rc"
+    echo "=== OS ==="; cat /etc/os-release 2>/dev/null || true
+    echo "=== Architecture ==="; dpkg --print-architecture 2>/dev/null || true
+    echo "=== Host/IP ==="; hostname -f 2>/dev/null || hostname; hostname -I 2>/dev/null || true
+    echo "=== DNS ==="; getent ahostsv4 "$DOMAIN" 2>/dev/null || true
+    echo "=== LISTENERS ==="; ss -lntup 2>/dev/null || true
+    echo "=== IPTABLES ==="; iptables -L -n -v --line-numbers 2>/dev/null || true
+    echo "=== SSH EFFECTIVE CONFIG ==="; sshd -T 2>/dev/null | grep -E '^(port|listenaddress|addressfamily|passwordauthentication|kbdinteractiveauthentication|usepam|authenticationmethods)' || true
+    echo "=== FAILED UNITS ==="; systemctl --failed --no-pager 2>/dev/null || true
+    echo "=== CONFIG TESTS ==="
+    sshd -t 2>&1 || true
+    nginx -t 2>&1 || true
+    haproxy -c -f /etc/haproxy/haproxy.cfg 2>&1 || true
+    xray -test -config /usr/local/etc/xray/config.json 2>&1 || true
+    echo "=== SERVICES AND JOURNALS ==="
+    for s in ssh nginx haproxy unified-vps-panel xray hysteria-server unified-vps-wstunnel-ssh unified-vps-ws-payload-ssh; do
+      echo "--- $s ---"
+      systemctl status "$s" --no-pager -l 2>/dev/null || true
+      journalctl -u "$s" -n 80 --no-pager 2>/dev/null || true
+    done
+  } | sanitize_diag >"$report"
+  cp "$report" "$tmp/report.txt"
+  tar -C "$tmp" -czf "$archive" report.txt
+  rm -rf "$tmp"
+  echo "DIAGNOSTIC_REPORT=$report" >&2
+  echo "DIAGNOSTIC_ARCHIVE=$archive" >&2
+  return "$rc"
+}
+trap collect_diagnostics ERR
+
 # IPv6 is intentionally disabled for this deployment.
 cat >/etc/sysctl.d/99-unified-vps-disable-ipv6.conf <<'EOF'
 net.ipv6.conf.all.disable_ipv6 = 1
@@ -49,6 +97,7 @@ sleep 1
 
 
 mkdir -p /opt/unified-vps /etc/unified-vps /etc/hysteria /var/log/unified-vps /usr/local/etc/xray
+DIAG_ACTIVE=1
 # Open the required ports without flushing or bypassing an existing firewall.
 # Rules are inserted before the first terminal DROP/REJECT when one exists.
 insert_firewall_rule() {
