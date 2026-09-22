@@ -128,7 +128,7 @@ if [[ "$p" == "SSH" ]]; then
         else
           json="$(jq -n --arg u "$id" --arg p "$p" --argjson d "$days" --argjson q "$quota" '{username:$u,protocol:$p,days:$d,quota_gb:$q}')"
         fi
-        api_action "$json" | python3 -m json.tool
+        api_post "$json" | python3 -m json.tool
         pause ;;
       3)
         read -r -p "Account ID: " id
