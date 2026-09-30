@@ -642,22 +642,11 @@ class H(BaseHTTPRequestHandler):
             if self.path in ('/','/setup'): return _setup_page(self)
             return send(self,{'error':'panel setup required'},503)
         if self.path=='/login' and not auth(self.headers,self.client_address[0] in ('127.0.0.1','::1')): return _login_page(self)
-        if not auth(self.headers):
+        if not auth(self.headers,self.client_address[0] in ('127.0.0.1','::1')):
             if self.path.startswith('/api/'):
                 return send(self,{'error':'authentication required'},401)
             return _login_page(self)
             self.send_response(401); self.send_header('WWW-Authenticate','Basic realm="Unified VPS"'); self.end_headers(); return
-        if self.path=='/api/certificate/renew':
-            try:
-                acme='/root/.acme.sh/acme.sh'
-                if not os.path.exists(acme): return send(self,{'error':'acme.sh not installed'},500)
-                p=subprocess.run([acme,'--renew','-d',public_host(),'--force'],capture_output=True,text=True,timeout=180)
-                if p.returncode:
-                    return send(self,{'error':(p.stderr or p.stdout).strip() or 'certificate renewal failed'},500)
-                log_event('certificate_renewed',public_host(),'')
-                return send(self,{'ok':True,'output':(p.stdout or '').strip()})
-            except Exception as e:
-                return send(self,{'error':str(e)},500)
 
         if self.path=='/api/users':
             c=conn(); rows=[record(x) for x in c.execute('select * from users order by id desc')]; c.close()
