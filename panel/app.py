@@ -1441,7 +1441,7 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                         baseline=int(row['raw_bytes'] or 0)
                         if row['protocol'] in XRAY_TAGS:
                             stats=_xray_usage()
-                            if isinstance(stats,dict): baseline=int(stats.get(row['username'],baseline if row['enabled'] else 0))
+                            if isinstance(stats,dict): baseline=int(stats.get(row['username'],baseline))
                             ensure_xray_client(row['protocol'],row['username'],row['secret'])
                         elif row['protocol']=='Hysteria':
                             stats=_hysteria_usage()
@@ -1467,7 +1467,7 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                     baseline=int(row['raw_bytes'] or 0)
                     if row['protocol'] in XRAY_TAGS:
                         stats=_xray_usage()
-                        if isinstance(stats,dict): baseline=int(stats.get(row['username'],baseline if row['enabled'] else 0))
+                        if isinstance(stats,dict): baseline=int(stats.get(row['username'],baseline))
                         ensure_xray_client(row['protocol'],row['username'],row['secret'])
                     elif row['protocol']=='Hysteria':
                         stats=_hysteria_usage()
