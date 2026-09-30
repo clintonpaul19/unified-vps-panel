@@ -5,6 +5,14 @@ source /etc/unified-vps/panel.env
 API="http://127.0.0.1:${PANEL_PORT}"
 AUTH=(-u "${ADMIN_USER}:${ADMIN_PASSWORD}")
 PANEL_VERSION="1.2.0"
+
+# The old placeholder account has been removed. Force old installations into
+# the browser-based first-run credential setup.
+if [[ "${ADMIN_USER:-}" == "spiderman" && "${ADMIN_PASSWORD:-}" == "spiderman" ]]; then
+  sed -i -E "s/^ADMIN_USER=.*/ADMIN_USER=/; s/^ADMIN_PASSWORD=.*/ADMIN_PASSWORD=/" /etc/unified-vps/panel.env
+  ADMIN_USER=""; ADMIN_PASSWORD=""
+  AUTH=(-u ":")
+fi
 REBOOT_CRON="/etc/cron.d/unified-vps-daily-reboot"
 
 pause(){ read -r -p 'Press Enter to continue...' _; }
@@ -647,6 +655,9 @@ while true; do
   echo "[21] Exit"
   echo
   echo "Version = $PANEL_VERSION | Daily reboot = 04:00 local"
+  if [[ -z "${ADMIN_USER:-}" || -z "${ADMIN_PASSWORD:-}" ]]; then
+    echo "Panel setup: http://${SERVER_DOMAIN:-SERVER_IP}:${PANEL_PORT:-6080}/"
+  fi
   echo
   read -r -p "Select an option [1-21] >>> " n
   case "$n" in
