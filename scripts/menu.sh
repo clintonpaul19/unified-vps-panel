@@ -378,7 +378,12 @@ server_settings(){
       1)
         read -r -s -p "New panel password: " newpass; echo
         read -r -s -p "Confirm password: " confirm; echo
-        [[ -n "$newpass" && "$newpass" == "$confirm" && "$newpass" != *        NEWPASS="$newpass" ADMIN_USER="$ADMIN_USER" python3 - <<'PY'
+        if [[ -z "$newpass" || "$newpass" != "$confirm" || "$newpass" == *$'\n'* || "$newpass" == *$'\r'* || ${#newpass} -lt 8 || ${#newpass} -gt 128 ]]; then
+          echo "Password must match, contain no newlines, and be 8-128 characters."
+          pause
+          continue
+        fi
+        NEWPASS="$newpass" ADMIN_USER="$ADMIN_USER" python3 - <<'PY'
 import json, os, tempfile
 from pathlib import Path
 p=Path("/etc/unified-vps/admin.json")
@@ -386,15 +391,17 @@ data={"username":os.environ["ADMIN_USER"],"password":os.environ["NEWPASS"]}
 p.parent.mkdir(parents=True,exist_ok=True)
 fd,tmp=tempfile.mkstemp(prefix=".admin.",dir=str(p.parent))
 try:
-    with os.fdopen(fd,"w",encoding="utf-8") as f: json.dump(data,f,ensure_ascii=False); f.write("\n")
-    os.chmod(tmp,0o600); os.replace(tmp,p)
+    with os.fdopen(fd,"w",encoding="utf-8") as f:
+        json.dump(data,f,ensure_ascii=False)
+        f.write("\n")
+    os.chmod(tmp,0o600)
+    os.replace(tmp,p)
 finally:
     try: os.unlink(tmp)
     except FileNotFoundError: pass
 PY
         ADMIN_PASSWORD="$newpass"
         AUTH=(-u "${ADMIN_USER}:${ADMIN_PASSWORD}")
-        systemctl restart unified-vps-panel
         echo "Panel password changed."
         pause ;;
       2) echo "Admin username: $ADMIN_USER"; echo "Credentials file: $ADMIN_FILE (root-only)"; pause ;;
