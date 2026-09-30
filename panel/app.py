@@ -145,10 +145,37 @@ def send(r,obj,status=200,headers=None):
     r.end_headers(); r.wfile.write(b)
 
 def body(r):
-    try: length=int(r.headers.get('Content-Length','0') or 0)
-    except (TypeError,ValueError): raise ValueError('invalid content length')
-    if length<0 or length>MAX_REQUEST_BODY: raise ValueError('request body too large')
-    return json.loads(r.rfile.read(length) or b'{}')
+    transfer=(r.headers.get('Transfer-Encoding','') or '').lower()
+    if 'chunked' in transfer:
+        chunks=[]; total=0
+        while True:
+            line=r.rfile.readline(128)
+            if not line: raise ValueError('incomplete chunked request')
+            try: size=int(line.split(b';',1)[0].strip(),16)
+            except ValueError: raise ValueError('invalid chunk size')
+            if size==0:
+                while True:
+                    trailer=r.rfile.readline(4096)
+                    if not trailer or trailer in (b'\\r\\n',b'\\n'): break
+                break
+            total += size
+            if total>MAX_REQUEST_BODY: raise ValueError('request body too large')
+            chunk=r.rfile.read(size)
+            if len(chunk)!=size: raise ValueError('incomplete request body')
+            chunks.append(chunk)
+            if r.rfile.read(2)!=b'\\r\\n': raise ValueError('invalid chunk framing')
+        raw=b''.join(chunks)
+    else:
+        try: length=int(r.headers.get('Content-Length','0') or 0)
+        except (TypeError,ValueError): raise ValueError('invalid content length')
+        if length<0 or length>MAX_REQUEST_BODY: raise ValueError('request body too large')
+        raw=r.rfile.read(length)
+        if len(raw)!=length: raise ValueError('incomplete request body')
+    if not raw: return {}
+    try:
+        return json.loads(raw.decode('utf-8'))
+    except (UnicodeDecodeError,json.JSONDecodeError):
+        raise ValueError('invalid JSON')
 
 def public_host():
     return DOMAIN or public_ip()
