@@ -1182,9 +1182,14 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                 with LOGIN_LOCK: LOGIN_FAILURES.pop(client_ip,None)
                 return send(self,{'ok':True},200,{'Set-Cookie':f'{SESSION_COOKIE}={_session_cookie(u)}; Path=/; HttpOnly; SameSite=Strict; Max-Age={SESSION_TTL}'})
             with LOGIN_LOCK:
+                stale=[ip for ip,state in LOGIN_FAILURES.items() if now-state[1] > LOGIN_WINDOW]
+                for ip in stale: LOGIN_FAILURES.pop(ip,None)
                 state=LOGIN_FAILURES.get(client_ip,[0,now])
                 if now-state[1] > LOGIN_WINDOW: state=[0,now]
                 state[0]+=1; LOGIN_FAILURES[client_ip]=state
+                if len(LOGIN_FAILURES)>10000:
+                    oldest=sorted(LOGIN_FAILURES.items(),key=lambda item:item[1][1])[:1000]
+                    for ip,_ in oldest: LOGIN_FAILURES.pop(ip,None)
             return send(self,{'error':'invalid credentials'},401)
         if self.path=='/hysteria-auth':
             if self.client_address[0] not in ('127.0.0.1','::1'):
