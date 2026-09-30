@@ -633,8 +633,7 @@ update_script(){
   systemctl daemon-reload
   systemctl enable --now fail2ban unified-vps-watchdog.timer unified-vps-backup.timer
   systemctl restart unified-vps-panel unified-vps-wstunnel-ssh unified-vps-ws-payload-ssh hysteria-server haproxy
-  apply_firewall
-  if ! verify_listeners; then
+  if ! /usr/local/bin/menu --apply-firewall; then
     echo "Update finished, but one or more required listeners are missing."
     ss -lntup || true
   fi
@@ -659,6 +658,15 @@ server_info(){
   echo "Daily reboot: 04:00 local"
   pause
 }
+
+if [[ "${1:-}" == "--apply-firewall" ]]; then
+  apply_firewall
+  if ! verify_listeners; then
+    ss -lntup || true
+    exit 1
+  fi
+  exit 0
+fi
 
 ensure_daily_reboot
 
