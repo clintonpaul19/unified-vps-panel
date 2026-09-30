@@ -659,7 +659,7 @@ class H(BaseHTTPRequestHandler):
         if self.path in ('/','/setup') and not admin_configured(): return _setup_page(self)
         if self.path=='/setup':
             self.send_response(404); self.end_headers(); return
-        if not auth(self.headers,self.client_address[0] if self.client_address else '')
+        if not auth(self.headers,self.client_address[0] if self.client_address else ''):
             self.send_response(401); self.send_header('WWW-Authenticate','Basic realm="Unified VPS"'); self.end_headers(); return
         if self.path=='/api/backup':
             files=[]
