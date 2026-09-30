@@ -581,7 +581,7 @@ update_script(){
      ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/config/fail2ban-unified-vps.local?$(date +%s)" -o "$tmp_f2b"; then
     echo "Update download failed."; rm -f "$tmp_menu" "$tmp_app" "$tmp_haproxy" "$tmp_payload" "$tmp_wstunnel_unit" "$tmp_hysteria_unit" "$tmp_cert_hook" "$tmp_status" "$tmp_watch" "$tmp_watch_unit" "$tmp_timer" "$tmp_backup" "$tmp_backup_unit" "$tmp_backup_timer" "$tmp_f2b"; pause; return
   fi
-  if ! bash -n "$tmp_menu" || ! bash -n "$tmp_cert_hook" || ! bash -n "$tmp_status" || ! python3 -m py_compile "$tmp_app" || ! haproxy -c -f "$tmp_haproxy" || ! systemd-analyze verify "$tmp_wstunnel_unit" "$tmp_hysteria_unit"; then
+  if ! bash -n "$tmp_menu" || ! bash -n "$tmp_cert_hook" || ! bash -n "$tmp_status" || ! bash -n "$tmp_watch" || ! bash -n "$tmp_backup" || ! python3 -m py_compile "$tmp_app" "$tmp_payload" || ! haproxy -c -f "$tmp_haproxy" || ! systemd-analyze verify "$tmp_wstunnel_unit" "$tmp_hysteria_unit" "$tmp_watch_unit" "$tmp_timer" "$tmp_backup_unit" "$tmp_backup_timer"; then
     echo "Validation failed. Nothing was installed."; rm -f "$tmp_menu" "$tmp_app" "$tmp_haproxy" "$tmp_payload" "$tmp_wstunnel_unit" "$tmp_hysteria_unit" "$tmp_cert_hook" "$tmp_watch" "$tmp_watch_unit" "$tmp_timer" "$tmp_backup" "$tmp_backup_unit" "$tmp_backup_timer" "$tmp_f2b"; pause; return
   fi
   install -m 0755 "$tmp_menu" /usr/local/bin/menu
