@@ -28,7 +28,7 @@ collect_diagnostics() {
     echo "=== OS ==="; cat /etc/os-release 2>/dev/null || true
     echo "=== Architecture ==="; dpkg --print-architecture 2>/dev/null || true
     echo "=== Host/IP ==="; hostname -f 2>/dev/null || hostname; hostname -I 2>/dev/null || true
-    echo "=== DNS ==="; getent ahostsv4 "$DOMAIN" 2>/dev/null || true
+    echo "=== DNS ==="; getent ahostsv4 "${DOMAIN:-}" 2>/dev/null || true
     echo "=== LISTENERS ==="; ss -lntup 2>/dev/null || true
     echo "=== IPTABLES ==="; iptables -L -n -v --line-numbers 2>/dev/null || true
     echo "=== SSH EFFECTIVE CONFIG ==="; sshd -T 2>/dev/null | grep -E '^(port|listenaddress|addressfamily|passwordauthentication|kbdinteractiveauthentication|usepam|authenticationmethods)' || true
