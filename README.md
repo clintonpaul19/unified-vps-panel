@@ -281,3 +281,6 @@ The current panel and CLI include:
 - Direct SSH brute-force protection through Fail2Ban on TCP 22; proxied WebSocket SSH transports are handled separately by HAProxy/wstunnel/payload routing.
 - Security dashboard covering SSH authentication, firewall rules, bans and certificate state.
 - Logs and maintenance reports.
+
+
+<!-- CI final audit trigger: 2026-09-30-b -->
