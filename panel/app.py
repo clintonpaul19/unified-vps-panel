@@ -694,7 +694,19 @@ def service_state(name):
 
 class H(BaseHTTPRequestHandler):
     def do_GET(self):
-        if self.path=='/health': return send(self,{'ok':True})
+        if self.path=='/health':
+            services={name:service_state(name) for name in ('ssh','nginx','haproxy','xray','hysteria-server','unified-vps-wstunnel-ssh','unified-vps-ws-payload-ssh','unified-vps-panel')}
+            tcp={}
+            for port in (22,80,143,443,8080,8443,8880,6080):
+                try:
+                    out=subprocess.run(['ss','-lntH',f'sport = :{port}'],capture_output=True,text=True,timeout=3)
+                    tcp[str(port)]=bool(out.stdout.strip())
+                except Exception: tcp[str(port)]=False
+            try:
+                out=subprocess.run(['ss','-lunH','sport = :53'],capture_output=True,text=True,timeout=3)
+                udp53=bool(out.stdout.strip())
+            except Exception: udp53=False
+            return send(self,{'ok':True,'services':services,'listeners':{'tcp':tcp,'udp53':udp53}})
         if not admin_configured():
             if self.path in ('/','/setup'): return _setup_page(self)
             return send(self,{'error':'panel setup required'},503)
