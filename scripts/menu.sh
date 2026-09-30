@@ -345,18 +345,20 @@ server_settings(){
         if [[ -z "$newpass" || "$newpass" != "$confirm" || "$newpass" == *$'\n'* || "$newpass" == *$'\r'* ]]; then
           echo "Passwords do not match or contain an invalid newline."; pause; continue
         fi
-        printf '%s' "$newpass" | python3 -c '
-import sys, json
+        NEWPASS="$newpass" python3 - <<'PY'
+import json, os
 from pathlib import Path
-p=Path("/etc/unified-vps/panel.env")
-new=sys.stdin.read()
-q='"'+json.dumps(new)[1:-1].replace(chr(36),chr(92)+chr(36)).replace(chr(96),chr(92)+chr(96))+'"'
+p=Path('/etc/unified-vps/panel.env')
+new=os.environ['NEWPASS']
+def q(value):
+    return json.dumps(value).replace(chr(36),chr(92)+chr(36)).replace(chr(96),chr(92)+chr(96))
 lines=p.read_text().splitlines()
 out=[]
 for line in lines:
-    if line.startswith("ADMIN_PASSWORD="): out.append("ADMIN_PASSWORD="+q)
+    if line.startswith('ADMIN_PASSWORD='): out.append('ADMIN_PASSWORD='+q(new))
     else: out.append(line)
-p.write_text("\n".join(out)+"\n")'
+p.write_text('\n'.join(out)+'\n')
+PY
         chmod 600 /etc/unified-vps/panel.env
         systemctl restart unified-vps-panel
         ADMIN_PASSWORD="$newpass"
