@@ -510,7 +510,9 @@ security_menu(){
 
 restart_services(){
   echo "Restarting Unified VPS services..."
-  systemctl restart ssh nginx haproxy unified-vps-panel xray hysteria-server unified-vps-wstunnel-ssh unified-vps-ws-payload-ssh
+  if ! systemctl restart ssh nginx haproxy unified-vps-panel xray hysteria-server unified-vps-wstunnel-ssh unified-vps-ws-payload-ssh; then
+    echo "One or more services failed to restart; check status below."
+  fi
   echo
   systemctl is-active ssh nginx haproxy unified-vps-panel xray hysteria-server unified-vps-wstunnel-ssh unified-vps-ws-payload-ssh || true
   echo "Done."
