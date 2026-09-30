@@ -151,7 +151,6 @@ insert_firewall_rule iptables INPUT -p tcp --dport 6080
 for p in 53 443; do
   insert_firewall_rule iptables INPUT -p udp --dport "$p"
 done
-insert_firewall_rule iptables INPUT -p tcp --dport 53
 insert_firewall_rule iptables INPUT -m conntrack --ctstate ESTABLISHED,RELATED
 
 # IPv6 is disabled for this deployment; do not configure IPv6 firewall rules.
@@ -159,7 +158,7 @@ insert_firewall_rule iptables INPUT -m conntrack --ctstate ESTABLISHED,RELATED
 # If UFW is already active on a reused VPS, mirror the required ingress
 # rules there as well. Do not enable UFW automatically.
 if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q '^Status: active'; then
-  for p in 22 80 143 443 8080 8443 8880 6080 53; do ufw allow "$p/tcp" >/dev/null || true; done
+  for p in 22 80 143 443 8080 8443 8880 6080; do ufw allow "$p/tcp" >/dev/null || true; done
   ufw allow 53/udp >/dev/null || true
   ufw allow 443/udp >/dev/null || true
 fi
@@ -237,8 +236,16 @@ chmod 755 /usr/local/sbin/unified-vps-cert-reload
 # Issue the certificate. Prefer HTTP-01 on TCP/80, then fall back to
 # TLS-ALPN-01 on TCP/443. This is useful on VPS providers where inbound
 # TCP/80 may be filtered even when the instance firewall permits it.
-rm -rf "$HOME/.acme.sh/${DOMAIN}_ecc" "$HOME/.acme.sh/${DOMAIN}"
 ACME_OK=0
+CERT_REUSE=0
+if [ -s /etc/unified-vps/xray.crt ] && [ -s /etc/unified-vps/xray.key ] &&
+   openssl x509 -in /etc/unified-vps/xray.crt -noout >/dev/null 2>&1 &&
+   openssl x509 -in /etc/unified-vps/xray.crt -checkend 2592000 -noout >/dev/null 2>&1; then
+  CERT_REUSE=1
+  echo "Existing certificate is valid for at least 30 more days; reusing it."
+fi
+
+if [ "$CERT_REUSE" -ne 1 ]; then
 echo "Attempting Let's Encrypt HTTP-01 validation on TCP/80..."
 if "$HOME/.acme.sh/acme.sh" --issue --standalone -d "$DOMAIN"     --pre-hook "systemctl stop haproxy"     --post-hook "systemctl start haproxy"; then
   ACME_OK=1
@@ -248,6 +255,9 @@ else
   if "$HOME/.acme.sh/acme.sh" --issue --alpn -d "$DOMAIN"       --pre-hook "systemctl stop haproxy"       --post-hook "systemctl start haproxy"; then
     ACME_OK=1
   fi
+fi
+else
+  ACME_OK=1
 fi
 
 if [ "$ACME_OK" -ne 1 ]; then
@@ -266,10 +276,12 @@ if [ ! -s "$HOME/.acme.sh/${DOMAIN}_ecc/fullchain.cer" ] && [ ! -s "$HOME/.acme.
   exit 1
 fi
 
-"$HOME/.acme.sh/acme.sh" --install-cert -d "$DOMAIN" \
-  --fullchain-file /etc/unified-vps/xray.crt \
-  --key-file /etc/unified-vps/xray.key \
-  --reloadcmd "/usr/local/sbin/unified-vps-cert-reload"
+if [ "$CERT_REUSE" -ne 1 ]; then
+  "$HOME/.acme.sh/acme.sh" --install-cert -d "$DOMAIN" \
+    --fullchain-file /etc/unified-vps/xray.crt \
+    --key-file /etc/unified-vps/xray.key \
+    --reloadcmd "/usr/local/sbin/unified-vps-cert-reload"
+fi
 chmod 600 /etc/unified-vps/xray.key
 chmod 644 /etc/unified-vps/xray.crt
 
