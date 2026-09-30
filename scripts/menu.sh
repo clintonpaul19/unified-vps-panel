@@ -20,7 +20,7 @@ pause(){ read -r -p 'Press Enter to continue...' _; }
 server_ip(){ curl -4fsS --max-time 4 https://api.ipify.org 2>/dev/null || echo "Unknown"; }
 isp_info(){ curl -4fsS --max-time 4 https://ipinfo.io/org 2>/dev/null || echo "Unknown"; }
 location_info(){ curl -4fsS --max-time 4 https://ipinfo.io/city 2>/dev/null || echo "Unknown"; }
-status_word(){ systemctl is-active "$1" 2>/dev/null || echo "OFF"; }
+status_word(){ local s; s="$(systemctl is-active "$1" 2>/dev/null || true)"; [ "$s" = "active" ] && echo "ON" || echo "OFF"; }
 
 ensure_daily_reboot(){
   mkdir -p /etc/cron.d
