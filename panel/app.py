@@ -51,14 +51,82 @@ def conn():
               (time.strftime('%Y-%m-%d'),))
     c.commit(); return c
 
-def auth(h):
-    v=h.get('Authorization','')
-    if not v.startswith('Basic '): return False
-    try: u,p=base64.b64decode(v[6:]).decode().split(':',1)
-    except Exception: return False
-    return hmac.compare_digest(u,ADMIN) and hmac.compare_digest(p,PASSWORD)
+def admin_configured():
+    return bool(ADMIN and PASSWORD) and not (ADMIN=='spiderman' and PASSWORD=='spiderman')
 
-def send(r,obj,status=200):
+def _session_cookie(username):
+    issued=str(int(time.time()))
+    payload=f'{username}|{issued}'
+    secret=f'{ADMIN}\0{PASSWORD}'.encode()
+    sig=hmac.new(secret,payload.encode(),hashlib.sha256).hexdigest()
+    return f'{payload}|{sig}'
+
+def _session_valid(cookie):
+    if not admin_configured() or not cookie: return False
+    try:
+        username,issued,sig=cookie.split('|',2)
+        issued=int(issued)
+        if username!=ADMIN or issued<0 or time.time()-issued>SESSION_TTL: return False
+        payload=f'{username}|{issued}'
+        expected=hmac.new(f'{ADMIN}\0{PASSWORD}'.encode(),payload.encode(),hashlib.sha256).hexdigest()
+        return hmac.compare_digest(sig,expected)
+    except Exception:
+        return False
+
+def auth(h):
+    if not admin_configured(): return False
+    v=h.get('Authorization','')
+    if v.startswith('Basic '):
+        try:
+            u,p=base64.b64decode(v[6:]).decode().split(':',1)
+            if hmac.compare_digest(u,ADMIN) and hmac.compare_digest(p,PASSWORD): return True
+        except Exception:
+            pass
+    cookie_header=h.get('Cookie','')
+    for item in cookie_header.split(';'):
+        item=item.strip()
+        if item.startswith(SESSION_COOKIE+'=') and _session_valid(item.split('=',1)[1]): return True
+    return False
+
+def _save_admin_credentials(username,password):
+    global ADMIN,PASSWORD
+    os.makedirs(BASE,exist_ok=True)
+    try:
+        with open(PANEL_ENV,encoding='utf-8') as f: lines=f.read().splitlines()
+    except OSError:
+        lines=[]
+    out=[]; user_done=False; pass_done=False
+    for line in lines:
+        if line.startswith('ADMIN_USER='):
+            out.append('ADMIN_USER='+shlex.quote(username)); user_done=True
+        elif line.startswith('ADMIN_PASSWORD='):
+            out.append('ADMIN_PASSWORD='+shlex.quote(password)); pass_done=True
+        else:
+            out.append(line)
+    if not user_done: out.append('ADMIN_USER='+shlex.quote(username))
+    if not pass_done: out.append('ADMIN_PASSWORD='+shlex.quote(password))
+    tmp=PANEL_ENV+'.tmp'
+    with open(tmp,'w',encoding='utf-8') as f: f.write('\n'.join(out)+'\n')
+    os.chmod(tmp,0o600)
+    os.replace(tmp,PANEL_ENV)
+    ADMIN=username
+    PASSWORD=password
+
+def send_html(r,html_body,status=200,headers=None):
+    b=html_body.encode()
+    r.send_response(status)
+    r.send_header('Content-Type','text/html; charset=utf-8')
+    r.send_header('Cache-Control','no-store')
+    if headers:
+        for k,v in headers.items(): r.send_header(k,v)
+    r.send_header('Content-Length',str(len(b)))
+    r.end_headers()
+    r.wfile.write(b)
+
+def _setup_page(r):
+    page='''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Unified VPS — Initial Setup</title>
+<style>:root{--bg:#06110b;--panel:#0b1811;--line:#173524;--text:#ecfff2;--muted:#87a995;--accent:#42f58d;--danger:#ff6b78}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px;background:radial-gradient(800px 500px at 50% -10%,rgba(66,245,141,.11),transparent 60%),var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}.card{width:min(460px,100%);padding:28px;border:1px solid var(--line);border-radius:18px;background:linear-gradient(180deg,rgba(14,33,22,.96),rgba(8,20,13,.96));box-shadow:0 30px 90px rgba(0,0,0,.45)}.logo{font-weight:900;letter-spacing:.04em;color:var(--accent);font-size:13px}.title{font-size:26px;margin:8px 0 4px}.sub{color:var(--muted);margin:0 0 22px}label{display:block;color:var(--muted);font-size:12px;margin-bottom:6px}.field{margin-bottom:14px}input{width:100%;padding:12px 13px;border-radius:10px;border:1px solid var(--line);background:#06100a;color:var(--text);outline:none}button{width:100%;margin-top:8px;border:0;border-radius:11px;padding:12px 14px;background:linear-gradient(135deg,var(--accent),#1dbb68);color:#03200f;font-weight:800;cursor:pointer}.msg{min-height:20px;margin-top:12px;color:var(--danger);font-size:12px}.note{margin-top:18px;color:var(--muted);font-size:11px}</style></head><body><main class="card"><div class="logo">UNIFIED VPS</div><div class="title">Initial setup</div><p class="sub">Create the administrator account for this VPS panel.</p><form id="setup"><div class="field"><label>Enter username</label><input name="username" maxlength="32" autocomplete="username" required></div><div class="field"><label>Enter password</label><input name="password" type="password" minlength="8" maxlength="128" autocomplete="new-password" required></div><div class="field"><label>Reenter password</label><input name="confirm" type="password" minlength="8" maxlength="128" autocomplete="new-password" required></div><button type="submit">Save and login</button><div id="msg" class="msg"></div></form><div class="note">Your administrator credentials are stored locally on this VPS.</div></main><script>const f=document.getElementById("setup"),m=document.getElementById("msg");f.onsubmit=async e=>{e.preventDefault();m.textContent="";const d=Object.fromEntries(new FormData(f).entries());if(d.password!==d.confirm){m.textContent="Passwords do not match.";return}try{const r=await fetch("/setup",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(d)}),j=await r.json();if(!r.ok){m.textContent=j.error||"Setup failed.";return}location.href="/"}catch(_){m.textContent="Setup request failed."}};</script></body></html>'''
+    return send_html(r,page)def send(r,obj,status=200):
     b=json.dumps(obj).encode(); r.send_response(status)
     r.send_header('Content-Type','application/json'); r.send_header('Content-Length',str(len(b)))
     r.end_headers(); r.wfile.write(b)
