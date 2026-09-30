@@ -248,15 +248,15 @@ def handle(conn, addr):
                 raw_to_ssh(conn, ssh, data)
                 return
             try:
-                # A custom payload that is not HTTP is forwarded transparently
-                # after the client receives a minimal switching response.
+                # Connect to SSH before sending 101. A failed backend connection
+                # must not result in an invalid 101-then-502 response sequence.
+                ssh = socket.create_connection(SSH_TARGET, timeout=READ_TIMEOUT)
                 conn.sendall(
                     b"HTTP/1.1 101 Switching Protocols\r\n"
                     b"Connection: Upgrade\r\n"
                     b"Upgrade: websocket\r\n"
                     b"\r\n"
                 )
-                ssh = socket.create_connection(SSH_TARGET, timeout=READ_TIMEOUT)
                 raw_to_ssh(conn, ssh, data)
             except OSError:
                 send_http(conn, 502, b"SSH backend unavailable\n")
@@ -278,6 +278,11 @@ def handle(conn, addr):
             return
 
         key = headers.get("sec-websocket-key")
+        # Open the SSH backend before acknowledging the WebSocket upgrade.
+        # Otherwise a backend failure would require sending a second HTTP
+        # response after a 101, which is protocol-invalid.
+        ssh = socket.create_connection(SSH_TARGET, timeout=READ_TIMEOUT)
+
         if key:
             conn.sendall(
                 b"HTTP/1.1 101 Switching Protocols\r\n"
@@ -296,7 +301,6 @@ def handle(conn, addr):
             )
             websocket_mode = False
 
-        ssh = socket.create_connection(SSH_TARGET, timeout=READ_TIMEOUT)
         if websocket_mode:
             threading.Thread(target=ssh_to_websocket, args=(conn, ssh), daemon=True).start()
             websocket_to_ssh(conn, ssh, initial)
