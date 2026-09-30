@@ -403,7 +403,7 @@ tools_menu(){
     case "$n" in
       1) host="${SERVER_DOMAIN:-}"; getent ahostsv4 "$host" || true; pause ;;
       2) host="${SERVER_DOMAIN:-}"; ping -c 4 -W 2 "$host" || true; pause ;;
-      3) read -r -p "Port: " p; timeout 5 bash -c "</dev/tcp/127.0.0.1/$p" && echo "OPEN" || echo "CLOSED"; pause ;;
+      3) read -r -p "Port: " p; if [[ "$p" =~ ^[0-9]{1,5}$ ]] && (( p >= 1 && p <= 65535 )); then timeout 5 bash -c "</dev/tcp/127.0.0.1/$p" && echo "OPEN" || echo "CLOSED"; else echo "Invalid port."; fi; pause ;;
       4) ss -lntup; pause ;;
       5) openssl x509 -in /etc/unified-vps/xray.crt -noout -subject -issuer -dates 2>/dev/null || echo "Certificate unavailable."; pause ;;
       6) return ;;
@@ -427,7 +427,8 @@ monitoring_menu(){
       1) systemctl --no-pager --type=service --state=running | grep -E 'ssh|nginx|haproxy|xray|hysteria|unified' || true; pause ;;
       2) free -h; df -h; uptime; ps -eo pid,comm,%cpu,%mem --sort=-%cpu | head -12; pause ;;
       3)
-        read -r -p "Service (ssh/nginx/haproxy/xray/hysteria-server/unified-vps-panel): " svc
+        read -r -p "Service: " svc
+        case "$svc" in ssh|nginx|haproxy|xray|hysteria-server|unified-vps-panel|unified-vps-wstunnel-ssh|unified-vps-ws-payload-ssh|fail2ban) ;; *) echo "Invalid service."; pause; continue ;; esac
         journalctl -u "$svc" -n 120 --no-pager || true
         pause ;;
       4) systemctl --failed --no-pager || true; pause ;;
@@ -924,7 +925,7 @@ update_script(){
   rm -f "$tmp_menu" "$tmp_app" "$tmp_haproxy" "$tmp_payload" "$tmp_watch" "$tmp_watch_unit" "$tmp_timer" "$tmp_backup" "$tmp_backup_unit" "$tmp_backup_timer" "$tmp_f2b"
   systemctl daemon-reload
   systemctl enable --now fail2ban unified-vps-watchdog.timer unified-vps-backup.timer
-  systemctl restart unified-vps-panel unified-vps-ws-payload-ssh haproxy
+  systemctl restart fail2ban unified-vps-panel unified-vps-ws-payload-ssh haproxy
   ensure_daily_reboot
   echo "Update complete. Watchdog, backups and Fail2Ban are active."
   pause
