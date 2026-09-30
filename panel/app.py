@@ -1089,10 +1089,12 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                             add_xray(row['protocol'],row['username'],row['secret'])
                         elif row['protocol']=='SSH':
                             subprocess.run(['usermod','-U',row['username']],capture_output=True)
-                        baseline=0
+                        baseline=int(row['raw_bytes'] or 0)
                         if row['protocol']=='Hysteria':
                             hstats=_hysteria_usage()
-                            if isinstance(hstats,dict): baseline=int(hstats.get(row['username'],0))
+                            if isinstance(hstats,dict): baseline=int(hstats.get(row['username'],baseline))
+                        elif row['protocol'] in XRAY_TAGS:
+                            baseline=0
                         c=conn(); c.execute('update users set expiry=?,enabled=1,used_bytes=0,raw_bytes=?,daily_used_bytes=0,usage_day=? where id=?',(exp,baseline,time.strftime('%Y-%m-%d'),uid)); c.commit(); c.close()
                     log_event('bulk_'+action,row['protocol'],row['username'])
                     results.append({'id':uid,'ok':True})
@@ -1109,10 +1111,12 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                     days=int(d.get('days',0) or 0)
                     if days <= 0: raise ValueError('renewal days must be greater than 0')
                     exp=int(time.time())+days*86400
-                    baseline=0
+                    baseline=int(row['raw_bytes'] or 0)
                     if row['protocol']=='Hysteria':
                         hstats=_hysteria_usage()
-                        if isinstance(hstats,dict): baseline=int(hstats.get(row['username'],0))
+                        if isinstance(hstats,dict): baseline=int(hstats.get(row['username'],baseline))
+                    elif row['protocol'] in XRAY_TAGS:
+                        baseline=0
                     c.execute('update users set expiry=?,enabled=1,used_bytes=0,raw_bytes=?,daily_used_bytes=0,usage_day=? where id=?',(exp,baseline,time.strftime('%Y-%m-%d'),row['id']))
                     if row['protocol'] in XRAY_TAGS:
                         try: del_xray(row['protocol'],row['username'])
