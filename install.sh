@@ -529,6 +529,12 @@ if [ -z "$PANEL_HOME" ]; then
   echo "ERROR: panel HTTP smoke test returned no response."
   exit 1
 fi
+EXPECTED_PANEL_BUILD="$(grep -E "^PANEL_BUILD=['\"][^'\"]+['\"]" /opt/unified-vps/panel.py | sed -E "s/.*PANEL_BUILD=['\"]([^'\"]+)['\"].*/\1/" | head -n1)"
+ACTIVE_PANEL_BUILD="$(curl -fsS --max-time 5 -D - -o /dev/null http://127.0.0.1:6080/health | sed -n 's/^X-UVPS-Build:[[:space:]]*//Ip' | tr -d '\r' || true)"
+if [ -z "$EXPECTED_PANEL_BUILD" ] || [ "$ACTIVE_PANEL_BUILD" != "$EXPECTED_PANEL_BUILD" ]; then
+  echo "ERROR: panel build verification failed. Expected '$EXPECTED_PANEL_BUILD', active '$ACTIVE_PANEL_BUILD'."
+  exit 1
+fi
 SETUP_COOKIE="$(mktemp)"
 PANEL_SETUP_PAGE="$(curl -sS --max-time 5 -c "$SETUP_COOKIE" http://127.0.0.1:6080/setup 2>/dev/null || true)"
 if echo "$PANEL_SETUP_PAGE" | grep -q 'name="setup_token"'; then
