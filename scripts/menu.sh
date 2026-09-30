@@ -6,15 +6,20 @@ API="http://127.0.0.1:${PANEL_PORT}"
 AUTH=(-u "${ADMIN_USER}:${ADMIN_PASSWORD}")
 PANEL_VERSION="1.2.0"
 
-# The old placeholder account has been removed. Force old installations into
-# the browser-based first-run credential setup.
+# Legacy builds used spiderman/spiderman. Clear that exact pair before use.
 if [[ "${ADMIN_USER:-}" == "spiderman" && "${ADMIN_PASSWORD:-}" == "spiderman" ]]; then
   sed -i -E "s/^ADMIN_USER=.*/ADMIN_USER=/; s/^ADMIN_PASSWORD=.*/ADMIN_PASSWORD=/" /etc/unified-vps/panel.env
   ADMIN_USER=""; ADMIN_PASSWORD=""
-  AUTH=(-u ":")
 fi
 REBOOT_CRON="/etc/cron.d/unified-vps-daily-reboot"
 
+if [[ -z "${ADMIN_USER:-}" || -z "${ADMIN_PASSWORD:-}" ]]; then
+  echo "Panel administrator credentials are not configured yet."
+  echo "Open http://${SERVER_DOMAIN:-YOUR-DOMAIN}:${PANEL_PORT:-6080}/ in a browser"
+  echo "and complete the first-run setup."
+  exit 1
+fi
+AUTH=(-u "${ADMIN_USER}:${ADMIN_PASSWORD}")
 pause(){ read -r -p 'Press Enter to continue...' _; }
 
 server_ip(){ curl -4fsS --max-time 4 https://api.ipify.org 2>/dev/null || echo "Unknown"; }
@@ -147,7 +152,7 @@ print_protocol_accounts(){
     echo "Panel API unavailable."
     return
   fi
-  printf '%s\\n' "$data" | python3 -c '
+  printf '%s\n' "$data" | python3 -c '
 import json,sys
 p=sys.argv[1]
 rows=[x for x in json.load(sys.stdin) if x["protocol"]==p]
