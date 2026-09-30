@@ -370,7 +370,7 @@ sshd -t
 # previous ListenAddress after repeated installations.
 systemctl restart ssh
 
-# NGINX is the plain HTTP service behind HAProxy on TCP/8080.
+# NGINX is the plain HTTP fallback service behind HAProxy on TCP/80/8080/8880.
 # Rebuild the NGINX configuration from scratch so no legacy IPv6 listener
 # can survive across repeated installations.
 mkdir -p /var/www/html
@@ -401,7 +401,11 @@ http {
     server {
         listen 127.0.0.1:18080;
         server_name _;
-        return 301 https://$host$request_uri;
+        root /var/www/html;
+        index index.html;
+        location / {
+            try_files $uri $uri/ /index.html;
+        }
     }
 }
 EOF
