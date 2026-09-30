@@ -2,7 +2,9 @@
 
 All-in-one VPS management panel for Hysteria 2, Xray, SSH and unified CLI/web management.
 
-The web panel is available at `http://SERVER:6080/` after installation. On the first visit, the setup screen requires the administrator to create a username and password; credentials are stored locally in `/etc/unified-vps/admin.json` with root-only permissions. There is no default `spiderman` account.\n\nFor listener diagnostics, open `http://SERVER:6080/health` or run `vps-status`. These report the local service/listener state. If a required port is listening locally but an external port scanner cannot reach it, the remaining control point is the VPS provider/cloud firewall or security-group layer.\n\n## Installation
+The web panel is available at `http://SERVER:6080/` after installation. On the first visit, the setup screen requires the administrator to create a username and password; credentials are stored locally in `/etc/unified-vps/admin.json` with root-only permissions. There is no default administrator account.
+
+For listener diagnostics, open `http://SERVER:6080/health` or run `vps-status`. These report the local service/listener state. If a required port is listening locally but an external port scanner cannot reach it, the remaining control point is the VPS provider/cloud firewall or security-group layer.\n\n## Installation
 
 ### Fresh VPS — recommended
 
