@@ -788,11 +788,14 @@ class H(BaseHTTPRequestHandler):
                 usage='Not metered' if protocol=='SSH' else _human_bytes(x['used_bytes'])
                 today='Not metered' if protocol=='SSH' else _human_bytes(x['daily_used_bytes'])
                 expiry_warn=bool(x['expiry'] and x['expiry']<=time.time()+7*86400)
+                card_expiry_class='warn' if expiry_warn else ''
+                card_action='disable' if enabled else 'enable'
+                card_action_label='Disable' if enabled else 'Enable'
                 cards_html.append(
                     f'<article class="account-card" data-card-user="{html.escape(x["username"],quote=True)}" data-card-protocol="{html.escape(protocol.lower())}">'
                     f'<div class="cardtop"><div class="usercell"><div class="avatar">{html.escape(x["username"][0].upper())}</div><div><strong>{html.escape(x["username"])}</strong><span class="muted">{html.escape(protocol)}</span></div></div>{state_badge("active" if enabled else "disabled")}</div>'
-                    f'<div class="cardstats"><div><span>Today</span><strong>{today}</strong></div><div><span>All time</span><strong>{usage}</strong></div><div><span>Expiry</span><strong class="{"warn" if expiry_warn else ""}">{html.escape(expiry)}</strong></div></div>'
-                    f'<div class="cardactions"><button class="ghost" data-action="{"disable" if enabled else "enable"}" data-id="{xid}" type="button">{"Disable" if enabled else "Enable"}</button><button class="danger" data-delete="{xid}" type="button">Delete</button></div>'
+                    f'<div class="cardstats"><div><span>Today</span><strong>{today}</strong></div><div><span>All time</span><strong>{usage}</strong></div><div><span>Expiry</span><strong class="{card_expiry_class}">{html.escape(expiry)}</strong></div></div>'
+                    f'<div class="cardactions"><button class="ghost" data-action="{card_action}" data-id="{xid}" type="button">{card_action_label}</button><button class="danger" data-delete="{xid}" type="button">Delete</button></div>'
                     f'</article>'
                 )
             cards_html=''.join(cards_html) or '<div class="empty">No accounts yet.</div>'
