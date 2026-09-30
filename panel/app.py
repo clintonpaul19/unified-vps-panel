@@ -765,6 +765,8 @@ class H(BaseHTTPRequestHandler):
                 else:
                     uri=html.escape(next(iter(x['uris'].values()),''),quote=True)
                     connection=f'<div class="copyline"><code>{uri}</code><button class="copy-btn" data-copy="{uri}" type="button">Copy URI</button></div>'
+                expiry_class='warn' if x['expiry'] and x['expiry']<=time.time()+7*86400 else ''
+                expiry_notice='<span class="muted warn">Expires soon</span>' if expiry_class else ''
                 rows_html.append(
                     f'<tr data-row data-id="{xid}" data-user="{username}" data-protocol="{html.escape(protocol.lower())}">'
                     f'<td><input class="rowcheck" type="checkbox" value="{xid}"></td><td><div class="usercell"><div class="avatar">{html.escape(x["username"][0].upper())}</div><div><strong>{username}</strong><span class="muted">{html.escape(protocol)}</span></div></div></td>'
@@ -772,7 +774,7 @@ class H(BaseHTTPRequestHandler):
                     f'<td><span class="pill">{html.escape(str(x["port"]))}</span></td>'
                     f'<td><button class="secret-btn" data-secret="{secret}" type="button">Reveal</button></td>'
                     f'<td><span id="alltime-{xid}">{usage_text}</span><span class="muted"> / {quota}</span><span id="daily-{xid}" class="muted">{daily_text}</span></td>'
-                    f'<td><span class="muted {"warn" if x["expiry"] and x["expiry"]<=time.time()+7*86400 else ""}">{html.escape(expiry)}</span>{("<span class=\"muted warn\">Expires soon</span>" if x["expiry"] and x["expiry"]<=time.time()+7*86400 else "")}</td>'
+                    f'<td><span class="muted {expiry_class}">{html.escape(expiry)}</span>{expiry_notice}</td>'
                     f'<td>{connection}</td>'
                     f'<td><div class="actions"><button class="ghost" data-action="{action}" data-id="{xid}" type="button">{action_label}</button><button class="ghost" data-renew="{xid}" type="button">Renew</button><button class="danger" data-delete="{xid}" type="button">Delete</button></div></td>'
                     f'</tr>'
