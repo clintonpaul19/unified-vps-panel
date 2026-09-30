@@ -427,21 +427,7 @@ printf '%s\n%s\nPANEL_PORT=6080\nSERVER_DOMAIN=%s\nACME_EMAIL=%s\nHY2_STATS_SECR
 chmod 600 /etc/unified-vps/panel.env
 
 curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/panel/app.py" -o /opt/unified-vps/panel.py
-cat >/etc/systemd/system/unified-vps-panel.service <<'EOF'
-[Unit]
-Description=Unified VPS Panel
-After=network-online.target
-[Service]
-EnvironmentFile=/etc/unified-vps/panel.env
-WorkingDirectory=/opt/unified-vps
-ExecStartPre=/usr/bin/python3 -m py_compile /opt/unified-vps/panel.py
-ExecStart=/usr/bin/python3 /opt/unified-vps/panel.py
-Restart=always
-RestartSec=2
-[Install]
-WantedBy=multi-user.target
-EOF
-
+curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/systemd/unified-vps-panel.service" -o /etc/systemd/system/unified-vps-panel.service
 curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/menu.sh" -o /usr/local/bin/menu
 curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/vps-status.sh" -o /usr/local/bin/vps-status
 chmod 755 /usr/local/bin/menu /usr/local/bin/vps-status
