@@ -1285,16 +1285,9 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                         enable=action=='enable'
                         if row['protocol'] in XRAY_TAGS:
                             if enable:
-                                dcfg=load_xray()
-                                for tag in XRAY_TAGS[row['protocol']]:
-                                    ib=next((i for i in dcfg.get('inbounds',[]) if i.get('tag')==tag),None)
-                                    if ib:
-                                        clients=ib.setdefault('settings',{}).setdefault('clients',[])
-                                        if not any(x.get('email')==row['username'] for x in clients):
-                                            cl={'email':row['username'],'level':0}
-                                            cl['id' if row['protocol'] in ('VMess','VLESS') else 'password']=row['secret']; clients.append(cl)
-                                save_xray(dcfg)
-                            else: del_xray(row['protocol'],row['username'])
+                                ensure_xray_client(row['protocol'],row['username'],row['secret'])
+                            else:
+                                del_xray(row['protocol'],row['username'])
                         elif row['protocol']=='Hysteria' and not enable: kick_hysteria(row['username'])
                         elif row['protocol']=='SSH': set_ssh_enabled(row['username'],enable,row['expiry'])
                         c=conn(); c.execute('update users set enabled=? where id=?',(1 if enable else 0,uid)); c.commit(); c.close()
