@@ -206,20 +206,7 @@ chmod 640 "$tmp_xray"
 if [ -n "${XRAY_GROUP:-}" ]; then chown "${XRAY_USER}:${XRAY_GROUP}" "$tmp_xray"; fi
 mv "$tmp_xray" /usr/local/etc/xray/config.json
 
-cat >/etc/systemd/system/unified-vps-wstunnel-ssh.service <<'EOF'
-[Unit]
-Description=Unified VPS SSH over WebSocket
-After=network-online.target ssh.service
-Wants=network-online.target
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/wstunnel server --restrict-to 127.0.0.1:22 ws://127.0.0.1:18446
-Restart=always
-RestartSec=2
-NoNewPrivileges=true
-[Install]
-WantedBy=multi-user.target
-EOF
+curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/systemd/unified-vps-wstunnel-ssh.service" -o /etc/systemd/system/unified-vps-wstunnel-ssh.service
 systemctl daemon-reload
 systemctl enable --now unified-vps-wstunnel-ssh.service
 
@@ -244,15 +231,7 @@ systemctl mask hysteria-server.service 2>/dev/null || true
 curl -fsSL https://get.acme.sh | sh -s email="$ACME_EMAIL"
 "$HOME/.acme.sh/acme.sh" --set-default-ca --server letsencrypt
 
-cat >/usr/local/sbin/unified-vps-cert-reload <<'EOF'
-#!/usr/bin/env bash
-set -u
-install -m 0644 /etc/unified-vps/xray.crt /etc/hysteria/server.crt 2>/dev/null || true
-install -m 0640 /etc/unified-vps/xray.key /etc/hysteria/server.key 2>/dev/null || true
-chown hysteria:hysteria /etc/hysteria/server.crt /etc/hysteria/server.key 2>/dev/null || true
-systemctl try-restart xray.service 2>/dev/null || true
-systemctl try-restart hysteria-server.service 2>/dev/null || true
-EOF
+curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/unified-vps-cert-reload" -o /usr/local/sbin/unified-vps-cert-reload
 chmod 755 /usr/local/sbin/unified-vps-cert-reload
 
 # Issue the certificate. Prefer HTTP-01 on TCP/80, then fall back to
@@ -442,61 +421,8 @@ haproxy -c -f /etc/haproxy/haproxy.cfg
 chown hysteria:hysteria /etc/hysteria/server.crt /etc/hysteria/server.key
 chmod 640 /etc/hysteria/server.crt /etc/hysteria/server.key
 
-cat >/etc/systemd/system/hysteria-server.service <<'EOF'
-[Unit]
-Description=Hysteria 2 Server
-After=network-online.target
-Wants=network-online.target
-[Service]
-User=hysteria
-Group=hysteria
-AmbientCapabilities=CAP_NET_BIND_SERVICE
-CapabilityBoundingSet=CAP_NET_BIND_SERVICE
-NoNewPrivileges=true
-ExecStart=/usr/local/bin/hysteria server -c /etc/hysteria/config.yaml
-Restart=on-failure
-RestartSec=3
-[Install]
-WantedBy=multi-user.target
-EOF
+curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/systemd/hysteria-server.service" -o /etc/systemd/system/hysteria-server.service
 
-# The web panel stores its administrator credentials in a root-only local
-# file. Migrate any credentials left by an older panel.env-only release once,
-# then keep the environment copy blank.
-PANEL_ADMIN_USER=''
-PANEL_ADMIN_PASSWORD=''
-if [ -f /etc/unified-vps/admin.json ]; then
-  if jq -e '.username=="spiderman" and .password=="spiderman"' /etc/unified-vps/admin.json >/dev/null 2>&1; then
-    rm -f /etc/unified-vps/admin.json
-    echo "Legacy default administrator credentials removed; first visit will require setup."
-  fi
-elif [ -f /etc/unified-vps/panel.env ]; then
-  old_user="$(sed -n 's/^ADMIN_USER=//p' /etc/unified-vps/panel.env | tail -n1 || true)"
-  old_pass="$(sed -n 's/^ADMIN_PASSWORD=//p' /etc/unified-vps/panel.env | tail -n1 || true)"
-  if [ "$old_user" = 'spiderman' ] && [ "$old_pass" = 'spiderman' ]; then
-    old_user=''
-    old_pass=''
-  fi
-  if [ -n "$old_user" ] && [ -n "$old_pass" ]; then
-    printf '%s %s ' "$old_user" "$old_pass" | python3 -c '
-import json,sys,os,tempfile
-from pathlib import Path
-raw=sys.stdin.buffer.read().split(b"\0")
-if len(raw)<2: raise SystemExit(1)
-p=Path("/etc/unified-vps/admin.json")
-fd,tmp=tempfile.mkstemp(prefix=".admin.",dir=str(p.parent))
-try:
-    with os.fdopen(fd,"w",encoding="utf-8") as f:
-        json.dump({"username":raw[0].decode(),"password":raw[1].decode()},f)
-        f.write("\n")
-    os.chmod(tmp,0o600)
-    os.replace(tmp,p)
-finally:
-    try: os.unlink(tmp)
-    except FileNotFoundError: pass
-'
-  fi
-fi
 printf '%s\n%s\nPANEL_PORT=6080\nSERVER_DOMAIN=%s\nACME_EMAIL=%s\nHY2_STATS_SECRET=%s\nSSH_WS_PATH=ssh\nSSH_WS_PORT=443\n' "$PANEL_ADMIN_USER" "$PANEL_ADMIN_PASSWORD" "$DOMAIN" "$ACME_EMAIL" "$HY2_STATS_SECRET" > /etc/unified-vps/panel.env
 chmod 600 /etc/unified-vps/panel.env
 
