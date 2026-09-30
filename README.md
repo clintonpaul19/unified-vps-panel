@@ -45,6 +45,8 @@ menu
 
 Open the panel at `http://YOUR-DOMAIN:6080/`. On the first visit it prompts for **Enter username**, **Enter password** and **Reenter password**. After saving, the browser is logged in automatically. The administrator credentials are stored locally in `/etc/unified-vps/panel.env` with restricted permissions.
 
+The panel itself is currently served over plain HTTP on TCP 6080. Until HTTPS is added, credentials entered on the first-run form or login form can be observed by an attacker able to intercept that network traffic.
+
 The web panel listens on TCP **6080**. Public panel access is `http://YOUR-DOMAIN:6080/`. TLS transport ports 443/8443 are handled by HAProxy/Xray.
 
 ## HAProxy transport layout
@@ -274,6 +276,6 @@ The current panel and CLI include:
 - Certificate status and manual renewal.
 - Verified configuration backups with seven-backup retention and daily automated backups.
 - Service watchdog checking critical services every minute.
-- SSH brute-force protection through Fail2Ban.
+- Direct SSH brute-force protection through Fail2Ban on TCP 22; proxied WebSocket SSH transports are handled separately by HAProxy/wstunnel/payload routing.
 - Security dashboard covering SSH authentication, firewall rules, bans and certificate state.
 - Logs and maintenance reports.
