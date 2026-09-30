@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import base64,hmac,html,json,os,secrets,sqlite3,subprocess,time,re,threading,uuid
+import base64,hmac,html,json,math,os,secrets,sqlite3,subprocess,time,re,threading,uuid
 from urllib.request import Request,urlopen
 from urllib.parse import quote
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
@@ -442,8 +442,9 @@ def record(row):
 
 def create_user(d):
     p=d.get('protocol'); u=str(d.get('username','')); quota_gb=float(d.get('quota_gb',0) or 0); q=int(quota_gb*(1024**3)); days=int(d.get('days',0) or 0)
-    if quota_gb < 0: raise ValueError('quota cannot be negative')
+    if not math.isfinite(quota_gb) or quota_gb < 0: raise ValueError('quota must be a finite non-negative number')
     if days < 0: raise ValueError('days cannot be negative')
+    if days > 36500: raise ValueError('days exceeds maximum supported duration')
     if p not in XRAY_TAGS and p not in ('Hysteria','SSH'): raise ValueError('invalid protocol')
     # SSH quota accounting is not currently supported, but accept the field
     # from CLI clients for compatibility and keep the stored quota at zero.
@@ -1081,7 +1082,9 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                         elif row['protocol']=='SSH': subprocess.run(['usermod','-U' if enable else '-L',row['username']],capture_output=True)
                         c=conn(); c.execute('update users set enabled=? where id=?',(1 if enable else 0,uid)); c.commit(); c.close()
                     else:
-                        days=int(d.get('days',0)); exp=int(time.time())+days*86400
+                        days=int(d.get('days',0));
+                    if days <= 0: raise ValueError('renewal days must be greater than 0')
+                    exp=int(time.time())+days*86400
                         if row['protocol'] in XRAY_TAGS:
                             add_xray(row['protocol'],row['username'],row['secret'])
                         elif row['protocol']=='SSH':
