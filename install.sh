@@ -444,9 +444,13 @@ PANEL_ADMIN_USER=''
 PANEL_ADMIN_PASSWORD=''
 if [ -f /etc/unified-vps/admin.json ]; then
   legacy_digest="$(jq -r '(.username // "") + ":" + (.password // "")' /etc/unified-vps/admin.json 2>/dev/null | sha256sum | awk '{print $1}' || true)"
-  if [ "$legacy_digest" = "89b4cdab4d0d839fcf432ca76640ffe90da27a63b6f0ad7bbf1d644f5ccd91a9" ]; then
+  valid_admin=1
+  if jq -e '(.username|type=="string" and test("^[A-Za-z0-9][A-Za-z0-9._-]{2,31}$")) and (.password|type=="string" and length>=8 and length<=128 and (test("[\\r\\n]")|not))' /etc/unified-vps/admin.json >/dev/null 2>&1; then
+    valid_admin=0
+  fi
+  if [ "$legacy_digest" = "89b4cdab4d0d839fcf432ca76640ffe90da27a63b6f0ad7bbf1d644f5ccd91a9" ] || [ "$valid_admin" -ne 0 ]; then
     rm -f /etc/unified-vps/admin.json
-    echo "Retired default administrator credentials removed; first visit will require setup."
+    echo "Invalid or retired administrator credentials removed; first visit will require setup."
   else
     chown root:root /etc/unified-vps/admin.json 2>/dev/null || true
     chmod 600 /etc/unified-vps/admin.json 2>/dev/null || true
