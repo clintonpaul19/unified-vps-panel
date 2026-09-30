@@ -88,6 +88,11 @@ def load_xray():
 def save_xray(d):
     with XRAY_LOCK:
         tmp=CFG+'.tmp.json'
+        rollback=CFG+'.rollback.tmp'
+        try:
+            with open(CFG,'rb') as f: previous=f.read()
+        except OSError:
+            previous=None
         with open(tmp,'w') as f: json.dump(d,f,indent=2)
         test=subprocess.run(['xray','-test','-config',tmp],capture_output=True,text=True)
         if test.returncode:
@@ -96,7 +101,15 @@ def save_xray(d):
             raise RuntimeError('Xray configuration test failed: '+(test.stderr or test.stdout).strip())
         os.replace(tmp,CFG)
         rr=subprocess.run(['systemctl','restart','xray'],capture_output=True,text=True)
-        if rr.returncode: raise RuntimeError('Xray restart failed: '+(rr.stderr or rr.stdout).strip())
+        if rr.returncode:
+            if previous is not None:
+                try:
+                    with open(rollback,'wb') as f: f.write(previous)
+                    os.replace(rollback,CFG)
+                    subprocess.run(['systemctl','restart','xray'],capture_output=True,text=True)
+                except Exception:
+                    pass
+            raise RuntimeError('Xray restart failed: '+(rr.stderr or rr.stdout).strip())
 
 def add_xray(protocol,u,secret):
     with XRAY_LOCK:
@@ -152,6 +165,7 @@ def add_ssh(u,password,days):
 def del_ssh(u):
     if subprocess.run(['id',u],capture_output=True).returncode != 0:
         return
+    subprocess.run(['pkill','-TERM','-u',u],capture_output=True)
     p=subprocess.run(['userdel','-r',u],capture_output=True,text=True)
     if p.returncode and subprocess.run(['id',u],capture_output=True).returncode==0:
         raise RuntimeError((p.stderr or p.stdout).strip() or 'Failed to delete SSH account')
