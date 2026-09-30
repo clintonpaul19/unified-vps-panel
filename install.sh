@@ -45,8 +45,10 @@ collect_diagnostics() {
       journalctl -u "$s" -n 80 --no-pager 2>/dev/null || true
     done
   } | sanitize_diag >"$report"
+  chmod 600 "$report"
   cp "$report" "$tmp/report.txt"
   tar -C "$tmp" -czf "$archive" report.txt
+  chmod 600 "$archive"
   rm -rf "$tmp"
   echo "DIAGNOSTIC_REPORT=$report" >&2
   echo "DIAGNOSTIC_ARCHIVE=$archive" >&2
