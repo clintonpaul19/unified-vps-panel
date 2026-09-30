@@ -133,7 +133,7 @@ insert_firewall_rule() {
   if "$bin" -C "$chain" "$@" -j ACCEPT 2>/dev/null; then
     return 0
   fi
-  terminal_pos="$("$bin" -L "$chain" --line-numbers -n 2>/dev/null | awk '$1 ~ /^[0-9]+$/ && ($2=="DROP" || $2=="REJECT") {print $1; exit}' || true)"
+  terminal_pos="$("$bin" -L "$chain" --line-numbers -n 2>/dev/null | awk '$1 ~ /^[0-9]+$/ && ($4=="DROP" || $4=="REJECT") {print $1; exit}' || true)"
   if [ -n "$terminal_pos" ]; then
     # Insert immediately before the first terminal DROP/REJECT. Never append
     # an allow rule after a rule that already terminates INPUT processing.
