@@ -259,6 +259,12 @@ def create_user(d):
         raise
     finally: c.close()
 
+def service_state(name):
+    try:
+        return subprocess.check_output(['systemctl','is-active',name],stderr=subprocess.DEVNULL,text=True).strip()
+    except Exception:
+        return 'unknown'
+
 class H(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path=='/health': return send(self,{'ok':True})
@@ -278,46 +284,228 @@ class H(BaseHTTPRequestHandler):
             except Exception as e: return send(self,{'ok':False,'output':str(e)},500)
         if self.path=='/':
             c=conn(); rows=[record(x) for x in c.execute('select * from users order by id desc')]; c.close()
-            trs=''
+            counts={p:sum(1 for x in rows if x['protocol']==p) for p in ('SSH','VLESS','VMess','Trojan','Hysteria')}
+            active=sum(1 for x in rows if x['enabled'])
+            total_used=sum(int(x['used_bytes'] or 0) for x in rows)
+            services={
+                'SSH':service_state('ssh'),
+                'NGINX':service_state('nginx'),
+                'HAProxy':service_state('haproxy'),
+                'Xray':service_state('xray'),
+                'Hysteria 2':service_state('hysteria-server'),
+                'Panel':service_state('unified-vps-panel')
+            }
+            reboot='04:00 local' if os.path.exists('/etc/cron.d/unified-vps-daily-reboot') else 'Not configured'
+
+            def state_badge(state):
+                cls='up' if state=='active' else 'down'
+                return f'<span class="status {cls}"><span class="dot"></span>{html.escape(state.upper())}</span>'
+
+            rows_html=[]
             for x in rows:
-                xid=x['id']; username=x['username']; protocol=x['protocol']; port_value=x['port']; secret=x['secret']
-                used=x['used_bytes']; quota=x['quota_bytes']; enabled=x['enabled']
+                xid=x['id']; protocol=x['protocol']; username=html.escape(x['username'],quote=True)
+                secret=html.escape(str(x['secret']),quote=True)
+                enabled=bool(x['enabled'])
+                enabled_label='Enabled' if enabled else 'Disabled'
+                action='disable' if enabled else 'enable'
+                action_label='Disable' if enabled else 'Enable'
+                expiry='Unlimited' if not x['expiry'] else time.strftime('%Y-%m-%d %H:%M',time.localtime(x['expiry']))
+                used=f"{x['used_bytes']/(1024**3):.2f} GB"
+                quota='Unlimited' if not x['quota_bytes'] else f"{x['quota_bytes']/(1024**3):.2f} GB"
                 if protocol in XRAY_TAGS:
-                    a=html.escape(x['uris'].get('80',''),quote=True)
-                    b2=html.escape(x['uris'].get('443',''),quote=True)
-                    connection=f'<textarea id="u{xid}a" readonly>{a}</textarea><button onclick="copyUri(\'u{xid}a\')">Copy 80</button><br><textarea id="u{xid}b" readonly>{b2}</textarea><button onclick="copyUri(\'u{xid}b\')">Copy 443</button>'
+                    uris=[]
+                    for port in ('80','443'):
+                        uri=html.escape(x['uris'].get(port,''),quote=True)
+                        uris.append(f'<div class="copyline"><code>{uri}</code><button class="copy-btn" data-copy="{uri}" type="button">Copy {port}</button></div>')
+                    connection='<div class="uri-stack">'+''.join(uris)+'</div>'
                 elif protocol=='SSH':
-                    host=html.escape(x['host'],quote=True)
-                    ws_path=html.escape(x['uris'].get('Path','/ssh'),quote=True)
-                    ws80=html.escape(x['uris'].get('WebSocket',''),quote=True)
-                    ws8080=html.escape(x['uris'].get('WebSocket8080',''),quote=True)
-                    ws8880=html.escape(x['uris'].get('WebSocket8880',''),quote=True)
-                    wss443=html.escape(x['uris'].get('WebSocketTLS',''),quote=True)
-                    wss8443=html.escape(x['uris'].get('WebSocketTLS8443',''),quote=True)
-                    connection=f'Host: {host}<br>WS Path: {ws_path}<br>WS 80: <textarea id="u{xid}ws80" readonly>{ws80}</textarea><button onclick="copyUri(\'u{xid}ws80\')">Copy</button><br>WS 8080: <textarea id="u{xid}ws8080" readonly>{ws8080}</textarea><button onclick="copyUri(\'u{xid}ws8080\')">Copy</button><br>WS 8880: <textarea id="u{xid}ws8880" readonly>{ws8880}</textarea><button onclick="copyUri(\'u{xid}ws8880\')">Copy</button><br>WSS 443: <textarea id="u{xid}wss443" readonly>{wss443}</textarea><button onclick="copyUri(\'u{xid}wss443\')">Copy</button><br>WSS 8443: <textarea id="u{xid}wss8443" readonly>{wss8443}</textarea><button onclick="copyUri(\'u{xid}wss8443\')">Copy</button><br>Payload: <code>GET {ws_path} HTTP/1.1 | Host: {host} | Upgrade: websocket | Connection: Upgrade</code>'
+                    parts=[]
+                    for label,key in (('WS 80','WebSocket'),('WS 8080','WebSocket8080'),('WS 8880','WebSocket8880'),('WSS 443','WebSocketTLS'),('WSS 8443','WebSocketTLS8443')):
+                        uri=html.escape(x['uris'].get(key,''),quote=True)
+                        parts.append(f'<div class="copyline"><code>{uri}</code><button class="copy-btn" data-copy="{uri}" type="button">Copy</button></div>')
+                    connection=f'<div class="sshmeta"><span>Host: {html.escape(x["host"],quote=True)}</span><span>Path: {html.escape(x["uris"].get("Path","/ssh"),quote=True)}</span></div><div class="uri-stack">{"".join(parts)}</div>'
                 else:
-                    uri=next(iter(x['uris'].values()),'')
-                    connection=f'<textarea id="u{xid}" readonly>{html.escape(uri,quote=True)}</textarea><button onclick="copyUri(\'u{xid}\')">Copy URI</button>'
-                enabled_text='Yes' if enabled else 'No'
-                used_text='Unlimited' if False else f'{used/(1024**3):.2f} GB'
-                quota_text='Unlimited' if not quota else f'{quota/(1024**3):.2f} GB'
-                trs+=f'<tr><td>{html.escape(username)}</td><td>{protocol}</td><td>{port_value}</td><td>{html.escape(secret)}</td><td>{used_text}</td><td>{quota_text}</td><td>{enabled_text}</td><td>{connection}</td></tr>'
-            b=f'''<!doctype html><html><head><meta name="viewport" content="width=device-width"><title>Unified VPS Panel</title>
-<style>body{{font-family:system-ui;background:#111;color:#eee;padding:20px}}input,select,button,textarea{{padding:8px;margin:4px;background:#222;color:#eee;border:1px solid #555}}textarea{{width:360px;height:45px}}table{{border-collapse:collapse;width:100%}}td,th{{border:1px solid #444;padding:8px;text-align:left}}button{{cursor:pointer}}</style></head>
-<body><h1>Unified VPS Panel</h1><p>Panel: https://{html.escape(public_host())}/</p>
-<h2>Create account</h2><form id="f"><div><label>Username<br><input name="username" placeholder="Username" required></label></div><div><label>Protocol<br><select id="protocol" name="protocol"><option>Hysteria</option><option>SSH</option><option>VLESS</option><option>VMess</option><option>Trojan</option></select></label></div><div id="passwordRow" style="display:none"><label>SSH Password<br><input id="sshPassword" name="secret" type="password" placeholder="Password" autocomplete="new-password"></label></div><div><label>Duration (days)<br><input name="days" type="number" value="0" min="0" placeholder="0 = unlimited"></label></div><div id="quotaRow"><label>Quota (GB)<br><input id="quotaGb" name="quota_gb" type="number" value="0" min="0" step="0.1" placeholder="0 = unlimited"></label></div><button>Create</button></form>
-<p><button onclick="runSpeedtest()">Run Ookla Speedtest</button></p><pre id="speed"></pre>
-<h2>Accounts</h2><table><tr><th>User</th><th>Protocol</th><th>Port</th><th>Password / UUID</th><th>Used</th><th>Quota</th><th>Enabled</th><th>Connection</th></tr>{trs}</table>
+                    uri=html.escape(next(iter(x['uris'].values()),''),quote=True)
+                    connection=f'<div class="copyline"><code>{uri}</code><button class="copy-btn" data-copy="{uri}" type="button">Copy URI</button></div>'
+                rows_html.append(
+                    f'<tr data-row data-user="{username}" data-protocol="{html.escape(protocol.lower())}">'
+                    f'<td><div class="usercell"><div class="avatar">{html.escape(x["username"][0].upper())}</div><div><strong>{username}</strong><span class="muted">{html.escape(protocol)}</span></div></div></td>'
+                    f'<td>{state_badge("active" if enabled else "disabled")}</td>'
+                    f'<td><span class="pill">{html.escape(str(x["port"]))}</span></td>'
+                    f'<td><button class="secret-btn" data-secret="{secret}" type="button">Reveal</button></td>'
+                    f'<td><span>{used}</span><span class="muted"> / {quota}</span></td>'
+                    f'<td><span class="muted">{html.escape(expiry)}</span></td>'
+                    f'<td>{connection}</td>'
+                    f'<td><div class="actions"><button class="ghost" data-action="{action}" data-id="{xid}" type="button">{action_label}</button><button class="ghost" data-renew="{xid}" type="button">Renew</button><button class="danger" data-delete="{xid}" type="button">Delete</button></div></td>'
+                    f'</tr>'
+                )
+
+            rows_html=''.join(rows_html) or '<tr><td colspan="8"><div class="empty">No accounts yet. Create the first account above.</div></td></tr>'
+            service_html=''.join(f'<div class="service-card"><span>{html.escape(k)}</span>{state_badge(v)}</div>' for k,v in services.items())
+
+            page = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#06110b">
+<title>Unified VPS — Control Center</title>
+<style>
+:root{--bg:#06110b;--panel:#0b1811;--panel2:#0e2116;--line:#173524;--text:#ecfff2;--muted:#87a995;--accent:#42f58d;--accent2:#14c96b;--danger:#ff6b78;--shadow:0 24px 70px rgba(0,0,0,.38)}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(900px 500px at 80% -10%,rgba(66,245,141,.09),transparent 60%),radial-gradient(700px 400px at 5% 0,rgba(20,201,107,.07),transparent 60%),var(--bg);color:var(--text);font:14px/1.45 Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+button,input,select{font:inherit}
+button{cursor:pointer}
+.app{min-height:100vh;display:grid;grid-template-columns:240px 1fr}
+.sidebar{position:sticky;top:0;height:100vh;padding:24px 16px;border-right:1px solid var(--line);background:rgba(4,13,8,.78);backdrop-filter:blur(18px)}
+.brand{display:flex;gap:12px;align-items:center;padding:8px 10px 24px}.brandmark{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;background:linear-gradient(135deg,#42f58d,#0d7f45);color:#031108;font-weight:900;box-shadow:0 10px 28px rgba(66,245,141,.18)}.brand h1{font-size:14px;margin:0}.brand p{margin:2px 0 0;color:var(--muted);font-size:11px}
+.nav{display:grid;gap:6px}.nav a{padding:11px 12px;border-radius:10px;color:#a9c5b2;text-decoration:none}.nav a.active,.nav a:hover{background:rgba(66,245,141,.08);color:var(--text)}
+.sidefoot{position:absolute;bottom:20px;left:16px;right:16px;padding:12px;border:1px solid var(--line);border-radius:12px;background:rgba(13,33,22,.55)}.sidefoot .label{font-size:11px;color:var(--muted)}.sidefoot strong{display:block;margin-top:3px;font-size:13px}
+.main{min-width:0}.topbar{height:72px;display:flex;align-items:center;justify-content:space-between;padding:0 28px;border-bottom:1px solid var(--line);background:rgba(6,17,11,.58);backdrop-filter:blur(18px);position:sticky;top:0;z-index:10}.topbar h2{margin:0;font-size:18px}.topbar p{margin:2px 0 0;color:var(--muted);font-size:12px}.top-actions{display:flex;align-items:center;gap:10px}.badge{padding:7px 10px;border:1px solid var(--line);background:rgba(255,255,255,.02);border-radius:999px;color:var(--muted);font-size:11px}
+.content{padding:26px;max-width:1500px;margin:auto}.hero{display:flex;justify-content:space-between;gap:20px;align-items:flex-end;margin-bottom:20px}.hero h3{font-size:28px;margin:0}.hero p{margin:5px 0 0;color:var(--muted)}.primary{border:0;border-radius:11px;padding:11px 15px;background:linear-gradient(135deg,var(--accent),#1dbb68);color:#03200f;font-weight:800;box-shadow:0 12px 32px rgba(66,245,141,.16)}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.stat,.panel{border:1px solid var(--line);background:linear-gradient(180deg,rgba(14,33,22,.9),rgba(8,20,13,.9));border-radius:16px;box-shadow:var(--shadow)}.stat{padding:16px}.stat .k{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.08em}.stat .v{font-size:28px;font-weight:800;margin-top:6px}.stat .s{color:#a6c3b0;font-size:11px;margin-top:4px}
+.grid2{display:grid;grid-template-columns:1.25fr .75fr;gap:14px;margin-top:14px}.panel{padding:18px}.panelhead{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px}.panelhead h4{margin:0;font-size:14px}.panelhead p{margin:3px 0 0;color:var(--muted);font-size:11px}
+.services{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.service-card{display:flex;align-items:center;justify-content:space-between;padding:11px 12px;border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.02)}.status{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:5px 8px;font-size:10px;font-weight:800;letter-spacing:.06em}.status.up{background:rgba(66,245,141,.08);color:var(--accent)}.status.down{background:rgba(255,107,120,.08);color:var(--danger)}.dot{width:6px;height:6px;border-radius:50%;background:currentColor;box-shadow:0 0 12px currentColor}
+.matrix{display:grid;gap:8px}.matrix div{display:flex;justify-content:space-between;padding:10px 12px;border:1px solid var(--line);border-radius:10px}.matrix span:last-child{color:var(--accent);font-weight:700}
+.accounts{margin-top:14px}.toolbar{display:flex;gap:10px;flex-wrap:wrap}.search{min-width:240px;flex:1;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:#08140c;color:var(--text);outline:none}.select{padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:#08140c;color:var(--text)}
+.tablewrap{overflow:auto;border:1px solid var(--line);border-radius:12px}table{width:100%;border-collapse:collapse;min-width:1080px}th,td{padding:12px 13px;text-align:left;border-bottom:1px solid rgba(23,53,36,.72);vertical-align:top}th{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;background:#09170f}tr:last-child td{border-bottom:0}
+.usercell{display:flex;align-items:center;gap:9px}.avatar{width:31px;height:31px;border-radius:9px;display:grid;place-items:center;background:rgba(66,245,141,.1);color:var(--accent);font-weight:800}.usercell strong{display:block}.muted{display:block;color:var(--muted);font-size:11px}.pill{display:inline-block;padding:4px 7px;border-radius:7px;background:rgba(255,255,255,.04);font-size:10px;color:#bcd4c4}
+.copyline{display:flex;align-items:center;gap:7px;margin:5px 0;max-width:480px}.copyline code{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#06100a;color:#bdeccf;font:11px ui-monospace,SFMono-Regular,Menlo,monospace}.copy-btn,.ghost,.danger,.secret-btn{border:1px solid var(--line);border-radius:8px;padding:7px 9px;background:#0a170f;color:#bfe4ca;font-size:11px}.copy-btn:hover,.ghost:hover,.secret-btn:hover{border-color:#2e754c;color:var(--text)}.danger{color:#ff9da6;border-color:rgba(255,107,120,.24)}.danger:hover{background:rgba(255,107,120,.08)}.actions{display:flex;gap:6px;flex-wrap:wrap}.sshmeta{display:flex;gap:10px;flex-wrap:wrap;color:var(--muted);font-size:11px}.empty{text-align:center;color:var(--muted);padding:30px}
+.overlay{position:fixed;inset:0;background:rgba(1,7,4,.72);backdrop-filter:blur(10px);display:none;align-items:center;justify-content:center;padding:20px;z-index:30}.overlay.open{display:flex}.modal{width:min(560px,100%);background:#09170f;border:1px solid var(--line);border-radius:18px;box-shadow:0 30px 90px rgba(0,0,0,.5);padding:20px}.modalhead{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px}.modalhead h3{margin:0}.modalhead p{margin:4px 0;color:var(--muted);font-size:12px}.close{border:1px solid var(--line);background:#07110b;color:#b4c9bc;border-radius:8px;padding:6px 9px}.formgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.field{display:grid;gap:6px}.field.full{grid-column:1/-1}.field label{font-size:11px;color:var(--muted)}.field input,.field select{padding:11px 12px;border-radius:10px;border:1px solid var(--line);background:#06100a;color:var(--text);outline:none}.modalfoot{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}.secondary{border:1px solid var(--line);background:#08140c;color:#b9d0c2;border-radius:10px;padding:10px 13px}
+.toast{position:fixed;right:20px;bottom:20px;z-index:50;padding:11px 14px;border-radius:10px;border:1px solid var(--line);background:#0c1d13;color:var(--text);box-shadow:var(--shadow);display:none}.toast.show{display:block}
+@media(max-width:1050px){.app{grid-template-columns:1fr}.sidebar{display:none}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.grid2{grid-template-columns:1fr}.topbar{padding:0 16px}.content{padding:18px}}
+@media(max-width:620px){.stats{grid-template-columns:1fr}.hero{align-items:flex-start;flex-direction:column}.hero h3{font-size:23px}.formgrid{grid-template-columns:1fr}.field.full{grid-column:auto}.top-actions .badge{display:none}}
+</style>
+</head>
+<body>
+<div class="app">
+<aside class="sidebar">
+  <div class="brand"><div class="brandmark">UV</div><div><h1>Unified VPS</h1><p>Control Center</p></div></div>
+  <nav class="nav">
+    <a class="active" href="#dashboard">Dashboard</a>
+    <a href="#accounts">Accounts</a>
+    <a href="#transports">Transports</a>
+    <a href="#services">Services</a>
+  </nav>
+  <div class="sidefoot"><span class="label">DAILY REBOOT</span><strong>__REBOOT__</strong><span class="label">Panel access: __PANEL_URL__</span></div>
+</aside>
+<main class="main">
+  <header class="topbar"><div><h2>Command Center</h2><p>__DOMAIN__</p></div><div class="top-actions"><span class="badge">IPv4 __IP__</span><span class="badge">__OS__</span></div></header>
+  <section class="content" id="dashboard">
+    <div class="hero"><div><h3>Server overview</h3><p>Live account inventory, services and transport endpoints.</p></div><button class="primary" id="openCreate" type="button">+ Create account</button></div>
+    <div class="stats">
+      <div class="stat"><div class="k">Total accounts</div><div class="v">__TOTAL__</div><div class="s">All protocols</div></div>
+      <div class="stat"><div class="k">Active accounts</div><div class="v">__ACTIVE__</div><div class="s">Currently enabled</div></div>
+      <div class="stat"><div class="k">Data consumed</div><div class="v">__USED__</div><div class="s">Tracked traffic</div></div>
+      <div class="stat"><div class="k">Daily reboot</div><div class="v" style="font-size:20px">__REBOOT__</div><div class="s">Automatic maintenance</div></div>
+    </div>
+    <div class="grid2" id="services">
+      <section class="panel"><div class="panelhead"><div><h4>Service health</h4><p>Critical components detected by systemd.</p></div></div><div class="services">__SERVICES__</div></section>
+      <section class="panel" id="transports"><div class="panelhead"><div><h4>Transport matrix</h4><p>Public listeners exposed by Unified VPS.</p></div></div>
+        <div class="matrix">
+          <div><span>SSH over WebSocket</span><span>80 / 8080 / 8880</span></div>
+          <div><span>SSH over WSS</span><span>443 / 8443</span></div>
+          <div><span>SSH raw TCP</span><span>143 / 8080 / 8443</span></div>
+          <div><span>VLESS / VMess / Trojan</span><span>80 / 443</span></div>
+          <div><span>Hysteria 2</span><span>UDP 53</span></div>
+          <div><span>Web panel</span><span>TCP 6080</span></div>
+        </div>
+      </section>
+    </div>
+    <section class="panel accounts" id="accounts">
+      <div class="panelhead"><div><h4>Account management</h4><p>Create, renew, enable, disable and copy connection credentials.</p></div>
+        <div class="toolbar"><input class="search" id="search" placeholder="Search username or protocol…"><select class="select" id="filter"><option value="">All protocols</option><option>SSH</option><option>VLESS</option><option>VMess</option><option>Trojan</option><option>Hysteria</option></select><button class="secondary" id="speedtest" type="button">Run speedtest</button></div>
+      </div>
+      <pre id="speedout" style="display:none;max-height:260px;overflow:auto;padding:12px;border:1px solid var(--line);border-radius:10px;background:#06100a;color:#bcebcf;font-size:11px"></pre>
+      <div class="tablewrap"><table><thead><tr><th>Account</th><th>Status</th><th>Ports</th><th>Secret</th><th>Usage</th><th>Expiry</th><th>Connection URI</th><th>Actions</th></tr></thead><tbody id="accountsBody">__ROWS__</tbody></table></div>
+    </section>
+  </section>
+</main>
+</div>
+
+<div class="overlay" id="modal">
+  <div class="modal">
+    <div class="modalhead"><div><h3>Create account</h3><p>Provision a new Unified VPS identity.</p></div><button class="close" id="closeCreate" type="button">Close</button></div>
+    <form id="createForm">
+      <div class="formgrid">
+        <div class="field"><label>Username</label><input name="username" required maxlength="32"></div>
+        <div class="field"><label>Protocol</label><select name="protocol" id="protocol"><option>SSH</option><option>VLESS</option><option>VMess</option><option>Trojan</option><option>Hysteria</option></select></div>
+        <div class="field full" id="sshSecretField"><label>SSH password</label><input name="secret" id="sshSecret" type="password" autocomplete="new-password"></div>
+        <div class="field"><label>Duration (days)</label><input name="days" type="number" min="0" value="0"></div>
+        <div class="field"><label>Quota (GB)</label><input name="quota_gb" id="quota" type="number" min="0" step="0.1" value="0"></div>
+      </div>
+      <div class="modalfoot"><button class="secondary" id="cancelCreate" type="button">Cancel</button><button class="primary" type="submit">Create account</button></div>
+    </form>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
 <script>
-async function copyUri(id){{let e=document.getElementById('u'+id); try{{if(navigator.clipboard&&window.isSecureContext){{await navigator.clipboard.writeText(e.value);}}else{{e.focus();e.select();document.execCommand('copy');}} alert('URI copied');}}catch(_){{e.focus();e.select();alert('URI selected — copy it manually.');}}}}
-const protocolSelect=document.getElementById('protocol'),passwordRow=document.getElementById('passwordRow'),sshPassword=document.getElementById('sshPassword');
-const quotaRow=document.getElementById('quotaRow'),quotaGb=document.getElementById('quotaGb');
-function updateProtocolFields(){{let ssh=protocolSelect.value==='SSH';passwordRow.style.display=ssh?'block':'none';sshPassword.required=ssh;if(!ssh)sshPassword.value='';quotaRow.style.opacity=ssh?'0.5':'1';quotaGb.disabled=ssh;if(ssh)quotaGb.value='0';}}
-protocolSelect.onchange=updateProtocolFields;updateProtocolFields();
-document.getElementById('f').onsubmit=async(e)=>{{e.preventDefault();let o=Object.fromEntries(new FormData(e.target));o.days=+o.days;o.quota_gb=+o.quota_gb;let r=await fetch('/api/users',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(o)}});let j=await r.json();alert(j.error||'Created. Connection details are shown in the account list.');if(r.ok) location.reload();}};
-async function runSpeedtest(){{document.getElementById('speed').textContent='Running Ookla Speedtest...';let r=await fetch('/api/speedtest');let j=await r.json();document.getElementById('speed').textContent=j.output||j.error||'No result';}}
-</script></body></html>'''.encode()
-            self.send_response(200); self.send_header('Content-Type','text/html; charset=utf-8'); self.send_header('Content-Length',str(len(b))); self.end_headers(); self.wfile.write(b); return
+const $=s=>document.querySelector(s);
+function toast(msg){const t=$("#toast");t.textContent=msg;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),2200)}
+async function copyText(value,button){
+  let ok=false;
+  try{if(navigator.clipboard&&window.isSecureContext){await navigator.clipboard.writeText(value);ok=true}}catch(e){}
+  if(!ok){
+    const ta=document.createElement("textarea");ta.value=value;ta.style.position="fixed";ta.style.opacity="0";document.body.appendChild(ta);ta.focus();ta.select();
+    try{ok=document.execCommand("copy")}catch(e){ok=false}ta.remove();
+  }
+  if(ok){const old=button.textContent;button.textContent="Copied";setTimeout(()=>button.textContent=old,1200)}else{toast("Copy blocked — URI selected for manual copy.")}
+}
+document.addEventListener("click",async e=>{
+  const copy=e.target.closest("[data-copy]"); if(copy){await copyText(copy.dataset.copy,copy);return}
+  const reveal=e.target.closest(".secret-btn"); if(reveal){if(reveal.dataset.revealed==="1"){reveal.textContent="Reveal";reveal.dataset.revealed="0"}else{reveal.textContent=reveal.dataset.secret;reveal.dataset.revealed="1"}return}
+  const act=e.target.closest("[data-action]"); if(act){
+    const id=act.dataset.id, action=act.dataset.action;
+    const r=await fetch("/api/users/action",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:Number(id),action:action})});
+    const j=await r.json(); if(!r.ok){toast(j.error||"Action failed");return} location.reload(); return
+  }
+  const del=e.target.closest("[data-delete]"); if(del){
+    if(!confirm("Delete this account permanently?")) return;
+    const r=await fetch("/api/users/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:Number(del.dataset.delete)})});
+    const j=await r.json(); if(!r.ok){toast(j.error||"Delete failed");return} location.reload(); return
+  }
+  const renew=e.target.closest("[data-renew]"); if(renew){
+    const days=prompt("Renew for how many days?","30"); if(!days||!/^\\d+$/.test(days)||Number(days)<1)return;
+    const r=await fetch("/api/users/action",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:Number(renew.dataset.renew),action:"renew",days:Number(days)})});
+    const j=await r.json(); if(!r.ok){toast(j.error||"Renewal failed");return} location.reload(); return
+  }
+});
+$("#openCreate").onclick=()=>$("#modal").classList.add("open");
+$("#closeCreate").onclick=$("#cancelCreate").onclick=()=>$("#modal").classList.remove("open");
+const protocol=$("#protocol"), sshField=$("#sshSecretField"), sshSecret=$("#sshSecret"), quota=$("#quota");
+function updateFields(){const ssh=protocol.value==="SSH";sshField.style.display=ssh?"grid":"none";sshSecret.required=ssh;quota.disabled=ssh;if(ssh)quota.value="0"}
+protocol.onchange=updateFields;updateFields();
+$("#createForm").onsubmit=async e=>{
+  e.preventDefault();
+  const f=new FormData(e.target), payload=Object.fromEntries(f.entries());
+  payload.days=Number(payload.days||0);payload.quota_gb=Number(payload.quota_gb||0);
+  const r=await fetch("/api/users",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+  const j=await r.json(); if(!r.ok){toast(j.error||"Account creation failed");return} location.reload();
+};
+$("#search").oninput=$("#filter").onchange=()=>{
+  const q=$("#search").value.toLowerCase(), p=$("#filter").value.toLowerCase();
+  document.querySelectorAll("[data-row]").forEach(r=>{const hit=(!q||(r.dataset.user||"").includes(q)||(r.dataset.protocol||"").includes(q))&&(!p||(r.dataset.protocol||"")===p);r.style.display=hit?"":"none"})
+};
+$("#speedtest").onclick=async()=>{
+  const out=$("#speedout");out.style.display="block";out.textContent="Running Ookla Speedtest…";
+  const r=await fetch("/api/speedtest"),j=await r.json();out.textContent=j.output||j.error||"No result";
+};
+</script>
+</body></html>"""
+            page=page.replace('__ROWS__',rows_html)
+            page=page.replace('__SERVICES__',service_html)
+            page=page.replace('__REBOOT__',html.escape(reboot,quote=True))
+            page=page.replace('__PANEL_URL__',html.escape(f'http://{public_host()}:{PORT}/',quote=True))
+            page=page.replace('__DOMAIN__',html.escape(public_host()))
+            page=page.replace('__IP__',html.escape(public_ip()))
+            page=page.replace('__OS__',html.escape(os.uname().sysname+' '+os.uname().release))
+            page=page.replace('__TOTAL__',str(len(rows)))
+            page=page.replace('__ACTIVE__',str(active))
+            page=page.replace('__USED__',f'{total_used/(1024**3):.2f} GB')
+            b=page.encode()
+
+            self.send_response(200); self.send_header('Content-Type','text/html; charset=utf-8'); self.send_header('Cache-Control','no-store'); self.send_header('Content-Length',str(len(b))); self.end_headers(); self.wfile.write(b); return
         self.send_response(404); self.end_headers()
 
     def do_POST(self):
