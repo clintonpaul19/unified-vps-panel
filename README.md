@@ -45,7 +45,7 @@ vps-status
 menu
 ```
 
-Open the panel at `http://YOUR-DOMAIN:6080/`. On the first visit it prompts for **Enter username**, **Enter password** and **Reenter password**. After saving, the browser is logged in automatically. The administrator credentials are stored locally in `/etc/unified-vps/panel.env` with restricted permissions.
+Open the panel at `http://YOUR-DOMAIN:6080/`. On the first visit it prompts for **Enter username**, **Enter password** and **Reenter password**. After saving, the browser is logged in automatically. The administrator credentials are stored locally in `/etc/unified-vps/admin.json` with root-only permissions.
 
 The panel itself is currently served over plain HTTP on TCP 6080. Until HTTPS is added, credentials entered on the first-run form or login form can be observed by an attacker able to intercept that network traffic.
 
