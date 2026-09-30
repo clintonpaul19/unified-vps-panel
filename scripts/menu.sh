@@ -137,6 +137,11 @@ apply_firewall(){
   insert_rule INPUT -p udp --dport 53
   insert_rule INPUT -p udp --dport 443
   insert_rule INPUT -m conntrack --ctstate ESTABLISHED,RELATED
+  if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q '^Status: active'; then
+    for p in 22 80 143 443 8080 8443 8880 6080 53; do ufw allow "$p/tcp" >/dev/null || true; done
+    ufw allow 53/udp >/dev/null || true
+    ufw allow 443/udp >/dev/null || true
+  fi
   iptables-save >/etc/iptables/rules.v4 2>/dev/null || true
   systemctl enable --now netfilter-persistent.service >/dev/null 2>&1 || true
 }
