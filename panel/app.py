@@ -200,6 +200,20 @@ def save_xray(d):
                 except Exception: pass
             raise RuntimeError('Xray restart failed: '+(rr.stderr or rr.stdout).strip())
 
+def ensure_xray_client(protocol,u,secret):
+    with XRAY_LOCK:
+        d=load_xray(); changed=False
+        for tag in XRAY_TAGS[protocol]:
+            ib=next((i for i in d.get('inbounds',[]) if i.get('tag')==tag),None)
+            if ib is None: raise RuntimeError(f'{protocol} inbound missing: {tag}')
+            clients=ib.setdefault('settings',{}).setdefault('clients',[])
+            client=next((x for x in clients if x.get('email')==u),None)
+            key='id' if protocol in ('VMess','VLESS') else 'password'
+            if client is None:
+                client={'email':u,'level':0,key:secret}; clients.append(client); changed=True
+            elif client.get(key)!=secret:
+                client[key]=secret; changed=True
+        if changed: save_xray(d)
 def add_xray(protocol,u,secret):
     with XRAY_LOCK:
         d=load_xray()
