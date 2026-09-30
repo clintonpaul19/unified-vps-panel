@@ -462,6 +462,30 @@ def _security_info():
     except Exception: auth_cfg={}
     return {'fail2ban':f2b,'banned':banned,'failed_ssh_24h':failed,'firewall_rules':fw,'ssh_auth':auth_cfg}
 
+def cleanup_disabled_xray():
+    try:
+        c=conn()
+        rows=c.execute("select protocol,username from users where enabled=0 and protocol in ('VLESS','VMess','Trojan')").fetchall()
+        c.close()
+        if not rows:
+            return
+        with XRAY_LOCK:
+            d=load_xray(); changed=False
+            for row in rows:
+                for tag in XRAY_TAGS[row['protocol']]:
+                    ib=next((i for i in d.get('inbounds',[]) if i.get('tag')==tag),None)
+                    if not ib:
+                        continue
+                    clients=ib.setdefault('settings',{}).setdefault('clients',[])
+                    kept=[x for x in clients if x.get('email')!=row['username']]
+                    if len(kept)!=len(clients):
+                        ib['settings']['clients']=kept
+                        changed=True
+            if changed:
+                save_xray(d)
+    except Exception:
+        pass
+
 def sync_usage():
     while True:
         try:
@@ -512,19 +536,6 @@ def sync_usage():
                           (today,server_daily))
             c.commit(); c.close()
 
-            xrows=[r for r in disable if r['protocol'] in XRAY_TAGS]
-            if xrows:
-                with XRAY_LOCK:
-                    d=load_xray(); changed=False
-                    for row in xrows:
-                        for tag in XRAY_TAGS[row['protocol']]:
-                            ib=next((i for i in d.get('inbounds',[]) if i.get('tag')==tag),None)
-                            if ib:
-                                before=len(ib.get('settings',{}).get('clients',[]))
-                                ib['settings']['clients']=[u for u in ib['settings'].get('clients',[]) if u.get('email')!=row['username']]
-                                changed |= before != len(ib['settings']['clients'])
-                    if changed: save_xray(d)
-
             c=conn()
             for row in disable:
                 log_event('account_auto_disabled','expired or quota reached',row['username'])
@@ -535,6 +546,7 @@ def sync_usage():
                     except Exception: pass
                 c.execute('update users set enabled=0 where id=?',(row['id'],))
             c.commit(); c.close()
+            cleanup_disabled_xray()
         except Exception:
             pass
         time.sleep(15)
