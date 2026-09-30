@@ -594,7 +594,7 @@ def create_user(d):
     # from CLI clients for compatibility and keep the stored quota at zero.
     if p=='SSH':
         q=0
-    if not re.fullmatch(r'[A-Za-z0-9_.-]{1,32}',u): raise ValueError('invalid username')
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{2,31}',u): raise ValueError('invalid username')
     secret=str(d.get('secret') or (str(uuid.uuid4()) if p in ('VLESS','VMess') else secrets.token_urlsafe(18)))
     if len(secret)>256 or '\n' in secret or '\r' in secret or '\x00' in secret: raise ValueError('secret/password contains invalid characters or is too long')
     if p in ('VLESS','VMess'):
@@ -1139,7 +1139,14 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
             page=page.replace('__SERVER_ALL__',_human_bytes(server_all))
             b=page.encode()
 
-            self.send_response(200); self.send_header('Content-Type','text/html; charset=utf-8'); self.send_header('Cache-Control','no-store'); self.send_header('Content-Length',str(len(b))); self.end_headers(); self.wfile.write(b); return
+            self.send_response(200)
+            self.send_header('Content-Type','text/html; charset=utf-8')
+            self.send_header('Cache-Control','no-store')
+            self.send_header('X-Content-Type-Options','nosniff')
+            self.send_header('X-Frame-Options','DENY')
+            self.send_header('Referrer-Policy','no-referrer')
+            self.send_header('Content-Length',str(len(b)))
+            self.end_headers(); self.wfile.write(b); return
         self.send_response(404); self.end_headers()
 
     def do_POST(self):
@@ -1151,7 +1158,7 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                 u=str(d.get('username','')).strip()
                 p=str(d.get('password',''))
                 confirm=str(d.get('confirm',''))
-                if not re.fullmatch(r'[A-Za-z0-9._-]{3,32}',u):
+                if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{2,31}',u):
                     return send(self,{'error':'Username must be 3-32 characters using letters, numbers, dot, underscore or hyphen.'},400)
                 if len(p)<8 or len(p)>128 or '\n' in p or '\r' in p:
                     return send(self,{'error':'Password must be 8-128 characters and cannot contain newlines.'},400)
