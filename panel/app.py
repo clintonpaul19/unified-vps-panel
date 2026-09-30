@@ -561,19 +561,19 @@ def sync_usage():
             disable=[]
             for row in rows:
                 expired=bool(row['expiry'] and row['expiry']<=now)
+                prev=int(row['raw_bytes'] or 0)
                 if row['protocol'] in XRAY_TAGS:
                     if xusage is None:
                         if row['enabled'] and expired: disable.append(row)
                         continue
-                    raw=xusage.get(row['username'],0)
+                    raw=int(xusage[row['username']]) if row['username'] in xusage else prev
                 elif row['protocol']=='Hysteria':
                     if husage is None:
                         if row['enabled'] and expired: disable.append(row)
                         continue
-                    raw=husage.get(row['username'],0)
+                    raw=int(husage[row['username']]) if row['username'] in husage else prev
                 else:
                     raw=0
-                prev=int(row['raw_bytes'] or 0)
                 delta=raw-prev if raw >= prev else raw
                 used=int(row['used_bytes'] or 0)+delta
                 daily=int(row['daily_used_bytes'] or 0)
