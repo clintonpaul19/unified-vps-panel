@@ -1053,7 +1053,8 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                     if not row: results.append({'id':uid,'ok':False,'error':'not found'}); continue
                     if action=='delete':
                         if row['protocol']=='SSH': del_ssh(row['username'])
-                        elif row['protocol']!='Hysteria': del_xray(row['protocol'],row['username'])
+                        elif row['protocol']=='Hysteria': kick_hysteria(row['username'])
+                        else: del_xray(row['protocol'],row['username'])
                         c=conn(); c.execute('delete from users where id=?',(uid,)); c.commit(); c.close()
                     elif action in ('enable','disable'):
                         enable=action=='enable'
