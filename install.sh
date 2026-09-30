@@ -186,7 +186,6 @@ cat >/etc/systemd/system/unified-vps-wstunnel-ssh.service <<'EOF'
 [Unit]
 Description=Unified VPS SSH over WebSocket
 After=network-online.target ssh.service
-Requires=ssh.service
 Wants=network-online.target
 [Service]
 Type=simple
