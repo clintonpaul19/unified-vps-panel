@@ -604,6 +604,7 @@ async function refreshUsage(){
     if(sa)sa.textContent=fmtBytes(j.server.all_time_bytes);
     for(const a of j.accounts||[]){
       const all=document.getElementById("alltime-"+a.id), daily=document.getElementById("daily-"+a.id);
+      if(a.protocol==="SSH") continue;
       if(all)all.textContent=fmtBytes(a.all_time_bytes);
       if(daily)daily.textContent="Today: "+fmtBytes(a.daily_bytes);
     }
