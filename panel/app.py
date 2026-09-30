@@ -1283,6 +1283,8 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                         c=conn(); c.execute('delete from users where id=?',(uid,)); c.commit(); c.close()
                     elif action in ('enable','disable'):
                         enable=action=='enable'
+                        if enable and row['expiry'] and row['expiry']<=int(time.time()):
+                            raise ValueError('account is expired; renew it before enabling')
                         if row['protocol'] in XRAY_TAGS:
                             if enable:
                                 ensure_xray_client(row['protocol'],row['username'],row['secret'])
@@ -1319,7 +1321,7 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
             try:
                 if action=='renew':
                     days=int(d.get('days',0) or 0)
-                    if days <= 0: raise ValueError('renewal days must be greater than 0')
+                    if days <= 0 or days > 36500: raise ValueError('renewal duration must be between 1 and 36500 days')
                     exp=int(time.time())+days*86400
                     baseline=int(row['raw_bytes'] or 0)
                     if row['protocol'] in XRAY_TAGS:
@@ -1337,6 +1339,8 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                     return send(self,{'ok':True,'action':'renew','id':row['id']})
                 if action in ('enable','disable'):
                     enable=action=='enable'
+                    if enable and row['expiry'] and row['expiry']<=int(time.time()):
+                        raise ValueError('account is expired; renew it before enabling')
                     if enable:
                         if row['protocol'] in XRAY_TAGS: ensure_xray_client(row['protocol'],row['username'],row['secret'])
                         elif row['protocol']=='SSH':
