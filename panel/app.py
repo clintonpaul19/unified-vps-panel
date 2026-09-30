@@ -155,14 +155,28 @@ def _xray_usage():
     except Exception:
         return {}
 
-def _hysteria_usage():
-    if not HY2_STATS_SECRET: return {}
+def _hysteria_request(path, method='GET', payload=None):
+    if not HY2_STATS_SECRET:
+        return None
     try:
-        req=Request('http://127.0.0.1:9999/traffic',headers={'Authorization':HY2_STATS_SECRET})
-        with urlopen(req,timeout=5) as r: data=json.loads(r.read())
-        return {str(k): int(v.get('tx',0))+int(v.get('rx',0)) for k,v in data.items()}
+        data=None
+        headers={'Authorization':HY2_STATS_SECRET}
+        if payload is not None:
+            data=json.dumps(payload).encode()
+            headers['Content-Type']='application/json'
+        req=Request(f'http://127.0.0.1:9999{path}',data=data,headers=headers,method=method)
+        with urlopen(req,timeout=5) as r:
+            return json.loads(r.read())
     except Exception:
-        return {}
+        return None
+
+def kick_hysteria(username):
+    return _hysteria_request('/kick','POST',[str(username)]) is not None
+
+def _hysteria_usage():
+    data=_hysteria_request('/traffic')
+    if not isinstance(data,dict): return {}
+    return {str(k): int(v.get('tx',0))+int(v.get('rx',0)) for k,v in data.items() if isinstance(v,dict)}
 
 def _primary_interface():
     try:
@@ -373,6 +387,8 @@ def sync_usage():
             c=conn()
             for row in disable:
                 log_event('account_auto_disabled','expired or quota reached',row['username'])
+                if row['protocol']=='Hysteria':
+                    kick_hysteria(row['username'])
                 if row['protocol']=='SSH':
                     subprocess.run(['usermod','-L',row['username']],capture_output=True)
                 c.execute('update users set enabled=0 where id=?',(row['id'],))
@@ -473,40 +489,12 @@ class H(BaseHTTPRequestHandler):
         if not auth(self.headers):
             self.send_response(401); self.send_header('WWW-Authenticate','Basic realm="Unified VPS"'); self.end_headers(); return
         if self.path=='/api/backup':
-            action=str(d.get('action','')).lower()
-            if action=='create':
+            files=[]
+            for path in sorted(__import__('glob').glob('/opt/unified-vps/backups/unified-vps-*.tar.gz'),reverse=True)[:10]:
                 try:
-                    p=subprocess.run(['/usr/local/sbin/unified-vps-backup'],capture_output=True,text=True,timeout=120)
-                    if p.returncode: return send(self,{'error':(p.stderr or p.stdout).strip() or 'backup failed'},500)
-                    log_event('backup_created',os.path.basename(p.stdout.strip()),'')
-                    return send(self,{'ok':True,'path':p.stdout.strip()})
-                except Exception as e: return send(self,{'error':str(e)},500)
-            if action=='restore':
-                files=sorted(__import__('glob').glob('/opt/unified-vps/backups/unified-vps-*.tar.gz'),reverse=True)
-                if not files: return send(self,{'error':'no backup available'},404)
-                p=subprocess.run(['tar','-tzf',files[0]],capture_output=True,text=True,timeout=30)
-                if p.returncode: return send(self,{'error':'latest backup is invalid'},500)
-                p=subprocess.run(['tar','-xzf',files[0],'-C','/'],capture_output=True,text=True,timeout=120)
-                if p.returncode: return send(self,{'error':(p.stderr or 'restore failed').strip()},500)
-                log_event('backup_restored',os.path.basename(files[0]),'')
-                result=send(self,{'ok':True,'path':files[0],'message':'Restore applied; services will restart shortly.'})
-                def restart_restored_services():
-                    subprocess.run(['systemctl','restart','xray','hysteria-server','haproxy','unified-vps-panel'],capture_output=True)
-                threading.Timer(2.0,restart_restored_services).start()
-                return result
-            return send(self,{'error':'unsupported backup action'},400)
-
-        if self.path=='/api/certificate/renew':
-            try:
-                acme='/root/.acme.sh/acme.sh'
-                if not os.path.exists(acme): return send(self,{'error':'acme.sh not installed'},500)
-                p=subprocess.run([acme,'--renew','-d',public_host(),'--force'],capture_output=True,text=True,timeout=180)
-                if p.returncode:
-                    return send(self,{'error':(p.stderr or p.stdout).strip() or 'certificate renewal failed'},500)
-                log_event('certificate_renewed',public_host(),'')
-                return send(self,{'ok':True,'output':(p.stdout or '').strip()})
-            except Exception as e:
-                return send(self,{'error':str(e)},500)
+                    files.append({'name':os.path.basename(path),'size':os.path.getsize(path),'created_at':int(os.path.getmtime(path))})
+                except OSError: pass
+            return send(self,{'backups':files})
 
         if self.path=='/api/users':
             c=conn(); rows=[record(x) for x in c.execute('select * from users order by id desc')]; c.close()
@@ -1010,7 +998,43 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
         if not auth(self.headers):
             self.send_response(401); self.end_headers(); return
         try: d=body(self)
+        except ValueError as e: return send(self,{'error':str(e)},400)
         except Exception: return send(self,{'error':'invalid JSON'},400)
+
+        if self.path=='/api/backup':
+            action=str(d.get('action','')).lower()
+            if action=='create':
+                try:
+                    p=subprocess.run(['/usr/local/sbin/unified-vps-backup'],capture_output=True,text=True,timeout=120)
+                    if p.returncode: return send(self,{'error':(p.stderr or p.stdout).strip() or 'backup failed'},500)
+                    log_event('backup_created',os.path.basename(p.stdout.strip()),'')
+                    return send(self,{'ok':True,'path':p.stdout.strip()})
+                except Exception as e: return send(self,{'error':str(e)},500)
+            if action=='restore':
+                files=sorted(__import__('glob').glob('/opt/unified-vps/backups/unified-vps-*.tar.gz'),reverse=True)
+                if not files: return send(self,{'error':'no backup available'},404)
+                p=subprocess.run(['tar','-tzf',files[0]],capture_output=True,text=True,timeout=30)
+                if p.returncode: return send(self,{'error':'latest backup is invalid'},500)
+                p=subprocess.run(['tar','-xzf',files[0],'-C','/'],capture_output=True,text=True,timeout=120)
+                if p.returncode: return send(self,{'error':(p.stderr or 'restore failed').strip()},500)
+                log_event('backup_restored',os.path.basename(files[0]),'')
+                result=send(self,{'ok':True,'path':files[0],'message':'Restore applied; services will restart shortly.'})
+                def restart_restored_services():
+                    subprocess.run(['systemctl','restart','xray','hysteria-server','haproxy','unified-vps-panel'],capture_output=True)
+                threading.Timer(2.0,restart_restored_services).start()
+                return result
+            return send(self,{'error':'unsupported backup action'},400)
+
+        if self.path=='/api/certificate/renew':
+            try:
+                acme='/root/.acme.sh/acme.sh'
+                if not os.path.exists(acme): return send(self,{'error':'acme.sh not installed'},500)
+                p=subprocess.run([acme,'--renew','-d',public_host(),'--force'],capture_output=True,text=True,timeout=180)
+                if p.returncode: return send(self,{'error':(p.stderr or p.stdout).strip() or 'certificate renewal failed'},500)
+                log_event('certificate_renewed',public_host(),'')
+                return send(self,{'ok':True,'output':(p.stdout or '').strip()})
+            except Exception as e: return send(self,{'error':str(e)},500)
+
         if self.path=='/api/users':
             try: return send(self,create_user(d))
             except Exception as e: return send(self,{'error':str(e)},500)
@@ -1044,10 +1068,16 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                                             cl['id' if row['protocol'] in ('VMess','VLESS') else 'password']=row['secret']; clients.append(cl)
                                 save_xray(dcfg)
                             else: del_xray(row['protocol'],row['username'])
+                        elif row['protocol']=='Hysteria' and not enable:
+                            kick_hysteria(row['username'])
                         elif row['protocol']=='SSH': subprocess.run(['usermod','-U' if enable else '-L',row['username']],capture_output=True)
                         c=conn(); c.execute('update users set enabled=? where id=?',(1 if enable else 0,uid)); c.commit(); c.close()
                     else:
                         days=int(d.get('days',0)); exp=int(time.time())+days*86400
+                        if row['protocol'] in XRAY_TAGS:
+                            add_xray(row['protocol'],row['username'],row['secret'])
+                        elif row['protocol']=='SSH':
+                            subprocess.run(['usermod','-U',row['username']],capture_output=True)
                         c=conn(); c.execute('update users set expiry=?,enabled=1,used_bytes=0,raw_bytes=0,daily_used_bytes=0,usage_day=? where id=?',(exp,time.strftime('%Y-%m-%d'),uid)); c.commit(); c.close()
                     log_event('bulk_'+action,row['protocol'],row['username'])
                     results.append({'id':uid,'ok':True})
@@ -1064,7 +1094,7 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                     days=int(d.get('days',0) or 0)
                     if days <= 0: raise ValueError('renewal days must be greater than 0')
                     exp=int(time.time())+days*86400
-                    c.execute('update users set expiry=?,enabled=1,used_bytes=0,raw_bytes=0 where id=?',(exp,row['id']))
+                    c.execute('update users set expiry=?,enabled=1,used_bytes=0,raw_bytes=0,daily_used_bytes=0,usage_day=? where id=?',(exp,time.strftime('%Y-%m-%d'),row['id']))
                     if row['protocol'] in XRAY_TAGS:
                         try: del_xray(row['protocol'],row['username'])
                         except Exception: pass
@@ -1093,6 +1123,8 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                     else:
                         if row['protocol'] in XRAY_TAGS:
                             del_xray(row['protocol'],row['username'])
+                        elif row['protocol']=='Hysteria':
+                            kick_hysteria(row['username'])
                         elif row['protocol']=='SSH':
                             subprocess.run(['usermod','-L',row['username']],capture_output=True)
                     c.execute('update users set enabled=? where id=?',(1 if enable else 0,row['id']))
@@ -1109,7 +1141,8 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
             if not row: c.close(); return send(self,{'error':'not found'},404)
             try:
                 if row['protocol']=='SSH': del_ssh(row['username'])
-                elif row['protocol']!='Hysteria': del_xray(row['protocol'],row['username'])
+                elif row['protocol']=='Hysteria': kick_hysteria(row['username'])
+                else: del_xray(row['protocol'],row['username'])
                 c.execute('delete from users where id=?',(row['id'],)); c.commit()
                 log_event('account_deleted',row['protocol'],row['username'])
                 return send(self,{'ok':True})
