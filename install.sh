@@ -78,6 +78,18 @@ echo "Generated ACME email: $ACME_EMAIL"
 apt-get update
 apt-get install -y ca-certificates curl jq openssl iproute2 iptables iptables-persistent sqlite3 python3 openssh-server dnsutils lsof procps psmisc socat nginx haproxy cron
 
+# Automatic daily maintenance reboot. Runs at 04:00 in the VPS local timezone.
+# Keep this in /etc/cron.d so it is installed consistently on fresh VPS instances.
+mkdir -p /etc/cron.d
+cat >/etc/cron.d/unified-vps-daily-reboot <<'EOF'
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# Unified VPS: reboot once per day at 04:00 server local time.
+0 4 * * * root /usr/sbin/reboot >/dev/null 2>&1
+EOF
+chmod 644 /etc/cron.d/unified-vps-daily-reboot
+systemctl enable --now cron >/dev/null 2>&1 || true
+
 # HAProxy replaces SSLH as the public TCP/HTTP multiplexer.
 # Remove any legacy SSLH instance so it cannot compete for ports 80/443/8443/143/8080.
 systemctl disable --now sslh.service 2>/dev/null || true
@@ -498,6 +510,7 @@ echo "HTTP service: NGINX on TCP/8080"
 echo "Ookla Speedtest: speedtest"
 echo "CLI menu: menu"
 echo "Status: vps-status"
+echo "Automatic daily reboot: 04:00 server local time"
 echo
 if [ -t 0 ] && [ -t 1 ]; then
   read -r -p "Reboot now? [y/N]: " REBOOT_NOW < /dev/tty
