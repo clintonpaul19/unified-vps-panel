@@ -919,7 +919,7 @@ button{cursor:pointer}
 <main class="main">
   <header class="topbar"><div><h2>Command Center</h2><p>__DOMAIN__</p></div><div class="top-actions"><span class="badge">IPv4 __IP__</span><span class="badge">__OS__</span></div></header>
   <section class="content" id="dashboard">
-    <div class="hero"><div><h3>Server overview</h3><p>Live account inventory, services and transport endpoints.</p><span id="usageStamp" class="muted" style="margin-top:6px">Usage updating…</span></div><button class="primary" id="openCreate" type="button">+ Create account</button></div>
+    <div class="hero"><div><h3>Server overview</h3><p>Live account inventory, services and transport endpoints.</p><span id="usageStamp" class="muted" style="margin-top:6px">Usage updating…</span></div><button class="primary" id="openCreate" type="button" onclick="document.getElementById('modal').classList.add('open')">+ Create account</button></div>
     <div class="stats">
       <div class="stat"><div class="k">Total accounts</div><div class="v">__TOTAL__</div><div class="s">All protocols</div></div>
       <div class="stat"><div class="k">Active accounts</div><div class="v">__ACTIVE__</div><div class="s">Currently enabled</div></div>
@@ -989,7 +989,7 @@ button{cursor:pointer}
 
 <div class="overlay" id="modal">
   <div class="modal">
-    <div class="modalhead"><div><h3>Create account</h3><p>Provision a new Unified VPS identity.</p></div><button class="close" id="closeCreate" type="button">Close</button></div>
+    <div class="modalhead"><div><h3>Create account</h3><p>Provision a new Unified VPS identity.</p></div><button class="close" id="closeCreate" type="button" onclick="document.getElementById('modal').classList.remove('open')">Close</button></div>
     <form id="createForm">
       <div class="formgrid">
         <div class="field"><label>Username</label><input name="username" required maxlength="32"></div>
@@ -998,7 +998,7 @@ button{cursor:pointer}
         <div class="field"><label>Duration (days)</label><input name="days" type="number" min="0" value="0"></div>
         <div class="field"><label>Quota (GB)</label><input name="quota_gb" id="quota" type="number" min="0" step="0.1" value="0"></div>
       </div>
-      <div class="modalfoot"><button class="secondary" id="cancelCreate" type="button">Cancel</button><button class="primary" type="submit">Create account</button></div>
+      <div class="modalfoot"><button class="secondary" id="cancelCreate" type="button" onclick="document.getElementById('modal').classList.remove('open')">Cancel</button><button class="primary" type="submit">Create account</button></div>
     </form>
   </div>
 </div>
@@ -1042,10 +1042,16 @@ function updateFields(){const ssh=protocol.value==="SSH";sshField.style.display=
 protocol.onchange=updateFields;updateFields();
 $("#createForm").onsubmit=async e=>{
   e.preventDefault();
-  const f=new FormData(e.target), payload=Object.fromEntries(f.entries());
-  payload.days=Number(payload.days||0);payload.quota_gb=Number(payload.quota_gb||0);
-  const r=await fetch("/api/users",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
-  const j=await r.json(); if(!r.ok){toast(j.error||"Account creation failed");return} location.reload();
+  const submit=e.target.querySelector("button[type=submit]"); if(submit)submit.disabled=true;
+  try{
+    const f=new FormData(e.target), payload=Object.fromEntries(f.entries());
+    payload.days=Number(payload.days||0);payload.quota_gb=Number(payload.quota_gb||0);
+    const r=await fetch("/api/users",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload),cache:"no-store"});
+    const text=await r.text(); let j={}; try{j=JSON.parse(text)}catch(_){j={error:text||("HTTP "+r.status)}}
+    if(!r.ok){toast(j.error||"Account creation failed");return}
+    location.reload();
+  }catch(err){toast("Account creation failed: "+(err.message||"network error"))}
+  finally{if(submit)submit.disabled=false}
 };
 $("#search").oninput=$("#filter").onchange=()=>{
   const q=$("#search").value.toLowerCase(), p=$("#filter").value.toLowerCase();
