@@ -1,7 +1,6 @@
 [Unit]
 Description=Unified VPS Legacy WebSocket/SSH Payload Bridge
 After=network-online.target ssh.service
-Requires=ssh.service
 Wants=network-online.target
 
 [Service]
