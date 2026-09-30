@@ -331,6 +331,8 @@ for line in lines:
 p.write_text("\n".join(out)+"\n")'
         chmod 600 /etc/unified-vps/panel.env
         systemctl restart unified-vps-panel
+        ADMIN_PASSWORD="$newpass"
+        AUTH=(-u "${ADMIN_USER}:${ADMIN_PASSWORD}")
         echo "Panel password changed."
         pause ;;
       2) sed -E 's/^ADMIN_PASSWORD=.*/ADMIN_PASSWORD=[REDACTED]/' /etc/unified-vps/panel.env; pause ;;
