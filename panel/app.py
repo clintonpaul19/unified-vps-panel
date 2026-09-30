@@ -1083,8 +1083,8 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                         c=conn(); c.execute('update users set enabled=? where id=?',(1 if enable else 0,uid)); c.commit(); c.close()
                     else:
                         days=int(d.get('days',0));
-                    if days <= 0: raise ValueError('renewal days must be greater than 0')
-                    exp=int(time.time())+days*86400
+                        if days <= 0: raise ValueError('renewal days must be greater than 0')
+                        exp=int(time.time())+days*86400
                         if row['protocol'] in XRAY_TAGS:
                             add_xray(row['protocol'],row['username'],row['secret'])
                         elif row['protocol']=='SSH':
