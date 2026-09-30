@@ -383,23 +383,28 @@ server_settings(){
           pause
           continue
         fi
-        NEWPASS="$newpass" ADMIN_USER="$ADMIN_USER" python3 - <<'PY'
-import json, os, tempfile
+        printf '%s\\0%s\\0' "$ADMIN_USER" "$newpass" | python3 -c '
+import json, os, sys, tempfile
 from pathlib import Path
+raw=sys.stdin.buffer.read().split(b"\\0")
+if len(raw) < 2:
+    raise SystemExit("invalid credential input")
+username=raw[0].decode()
+password=raw[1].decode()
 p=Path("/etc/unified-vps/admin.json")
-data={"username":os.environ["ADMIN_USER"],"password":os.environ["NEWPASS"]}
+data={"username":username,"password":password}
 p.parent.mkdir(parents=True,exist_ok=True)
 fd,tmp=tempfile.mkstemp(prefix=".admin.",dir=str(p.parent))
 try:
     with os.fdopen(fd,"w",encoding="utf-8") as f:
         json.dump(data,f,ensure_ascii=False)
-        f.write("\n")
+        f.write("\\n")
     os.chmod(tmp,0o600)
     os.replace(tmp,p)
 finally:
     try: os.unlink(tmp)
     except FileNotFoundError: pass
-PY
+'
         sed -i -E '/^ADMIN_USER=/d;/^ADMIN_PASSWORD=/d' "$PANEL_ENV"
         printf 'ADMIN_USER=\nADMIN_PASSWORD=\n' >> "$PANEL_ENV"
         chmod 600 "$PANEL_ENV" "$ADMIN_FILE"
