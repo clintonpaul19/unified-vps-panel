@@ -354,7 +354,7 @@ out=[]
 for line in lines:
     if line.startswith("ADMIN_PASSWORD="): out.append("ADMIN_PASSWORD="+q)
     else: out.append(line)
-p.write_text("\\n".join(out)+"\\n")'
+p.write_text("\n".join(out)+"\n")
         chmod 600 /etc/unified-vps/panel.env
         systemctl restart unified-vps-panel
         ADMIN_PASSWORD="$newpass"
