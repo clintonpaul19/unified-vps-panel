@@ -434,13 +434,15 @@ def sync_usage():
             disable=[]
             for row in rows:
                 if row['protocol'] in XRAY_TAGS:
+                    if xusage is None: continue
                     raw=xusage.get(row['username'],0)
                 elif row['protocol']=='Hysteria':
+                    if husage is None: continue
                     raw=husage.get(row['username'],0)
                 else:
                     raw=0
                 prev=int(row['raw_bytes'] or 0)
-                delta=max(raw-prev,0)
+                delta=raw-prev if raw >= prev else raw
                 used=int(row['used_bytes'] or 0)+delta
                 daily=int(row['daily_used_bytes'] or 0)
                 usage_day=row['usage_day'] or ''
@@ -458,7 +460,7 @@ def sync_usage():
             srv=c.execute('select * from server_usage where id=1').fetchone()
             if srv:
                 raw_rx=int(srv['raw_rx'] or 0); raw_tx=int(srv['raw_tx'] or 0)
-                server_delta=max(rx-raw_rx,0)+max(tx-raw_tx,0)
+                server_delta=(rx-raw_rx if rx >= raw_rx else rx)+(tx-raw_tx if tx >= raw_tx else tx)
                 server_all=int(srv['all_time_bytes'] or 0)+server_delta
                 server_daily=int(srv['daily_bytes'] or 0)
                 if (srv['usage_day'] or '') != today:
