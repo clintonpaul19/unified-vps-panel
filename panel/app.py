@@ -499,7 +499,18 @@ $("#speedtest").onclick=async()=>{
             page=page.replace('__PANEL_URL__',html.escape(f'http://{public_host()}:{PORT}/',quote=True))
             page=page.replace('__DOMAIN__',html.escape(public_host()))
             page=page.replace('__IP__',html.escape(public_ip()))
-            page=page.replace('__OS__',html.escape(os.uname().sysname+' '+os.uname().release))
+            os_name=os.uname().sysname+' '+os.uname().release
+            try:
+                with open('/etc/os-release') as fh:
+                    vals={}
+                    for line in fh:
+                        if '=' in line:
+                            k,v=line.rstrip().split('=',1)
+                            vals[k]=v.strip().strip('"')
+                os_name=vals.get('PRETTY_NAME',os_name)
+            except Exception:
+                pass
+            page=page.replace('__OS__',html.escape(os_name))
             page=page.replace('__TOTAL__',str(len(rows)))
             page=page.replace('__ACTIVE__',str(active))
             page=page.replace('__USED__',f'{total_used/(1024**3):.2f} GB')
