@@ -76,7 +76,7 @@ ACME_EMAIL="acme-$(openssl rand -hex 8)@${DOMAIN}"
 echo "Generated ACME email: $ACME_EMAIL"
 
 apt-get update
-apt-get install -y ca-certificates curl jq openssl iproute2 iptables iptables-persistent sqlite3 python3 openssh-server dnsutils lsof procps psmisc socat nginx haproxy cron
+apt-get install -y ca-certificates curl jq openssl iproute2 iptables iptables-persistent sqlite3 python3 openssh-server dnsutils lsof procps psmisc socat nginx haproxy cron fail2ban
 
 # Automatic daily maintenance reboot. Runs at 04:00 in the VPS local timezone.
 # Keep this in /etc/cron.d so it is installed consistently on fresh VPS instances.
@@ -108,7 +108,17 @@ pkill -TERM -x hysteria 2>/dev/null || true
 sleep 1
 
 
-mkdir -p /opt/unified-vps /etc/unified-vps /etc/hysteria /var/log/unified-vps /usr/local/etc/xray
+mkdir -p /opt/unified-vps /etc/unified-vps /etc/hysteria /var/log/unified-vps /usr/local/etc/xray /etc/fail2ban/jail.d
+
+# Install the maintenance, watchdog and backup components.
+curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/unified-vps-watchdog.sh" -o /usr/local/sbin/unified-vps-watchdog
+curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/systemd/unified-vps-watchdog.service" -o /etc/systemd/system/unified-vps-watchdog.service
+curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/systemd/unified-vps-watchdog.timer" -o /etc/systemd/system/unified-vps-watchdog.timer
+curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/unified-vps-backup.sh" -o /usr/local/sbin/unified-vps-backup
+curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/systemd/unified-vps-backup.service" -o /etc/systemd/system/unified-vps-backup.service
+curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/systemd/unified-vps-backup.timer" -o /etc/systemd/system/unified-vps-backup.timer
+curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/config/fail2ban-unified-vps.local" -o /etc/fail2ban/jail.d/unified-vps.local
+chmod 755 /usr/local/sbin/unified-vps-watchdog /usr/local/sbin/unified-vps-backup
 DIAG_ACTIVE=1
 # Open the required ports without flushing or bypassing an existing firewall.
 # Rules are inserted before the first terminal DROP/REJECT when one exists.
@@ -442,6 +452,7 @@ curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/ma
 chmod 755 /usr/local/bin/menu /usr/local/bin/vps-status
 
 systemctl daemon-reload
+systemctl enable --now fail2ban.service unified-vps-watchdog.timer unified-vps-backup.timer || true
 # Enabling units must not prevent installation from reaching the explicit
 # startup/diagnostic checks below. Some systemd environments may report a
 # stale/failed job while creating the enablement links.
@@ -474,7 +485,7 @@ sshd -t
 xray -test -config /usr/local/etc/xray/config.json
 nginx -t
 haproxy -c -f /etc/haproxy/haproxy.cfg
-SERVICES=(ssh nginx haproxy unified-vps-panel xray hysteria-server)
+SERVICES=(ssh nginx haproxy unified-vps-panel xray hysteria-server fail2ban unified-vps-watchdog.timer unified-vps-backup.timer)
 FAILED=0
 for s in "${SERVICES[@]}"; do
   if ! systemctl is-active --quiet "$s"; then
@@ -511,6 +522,9 @@ echo "Ookla Speedtest: speedtest"
 echo "CLI menu: menu"
 echo "Status: vps-status"
 echo "Automatic daily reboot: 04:00 server local time"
+echo "Automatic backups: daily at 03:00 local (7 retained)"
+echo "Service watchdog: every 1 minute"
+echo "SSH brute-force protection: Fail2Ban"
 echo
 if [ -t 0 ] && [ -t 1 ]; then
   read -r -p "Reboot now? [y/N]: " REBOOT_NOW < /dev/tty
