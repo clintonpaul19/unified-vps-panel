@@ -29,6 +29,10 @@ MAX_REQUEST_BODY=64*1024
 def _load_admin_credentials():
     global ADMIN,PASSWORD
     try:
+        st=os.stat(ADMIN_FILE)
+        if st.st_uid != 0:
+            return
+        os.chmod(ADMIN_FILE,0o600)
         with open(ADMIN_FILE,encoding='utf-8') as f:
             data=json.load(f)
         user=str(data.get('username','')).strip()
