@@ -3,7 +3,7 @@ set -Eeuo pipefail
 source /etc/unified-vps/panel.env
 
 API="http://127.0.0.1:${PANEL_PORT}"
-AUTH="-u ${ADMIN_USER}:${ADMIN_PASSWORD}"
+AUTH=(-u "${ADMIN_USER}:${ADMIN_PASSWORD}")
 PANEL_VERSION="1.2.0"
 REBOOT_CRON="/etc/cron.d/unified-vps-daily-reboot"
 
@@ -26,12 +26,12 @@ EOF
   systemctl enable --now cron >/dev/null 2>&1 || true
 }
 
-api_get(){ curl -fsS $AUTH "$API/api/users"; }
-api_post(){ curl -fsS $AUTH -H 'Content-Type: application/json' -d "$1" "$API/api/users"; }
-api_action(){ curl -fsS $AUTH -H 'Content-Type: application/json' -d "$1" "$API/api/users/action"; }
-api_delete(){ curl -fsS $AUTH -H 'Content-Type: application/json' -d "$1" "$API/api/users/delete"; }
+api_get(){ curl -fsS "${AUTH[@]}" "$API/api/users"; }
+api_post(){ curl -fsS "${AUTH[@]}" -H 'Content-Type: application/json' -d "$1" "$API/api/users"; }
+api_action(){ curl -fsS "${AUTH[@]}" -H 'Content-Type: application/json' -d "$1" "$API/api/users/action"; }
+api_delete(){ curl -fsS "${AUTH[@]}" -H 'Content-Type: application/json' -d "$1" "$API/api/users/delete"; }
 
-api_usage(){ curl -fsS $AUTH "$API/api/usage"; }
+api_usage(){ curl -fsS "${AUTH[@]}" "$API/api/usage"; }
 
 select_account_id(){
   local p="$1" action_name="$2" data choice list count
@@ -78,7 +78,7 @@ print("Server traffic today   :",h(s.get("daily_bytes",0)))
 print("Server traffic all time:",h(s.get("all_time_bytes",0)))
 print("Live accounting interval: ~15 seconds")
 PY
-  history="$(curl -fsS $AUTH "$API/api/usage-history" 2>/dev/null || true)"
+  history="$(curl -fsS "${AUTH[@]}" "$API/api/usage-history" 2>/dev/null || true)"
   if [[ -n "$history" ]]; then
     echo
     echo "Last 7 daily totals:"
