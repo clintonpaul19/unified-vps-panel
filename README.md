@@ -189,7 +189,7 @@ Supported architectures:
 
 The project is still under development. Test it on a fresh VPS before production use.
 
-Do not expose or commit `/etc/unified-vps/panel.env`; it contains the generated panel administrator password.
+Do not expose or commit `/etc/unified-vps/admin.json`; it contains the panel administrator credentials. `/etc/unified-vps/panel.env` is kept with blank administrator credential fields on current installations.
 
 
 ## Account output and copy-ready URIs
@@ -257,7 +257,7 @@ Answer `y` to reboot immediately or `N` to leave the VPS running.
 
 ## Important security note
 
-A fresh installation requires the administrator to create their own credentials before the panel can be used.
+A fresh installation requires the administrator to create their own credentials before the panel can be used. There is no default administrator username or password.
 ## Maintenance
 
 The installer and CLI menu configure one automatic VPS reboot per day at **04:00 server local time**. The web panel also displays the reboot schedule.
