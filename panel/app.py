@@ -409,7 +409,8 @@ def sync_usage():
                 if row['protocol']=='Hysteria':
                     kick_hysteria(row['username'])
                 if row['protocol']=='SSH':
-                    subprocess.run(['usermod','-L',row['username']],capture_output=True)
+                    try: set_ssh_enabled(row['username'],False)
+                    except Exception: pass
                 c.execute('update users set enabled=0 where id=?',(row['id'],))
             c.commit(); c.close()
         except Exception:
@@ -455,8 +456,13 @@ def record(row):
     return d
 
 def create_user(d):
-    p=d.get('protocol'); u=str(d.get('username','')); quota_gb=float(d.get('quota_gb',0) or 0); q=int(quota_gb*(1024**3)); days=int(d.get('days',0) or 0)
+    p=d.get('protocol'); u=str(d.get('username',''))
+    try: quota_gb=float(d.get('quota_gb',0) or 0)
+    except (TypeError,ValueError): raise ValueError('quota must be a finite non-negative number')
     if not math.isfinite(quota_gb) or quota_gb < 0: raise ValueError('quota must be a finite non-negative number')
+    q=int(quota_gb*(1024**3))
+    try: days=int(d.get('days',0) or 0)
+    except (TypeError,ValueError): raise ValueError('days must be a whole number')
     if days < 0: raise ValueError('days cannot be negative')
     if days > 36500: raise ValueError('days exceeds maximum supported duration')
     if p not in XRAY_TAGS and p not in ('Hysteria','SSH'): raise ValueError('invalid protocol')
@@ -465,7 +471,8 @@ def create_user(d):
     if p=='SSH':
         q=0
     if not re.fullmatch(r'[A-Za-z0-9_.-]{1,32}',u): raise ValueError('invalid username')
-    secret=d.get('secret') or (str(uuid.uuid4()) if p in ('VLESS','VMess') else secrets.token_urlsafe(18))
+    secret=str(d.get('secret') or (str(uuid.uuid4()) if p in ('VLESS','VMess') else secrets.token_urlsafe(18)))
+    if len(secret)>256 or '\n' in secret or '\r' in secret or '\x00' in secret: raise ValueError('secret/password contains invalid characters or is too long')
     if p in ('VLESS','VMess'):
         try:
             secret=str(uuid.UUID(secret))
@@ -1102,7 +1109,7 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                             else: del_xray(row['protocol'],row['username'])
                         elif row['protocol']=='Hysteria' and not enable:
                             kick_hysteria(row['username'])
-                        elif row['protocol']=='SSH': subprocess.run(['usermod','-U' if enable else '-L',row['username']],capture_output=True)
+                        elif row['protocol']=='SSH': set_ssh_enabled(row['username'],enable)
                         c=conn(); c.execute('update users set enabled=? where id=?',(1 if enable else 0,uid)); c.commit(); c.close()
                     else:
                         days=int(d.get('days',0));
@@ -1111,7 +1118,8 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                         if row['protocol'] in XRAY_TAGS:
                             add_xray(row['protocol'],row['username'],row['secret'])
                         elif row['protocol']=='SSH':
-                            subprocess.run(['usermod','-U',row['username']],capture_output=True)
+                            set_ssh_enabled(row['username'],True)
+                            sync_ssh_expiry(row['username'],exp)
                         baseline=int(row['raw_bytes'] or 0)
                         if row['protocol']=='Hysteria':
                             hstats=_hysteria_usage()
@@ -1146,7 +1154,8 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                         except Exception: pass
                         add_xray(row['protocol'],row['username'],row['secret'])
                     elif row['protocol']=='SSH':
-                        subprocess.run(['usermod','-U',row['username']],capture_output=True)
+                        set_ssh_enabled(row['username'],True)
+                        sync_ssh_expiry(row['username'],exp)
                     c.commit()
                     log_event('account_renewed',f'{days} days',row['username'])
                     return send(self,{'ok':True,'action':'renew','id':row['id']})
@@ -1166,14 +1175,14 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                                             clients.append(client)
                                 save_xray(dcfg)
                         elif row['protocol']=='SSH':
-                            subprocess.run(['usermod','-U',row['username']],capture_output=True)
+                            set_ssh_enabled(row['username'],True)
                     else:
                         if row['protocol'] in XRAY_TAGS:
                             del_xray(row['protocol'],row['username'])
                         elif row['protocol']=='Hysteria':
                             kick_hysteria(row['username'])
                         elif row['protocol']=='SSH':
-                            subprocess.run(['usermod','-L',row['username']],capture_output=True)
+                            set_ssh_enabled(row['username'],False)
                     c.execute('update users set enabled=? where id=?',(1 if enable else 0,row['id']))
                     c.commit()
                     log_event('account_'+action,row['protocol'],row['username'])
