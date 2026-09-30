@@ -7,5 +7,5 @@ banaction = iptables-multiport
 
 [sshd]
 enabled = true
-port = 22
+port = 22,80,443,143,8080,8443,8880
 backend = systemd
