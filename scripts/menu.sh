@@ -383,10 +383,10 @@ server_settings(){
           pause
           continue
         fi
-        printf '%s\\0%s\\0' "$ADMIN_USER" "$newpass" | python3 -c '
+        printf '%s\0%s\0' "$ADMIN_USER" "$newpass" | python3 -c '
 import json, os, sys, tempfile
 from pathlib import Path
-raw=sys.stdin.buffer.read().split(b"\\0")
+raw=sys.stdin.buffer.read().split(b"\0")
 if len(raw) < 2:
     raise SystemExit("invalid credential input")
 username=raw[0].decode()
@@ -398,7 +398,7 @@ fd,tmp=tempfile.mkstemp(prefix=".admin.",dir=str(p.parent))
 try:
     with os.fdopen(fd,"w",encoding="utf-8") as f:
         json.dump(data,f,ensure_ascii=False)
-        f.write("\\n")
+        f.write("\n")
     os.chmod(tmp,0o600)
     os.replace(tmp,p)
 finally:
