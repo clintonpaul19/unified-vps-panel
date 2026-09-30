@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 [[ $EUID -eq 0 ]] || { echo 'Run as root.'; exit 1; }
+export HOME=/root USER=root LOGNAME=root
 . /etc/os-release
 case "$ID" in ubuntu|debian) ;; *) echo "Unsupported OS: $ID"; exit 1;; esac
 case "$(dpkg --print-architecture)" in amd64|arm64) ;; *) echo 'Supported architectures: amd64, arm64'; exit 1;; esac
