@@ -43,10 +43,14 @@ def _load_admin_credentials():
             ADMIN=''
             PASSWORD=''
             return
-        if user and password:
+        valid_user=bool(re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{2,31}',user))
+        valid_password=8 <= len(password) <= 128 and '\n' not in password and '\r' not in password
+        if valid_user and valid_password:
             ADMIN=user
             PASSWORD=password
             return
+        try: os.unlink(ADMIN_FILE)
+        except OSError: pass
     except Exception:
         pass
 
@@ -272,14 +276,22 @@ def save_xray(d):
             raise RuntimeError('Xray configuration test failed: '+(test.stderr or test.stdout).strip())
         os.replace(tmp,CFG)
         rr=subprocess.run(['systemctl','restart','xray'],capture_output=True,text=True)
-        if rr.returncode:
+        active=subprocess.run(['systemctl','is-active','--quiet','xray'],check=False).returncode==0
+        if rr.returncode or not active:
             if previous is not None:
                 try:
                     with open(rollback,'wb') as f: f.write(previous)
+                    if owner:
+                        try: os.chown(rollback,owner[0],owner[1])
+                        except PermissionError: pass
+                    os.chmod(rollback,0o640)
                     os.replace(rollback,CFG)
                     subprocess.run(['systemctl','restart','xray'],capture_output=True,text=True)
                 except Exception: pass
-            raise RuntimeError('Xray restart failed: '+(rr.stderr or rr.stdout).strip())
+            err=(rr.stderr or rr.stdout).strip() or 'Xray service did not become active'
+            raise RuntimeError('Xray restart failed: '+err)
+        try: os.unlink(rollback)
+        except OSError: pass
 
 def ensure_xray_client(protocol,u,secret):
     with XRAY_LOCK:
