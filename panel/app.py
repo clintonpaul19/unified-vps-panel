@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import base64,hmac,html,json,os,secrets,sqlite3,subprocess,time,re,threading,uuid
+import base64,hashlib,hmac,html,json,os,secrets,sqlite3,subprocess,time,re,threading,uuid
 from urllib.request import Request,urlopen
 from urllib.parse import quote
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
@@ -531,7 +531,14 @@ def service_state(name):
 class H(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path=='/health': return send(self,{'ok':True})
+        if not admin_configured():
+            if self.path in ('/','/setup'): return _setup_page(self)
+            return send(self,{'error':'panel setup required'},503)
+        if self.path=='/login' and not auth(self.headers): return _login_page(self)
         if not auth(self.headers):
+            if self.path.startswith('/api/'):
+                return send(self,{'error':'authentication required'},401)
+            return _login_page(self)
             self.send_response(401); self.send_header('WWW-Authenticate','Basic realm="Unified VPS"'); self.end_headers(); return
         if self.path=='/api/backup':
             action=str(d.get('action','')).lower()
@@ -1061,6 +1068,32 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
         self.send_response(404); self.end_headers()
 
     def do_POST(self):
+        if self.path=='/setup':
+            try: d=body(self)
+            except Exception: return send(self,{'error':'invalid JSON'},400)
+            with SETUP_LOCK:
+                if admin_configured(): return send(self,{'error':'panel is already configured'},409)
+                u=str(d.get('username','')).strip()
+                p=str(d.get('password',''))
+                confirm=str(d.get('confirm',''))
+                if not re.fullmatch(r'[A-Za-z0-9._-]{3,32}',u):
+                    return send(self,{'error':'Username must be 3-32 characters using letters, numbers, dot, underscore or hyphen.'},400)
+                if u.lower()=='spiderman':
+                    return send(self,{'error':'That username is unavailable.'},400)
+                if len(p)<8 or len(p)>128 or '\n' in p or '\r' in p:
+                    return send(self,{'error':'Password must be 8-128 characters and cannot contain newlines.'},400)
+                if p!=confirm: return send(self,{'error':'Passwords do not match.'},400)
+                _save_admin_credentials(u,p)
+                log_event('panel_setup',details='Initial administrator account created')
+                return send(self,{'ok':True},200,{'Set-Cookie':f'{SESSION_COOKIE}={_session_cookie(u)}; Path=/; HttpOnly; SameSite=Strict; Max-Age={SESSION_TTL}'})
+        if self.path=='/login':
+            try: d=body(self)
+            except Exception: return send(self,{'error':'invalid JSON'},400)
+            if not admin_configured(): return send(self,{'error':'panel setup required'},503)
+            u=str(d.get('username','')); p=str(d.get('password',''))
+            if hmac.compare_digest(u,ADMIN) and hmac.compare_digest(p,PASSWORD):
+                return send(self,{'ok':True},200,{'Set-Cookie':f'{SESSION_COOKIE}={_session_cookie(u)}; Path=/; HttpOnly; SameSite=Strict; Max-Age={SESSION_TTL}'})
+            return send(self,{'error':'invalid credentials'},401)
         if self.path=='/hysteria-auth':
             try: d=body(self)
             except Exception: return send(self,{'ok':False},400)
