@@ -181,7 +181,7 @@ install -m 0755 /tmp/wstunnel /usr/local/bin/wstunnel
 rm -f /tmp/${WSTUNNEL_TARBALL} /tmp/wstunnel
 
 tmp_xray=/usr/local/etc/xray/config.json.ws.tmp
-jq '(.inbounds[] | select(.tag=="trojan443") | .settings.fallbacks) |= ([{"path":"/ssh","dest":"127.0.0.1:18446","xver":0}] + .)' /usr/local/etc/xray/config.json > "$tmp_xray"
+jq '(.inbounds[] | select(.tag=="trojan443") | .settings.fallbacks) |= ([{"path":"/ssh","dest":"127.0.0.1:18446","xver":0}] + (map(select(.path != "/ssh"))))' /usr/local/etc/xray/config.json > "$tmp_xray"
 mv "$tmp_xray" /usr/local/etc/xray/config.json
 
 cat >/etc/systemd/system/unified-vps-wstunnel-ssh.service <<'EOF'
