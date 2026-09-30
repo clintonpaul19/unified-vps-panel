@@ -16,6 +16,8 @@ SESSION_COOKIE='uvps_session'
 SESSION_TTL=12*60*60
 SETUP_LOCK=threading.Lock()
 CERT_LOCK=threading.Lock()
+LOGIN_LOCK=threading.Lock()
+LOGIN_ATTEMPTS={}
 HY2_STATS_SECRET=os.environ.get('HY2_STATS_SECRET','')
 PUBLIC_IP_CACHE=None
 XRAY_TAGS={'VLESS':['vless443'],'VMess':['vmess443'],'Trojan':['trojan443']}
@@ -124,6 +126,11 @@ def send_html(r,html_body,status=200,headers=None):
 def _setup_page(r):
     page='''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Unified VPS — Initial Setup</title>
 <style>:root{--bg:#06110b;--panel:#0b1811;--line:#173524;--text:#ecfff2;--muted:#87a995;--accent:#42f58d;--danger:#ff6b78}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px;background:radial-gradient(800px 500px at 50% -10%,rgba(66,245,141,.11),transparent 60%),var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}.card{width:min(460px,100%);padding:28px;border:1px solid var(--line);border-radius:18px;background:linear-gradient(180deg,rgba(14,33,22,.96),rgba(8,20,13,.96));box-shadow:0 30px 90px rgba(0,0,0,.45)}.logo{font-weight:900;letter-spacing:.04em;color:var(--accent);font-size:13px}.title{font-size:26px;margin:8px 0 4px}.sub{color:var(--muted);margin:0 0 22px}label{display:block;color:var(--muted);font-size:12px;margin-bottom:6px}.field{margin-bottom:14px}input{width:100%;padding:12px 13px;border-radius:10px;border:1px solid var(--line);background:#06100a;color:var(--text);outline:none}button{width:100%;margin-top:8px;border:0;border-radius:11px;padding:12px 14px;background:linear-gradient(135deg,var(--accent),#1dbb68);color:#03200f;font-weight:800;cursor:pointer}.msg{min-height:20px;margin-top:12px;color:var(--danger);font-size:12px}.note{margin-top:18px;color:var(--muted);font-size:11px}</style></head><body><main class="card"><div class="logo">UNIFIED VPS</div><div class="title">Initial setup</div><p class="sub">Create the administrator account for this VPS panel.</p><form id="setup"><div class="field"><label>Enter username</label><input name="username" maxlength="32" autocomplete="username" required></div><div class="field"><label>Enter password</label><input name="password" type="password" minlength="8" maxlength="128" autocomplete="new-password" required></div><div class="field"><label>Reenter password</label><input name="confirm" type="password" minlength="8" maxlength="128" autocomplete="new-password" required></div><button type="submit">Save and login</button><div id="msg" class="msg"></div></form><div class="note">Your administrator credentials are stored locally on this VPS.</div></main><script>const f=document.getElementById("setup"),m=document.getElementById("msg");f.onsubmit=async e=>{e.preventDefault();m.textContent="";const d=Object.fromEntries(new FormData(f).entries());if(d.password!==d.confirm){m.textContent="Passwords do not match.";return}try{const r=await fetch("/setup",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(d)}),j=await r.json();if(!r.ok){m.textContent=j.error||"Setup failed.";return}location.href="/"}catch(_){m.textContent="Setup request failed."}};</script></body></html>'''
+    return send_html(r,page)
+
+def _login_page(r):
+    page='''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Unified VPS — Login</title>
+<style>:root{--bg:#06110b;--panel:#0b1811;--line:#173524;--text:#ecfff2;--muted:#87a995;--accent:#42f58d;--danger:#ff6b78}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px;background:radial-gradient(800px 500px at 50% -10%,rgba(66,245,141,.11),transparent 60%),var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}.card{width:min(420px,100%);padding:28px;border:1px solid var(--line);border-radius:18px;background:linear-gradient(180deg,rgba(14,33,22,.96),rgba(8,20,13,.96));box-shadow:0 30px 90px rgba(0,0,0,.45)}.logo{font-weight:900;letter-spacing:.04em;color:var(--accent);font-size:13px}.title{font-size:26px;margin:8px 0 4px}.sub{color:var(--muted);margin:0 0 22px}label{display:block;color:var(--muted);font-size:12px;margin-bottom:6px}.field{margin-bottom:14px}input{width:100%;padding:12px 13px;border-radius:10px;border:1px solid var(--line);background:#06100a;color:var(--text);outline:none}button{width:100%;margin-top:8px;border:0;border-radius:11px;padding:12px 14px;background:linear-gradient(135deg,var(--accent),#1dbb68);color:#03200f;font-weight:800;cursor:pointer}.msg{min-height:20px;margin-top:12px;color:var(--danger);font-size:12px}</style></head><body><main class="card"><div class="logo">UNIFIED VPS</div><div class="title">Administrator login</div><p class="sub">Sign in to the VPS control center.</p><form id="login"><div class="field"><label>Username</label><input name="username" autocomplete="username" required></div><div class="field"><label>Password</label><input name="password" type="password" autocomplete="current-password" required></div><button type="submit">Login</button><div id="msg" class="msg"></div></form></main><script>const f=document.getElementById("login"),m=document.getElementById("msg");f.onsubmit=async e=>{e.preventDefault();m.textContent="";const d=Object.fromEntries(new FormData(f).entries());try{const r=await fetch("/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(d)}),j=await r.json();if(!r.ok){m.textContent=j.error||"Login failed.";return}location.href="/"}catch(_){m.textContent="Login request failed."}};</script></body></html>'''
     return send_html(r,page)
 
 def send(r,obj,status=200):
@@ -631,7 +638,10 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path=='/health': return send(self,{'ok':True})
         if self.path in ('/','/setup') and not admin_configured(): return _setup_page(self)
-        if self.path=='/setup':
+        if self.path in ('/','/login') and admin_configured() and not auth(self.headers): return _login_page(self)
+        if self.path=='/setup' or self.path=='/login':
+            if auth(self.headers):
+                self.send_response(302); self.send_header('Location','/'); self.end_headers(); return
             self.send_response(404); self.end_headers(); return
         if not auth(self.headers):
             self.send_response(401); self.send_header('WWW-Authenticate','Basic realm="Unified VPS"'); self.end_headers(); return
@@ -1127,6 +1137,35 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
         self.send_response(404); self.end_headers()
 
     def do_POST(self):
+        if self.path=='/login':
+            if not admin_configured(): return send(self,{'error':'Complete initial setup first.'},409)
+            try: d=body(self)
+            except ValueError as e: return send(self,{'error':str(e)},400)
+            except Exception: return send(self,{'error':'invalid JSON'},400)
+            username=str(d.get('username','')).strip()
+            password=str(d.get('password',''))
+            ip=self.client_address[0] if self.client_address else 'unknown'
+            now=time.time()
+            with LOGIN_LOCK:
+                attempts=LOGIN_ATTEMPTS.get(ip,[])
+                attempts=[x for x in attempts if now-x<600]
+                if len(attempts)>=5:
+                    LOGIN_ATTEMPTS[ip]=attempts
+                    return send(self,{'error':'Too many login attempts. Try again later.'},429)
+                if not (hmac.compare_digest(username,ADMIN) and hmac.compare_digest(password,PASSWORD)):
+                    attempts.append(now); LOGIN_ATTEMPTS[ip]=attempts
+                    time.sleep(1)
+                    return send(self,{'error':'Invalid username or password.'},401)
+                LOGIN_ATTEMPTS.pop(ip,None)
+                cookie=_session_cookie(username)
+            payload=json.dumps({'ok':True,'message':'Logged in.'}).encode()
+            self.send_response(200)
+            self.send_header('Content-Type','application/json')
+            self.send_header('Cache-Control','no-store')
+            self.send_header('Set-Cookie',f'{SESSION_COOKIE}={cookie}; Path=/; HttpOnly; SameSite=Strict; Max-Age={SESSION_TTL}')
+            self.send_header('Content-Length',str(len(payload)))
+            self.end_headers(); self.wfile.write(payload)
+            return
         if self.path=='/setup':
             try: d=body(self)
             except ValueError as e: return send(self,{'error':str(e)},400)
