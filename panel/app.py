@@ -180,7 +180,8 @@ def save_xray(d):
             raise RuntimeError('Xray restart failed: '+(rr.stderr or rr.stdout).strip())
 
 def add_xray(protocol,u,secret):
-    d=load_xray()
+    with XRAY_LOCK:
+        d=load_xray()
     for tag in XRAY_TAGS[protocol]:
         ib=next((i for i in d.get('inbounds',[]) if i.get('tag')==tag),None)
         if ib is None: raise RuntimeError(f'{protocol} inbound missing: {tag}')
@@ -192,7 +193,8 @@ def add_xray(protocol,u,secret):
     save_xray(d)
 
 def del_xray(protocol,u):
-    d=load_xray(); changed=False
+    with XRAY_LOCK:
+        d=load_xray(); changed=False
     for tag in XRAY_TAGS[protocol]:
         ib=next((i for i in d.get('inbounds',[]) if i.get('tag')==tag),None)
         if ib:
