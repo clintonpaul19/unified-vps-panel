@@ -14,7 +14,7 @@ if [[ -s "$ADMIN_FILE" ]] && command -v jq >/dev/null 2>&1; then
   ADMIN_PASSWORD="$(jq -r '.password // empty' "$ADMIN_FILE" 2>/dev/null || true)"
 fi
 # Administrator credentials are stored only in admin.json.
-if [[ "$ADMIN_USER" == "spiderman" && "$ADMIN_PASSWORD" == "spiderman" ]]; then
+if [[ "$(printf '%s:%s' "$ADMIN_USER" "$ADMIN_PASSWORD" | sha256sum | awk '{print $1}')" == "89b4cdab4d0d839fcf432ca76640ffe90da27a63b6f0ad7bbf1d644f5ccd91a9" ]]; then
   rm -f "$ADMIN_FILE"
   sed -i -E '/^ADMIN_USER=/d;/^ADMIN_PASSWORD=/d' "$PANEL_ENV"
   ADMIN_USER=""; ADMIN_PASSWORD=""
