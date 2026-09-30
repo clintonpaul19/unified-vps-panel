@@ -598,7 +598,11 @@ update_script(){
   if ! bash -n "$tmp_menu" || ! bash -n "$tmp_cert_hook" || ! bash -n "$tmp_status" || ! bash -n "$tmp_watch" || ! bash -n "$tmp_backup" || ! python3 -m py_compile "$tmp_app" "$tmp_payload" || ! haproxy -c -f "$tmp_haproxy" || ! systemd-analyze verify "$tmp_wstunnel_unit" "$tmp_hysteria_unit" "$tmp_watch_unit" "$tmp_timer" "$tmp_backup_unit" "$tmp_backup_timer"; then
     echo "Validation failed. Nothing was installed."; rm -f "$tmp_menu" "$tmp_app" "$tmp_haproxy" "$tmp_payload" "$tmp_wstunnel_unit" "$tmp_hysteria_unit" "$tmp_cert_hook" "$tmp_watch" "$tmp_watch_unit" "$tmp_timer" "$tmp_backup" "$tmp_backup_unit" "$tmp_backup_timer" "$tmp_f2b"; pause; return
   fi
-  if [ -f /etc/unified-vps/panel.env ] && grep -Eq '^ADMIN_USER="?spiderman"?  install -m 0644 "$tmp_app" /opt/unified-vps/panel.py
+  # Legacy default credentials are never retained.
+  if [ -f /etc/unified-vps/panel.env ]; then
+    sed -i -E '/^ADMIN_USER="?spiderman"?$/d; /^ADMIN_PASSWORD="?spiderman"?$/d' /etc/unified-vps/panel.env
+  fi
+  install -m 0644 "$tmp_app" /opt/unified-vps/panel.py
   install -m 0644 "$tmp_haproxy" /etc/haproxy/haproxy.cfg
   install -m 0755 "$tmp_payload" /opt/unified-vps/ws-payload-ssh.py
   install -m 0644 "$tmp_wstunnel_unit" /etc/systemd/system/unified-vps-wstunnel-ssh.service
