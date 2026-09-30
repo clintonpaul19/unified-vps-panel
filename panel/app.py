@@ -182,26 +182,26 @@ def save_xray(d):
 def add_xray(protocol,u,secret):
     with XRAY_LOCK:
         d=load_xray()
-    for tag in XRAY_TAGS[protocol]:
-        ib=next((i for i in d.get('inbounds',[]) if i.get('tag')==tag),None)
-        if ib is None: raise RuntimeError(f'{protocol} inbound missing: {tag}')
-        clients=ib.setdefault('settings',{}).setdefault('clients',[])
-        if any(c.get('email')==u for c in clients): raise RuntimeError('Username already exists in Xray')
-        c={'email':u,'level':0}
-        c['id' if protocol in ('VMess','VLESS') else 'password']=secret
-        clients.append(c)
-    save_xray(d)
+        for tag in XRAY_TAGS[protocol]:
+            ib=next((i for i in d.get('inbounds',[]) if i.get('tag')==tag),None)
+            if ib is None: raise RuntimeError(f'{protocol} inbound missing: {tag}')
+            clients=ib.setdefault('settings',{}).setdefault('clients',[])
+            if any(c.get('email')==u for c in clients): raise RuntimeError('Username already exists in Xray')
+            client={'email':u,'level':0}
+            client['id' if protocol in ('VMess','VLESS') else 'password']=secret
+            clients.append(client)
+        save_xray(d)
 
 def del_xray(protocol,u):
     with XRAY_LOCK:
         d=load_xray(); changed=False
-    for tag in XRAY_TAGS[protocol]:
-        ib=next((i for i in d.get('inbounds',[]) if i.get('tag')==tag),None)
-        if ib:
-            old=len(ib['settings'].get('clients',[]))
-            ib['settings']['clients']=[x for x in ib['settings'].get('clients',[]) if x.get('email')!=u]
-            changed |= old != len(ib['settings']['clients'])
-    if changed: save_xray(d)
+        for tag in XRAY_TAGS[protocol]:
+            ib=next((i for i in d.get('inbounds',[]) if i.get('tag')==tag),None)
+            if ib:
+                old=len(ib['settings'].get('clients',[]))
+                ib['settings']['clients']=[x for x in ib['settings'].get('clients',[]) if x.get('email')!=u]
+                changed |= old != len(ib['settings']['clients'])
+        if changed: save_xray(d)
 
 def add_ssh(u,password,days):
     if subprocess.run(['id',u],capture_output=True).returncode==0:
