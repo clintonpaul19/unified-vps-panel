@@ -85,38 +85,41 @@ def load_xray():
     with open(CFG) as f: return json.load(f)
 
 def save_xray(d):
-    tmp=CFG+'.tmp.json'
-    with open(tmp,'w') as f: json.dump(d,f,indent=2)
-    test=subprocess.run(['xray','-test','-config',tmp],capture_output=True,text=True)
-    if test.returncode:
-        try: os.unlink(tmp)
-        except OSError: pass
-        raise RuntimeError('Xray configuration test failed: '+(test.stderr or test.stdout).strip())
-    os.replace(tmp,CFG)
-    rr=subprocess.run(['systemctl','restart','xray'],capture_output=True,text=True)
-    if rr.returncode: raise RuntimeError('Xray restart failed: '+(rr.stderr or rr.stdout).strip())
+    with XRAY_LOCK:
+        tmp=CFG+'.tmp.json'
+        with open(tmp,'w') as f: json.dump(d,f,indent=2)
+        test=subprocess.run(['xray','-test','-config',tmp],capture_output=True,text=True)
+        if test.returncode:
+            try: os.unlink(tmp)
+            except OSError: pass
+            raise RuntimeError('Xray configuration test failed: '+(test.stderr or test.stdout).strip())
+        os.replace(tmp,CFG)
+        rr=subprocess.run(['systemctl','restart','xray'],capture_output=True,text=True)
+        if rr.returncode: raise RuntimeError('Xray restart failed: '+(rr.stderr or rr.stdout).strip())
 
 def add_xray(protocol,u,secret):
-    d=load_xray()
-    for tag in XRAY_TAGS[protocol]:
-        ib=next((i for i in d.get('inbounds',[]) if i.get('tag')==tag),None)
-        if ib is None: raise RuntimeError(f'{protocol} inbound missing: {tag}')
-        clients=ib.setdefault('settings',{}).setdefault('clients',[])
-        if any(c.get('email')==u for c in clients): raise RuntimeError('Username already exists in Xray')
-        c={'email':u,'level':0}
-        c['id' if protocol in ('VMess','VLESS') else 'password']=secret
-        clients.append(c)
-    save_xray(d)
+    with XRAY_LOCK:
+        d=load_xray()
+        for tag in XRAY_TAGS[protocol]:
+            ib=next((i for i in d.get('inbounds',[]) if i.get('tag')==tag),None)
+            if ib is None: raise RuntimeError(f'{protocol} inbound missing: {tag}')
+            clients=ib.setdefault('settings',{}).setdefault('clients',[])
+            if any(c.get('email')==u for c in clients): raise RuntimeError('Username already exists in Xray')
+            client={'email':u,'level':0}
+            client['id' if protocol in ('VMess','VLESS') else 'password']=secret
+            clients.append(client)
+        save_xray(d)
 
 def del_xray(protocol,u):
-    d=load_xray(); changed=False
-    for tag in XRAY_TAGS[protocol]:
-        ib=next((i for i in d.get('inbounds',[]) if i.get('tag')==tag),None)
-        if ib:
-            old=len(ib['settings'].get('clients',[]))
-            ib['settings']['clients']=[x for x in ib['settings'].get('clients',[]) if x.get('email')!=u]
-            changed |= old != len(ib['settings']['clients'])
-    if changed: save_xray(d)
+    with XRAY_LOCK:
+        d=load_xray(); changed=False
+        for tag in XRAY_TAGS[protocol]:
+            ib=next((i for i in d.get('inbounds',[]) if i.get('tag')==tag),None)
+            if ib:
+                old=len(ib['settings'].get('clients',[]))
+                ib['settings']['clients']=[x for x in ib['settings'].get('clients',[]) if x.get('email')!=u]
+                changed |= old != len(ib['settings']['clients'])
+        if changed: save_xray(d)
 
 def add_ssh(u,password,days):
     if subprocess.run(['id',u],capture_output=True).returncode==0:
