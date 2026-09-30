@@ -1189,7 +1189,7 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
             r=c.execute('select username,expiry,enabled from users where protocol="Hysteria" and secret=?',(secret,)).fetchone(); c.close()
             if not r or not r['enabled'] or (r['expiry'] and r['expiry']<=int(time.time())): return send(self,{'ok':False})
             return send(self,{'ok':True,'id':r['username']})
-        if not auth(self.headers):
+        if not auth(self.headers,self.client_address[0] if self.client_address else ''):
             self.send_response(401); self.end_headers(); return
         try: d=body(self)
         except ValueError as e: return send(self,{'error':str(e)},400)
@@ -1348,7 +1348,7 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
             finally: c.close()
 
         if self.path=='/api/users/delete':
-            c=conn(); row=c.execute('select * from users where id=?',(int(d.get('id',0)),)).fetchone()
+            c=conn(); row=c.execute('select * from users where id=?',(parse_user_id(d.get('id',0)),)).fetchone()
             if not row: c.close(); return send(self,{'error':'not found'},404)
             try:
                 if row['protocol']=='SSH': del_ssh(row['username'])
