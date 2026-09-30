@@ -155,6 +155,14 @@ insert_firewall_rule iptables INPUT -m conntrack --ctstate ESTABLISHED,RELATED
 
 # IPv6 is disabled for this deployment; do not configure IPv6 firewall rules.
 
+# If UFW is already active on a reused VPS, mirror the required ingress
+# rules there as well. Do not enable UFW automatically.
+if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q '^Status: active'; then
+  for p in 22 80 143 443 8080 8443 8880 6080 53; do ufw allow "$p/tcp" >/dev/null || true; done
+  ufw allow 53/udp >/dev/null || true
+  ufw allow 443/udp >/dev/null || true
+fi
+
 iptables-save >/etc/iptables/rules.v4
 systemctl enable --now netfilter-persistent.service >/dev/null 2>&1 || true
 
