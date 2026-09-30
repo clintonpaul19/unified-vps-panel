@@ -31,6 +31,55 @@ api_post(){ curl -fsS $AUTH -H 'Content-Type: application/json' -d "$1" "$API/ap
 api_action(){ curl -fsS $AUTH -H 'Content-Type: application/json' -d "$1" "$API/api/users/action"; }
 api_delete(){ curl -fsS $AUTH -H 'Content-Type: application/json' -d "$1" "$API/api/users/delete"; }
 
+api_usage(){ curl -fsS $AUTH "$API/api/usage"; }
+
+select_account_id(){
+  local p="$1" action_name="$2" data choice list count
+  data="$(api_get)"
+  list="$(mktemp)"
+  printf '%s\n' "$data" | python3 -c 'import json,sys; p=sys.argv[1]; [print(str(x["id"])+"|"+x["username"]+"|"+("enabled" if x["enabled"] else "disabled")) for x in json.load(sys.stdin) if x["protocol"]==p]' "$p" >"$list"
+  count="$(wc -l <"$list")"
+  if [[ "$count" -eq 0 ]]; then
+    echo "No $p accounts exist."
+    rm -f "$list"
+    return 1
+  fi
+  echo
+  echo "Select account to $action_name:"
+  awk -F'|' '{printf "[%d] %s (%s)\n",NR,$2,$3}' "$list"
+  while true; do
+    read -r -p "Account >>> " choice
+    if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= count )); then
+      awk -F'|' -v n="$choice" 'NR==n {print $1; exit}' "$list"
+      rm -f "$list"
+      return 0
+    fi
+    echo "Invalid selection."
+  done
+}
+
+show_usage_summary(){
+  local data
+  data="$(api_usage 2>/dev/null || true)"
+  if [[ -z "$data" ]]; then
+    echo "Usage data unavailable."
+    return
+  fi
+  python3 - "$data" <<'PY'
+import json,sys
+d=json.loads(sys.argv[1]); s=d.get("server",{})
+def h(n):
+    n=float(n or 0); u=["B","KB","MB","GB","TB","PB"]; i=0
+    while n>=1024 and i<len(u)-1:
+        n/=1024; i+=1
+    return f"{n:.2f} {u[i]}"
+print("=== DATA USAGE ===")
+print("Server traffic today   :",h(s.get("daily_bytes",0)))
+print("Server traffic all time:",h(s.get("all_time_bytes",0)))
+print("Live accounting interval: ~15 seconds")
+PY
+}
+
 draw_header(){
   clear
   local ip host os cores ram load date_now time_now uptime domain isp location disk
@@ -78,11 +127,12 @@ if not rows:
 from datetime import datetime
 for x in rows:
  used="{:.2f} GB".format(x["used_bytes"]/(1024**3))
+ daily="{:.2f} GB".format(x.get("daily_used_bytes",0)/(1024**3))
  quota="Unlimited" if not x["quota_bytes"] else "{:.2f} GB".format(x["quota_bytes"]/(1024**3))
  enabled="Yes" if x["enabled"] else "No"
  exp="Unlimited" if not x["expiry"] else datetime.fromtimestamp(x["expiry"]).strftime("%Y-%m-%d")
  print("ID: {} | User: {} | Protocol: {} | Enabled: {}".format(x["id"],x["username"],x["protocol"],enabled))
- print("Used: {} | Quota: {} | Expiry: {}".format(used,quota,exp))
+ print("Data today: {} | All time: {} | Quota: {} | Expiry: {}".format(daily,used,quota,exp))
  print("Secret/Password: {}".format(x["secret"]))
  if x["protocol"]=="SSH":
   print("Host: {}".format(x["host"]))
@@ -109,11 +159,12 @@ protocol_menu(){
     echo "[04] RENEW ACCOUNT"
     echo "[05] ENABLE ACCOUNT"
     echo "[06] DISABLE ACCOUNT"
-    echo "[07] BACK"
+    echo "[07] DATA USAGE"
+    echo "[08] BACK"
     echo
     read -r -p "Select >>> " n
     case "$n" in
-      1) print_protocol_accounts "$p"; pause ;;
+      1) print_protocol_accounts "$p"; show_usage_summary; pause ;;
       2)
         read -r -p "Username: " id
         [[ "$id" =~ ^[A-Za-z0-9_.-]{1,32}$ ]] || { echo "Invalid username."; pause; continue; }
@@ -141,25 +192,26 @@ protocol_menu(){
         fi
         pause ;;
       3)
-        read -r -p "Account ID: " id
-        [[ "$id" =~ ^[0-9]+$ ]] || { echo "Invalid ID."; pause; continue; }
-        api_delete "$(jq -n --argjson id "$id" '{id:$id}')" | python3 -m json.tool
+        if id="$(select_account_id "$p" "delete")"; then
+          api_delete "$(jq -n --argjson id "$id" '{id:$id}')" | python3 -m json.tool
+        fi
         pause ;;
       4)
-        read -r -p "Account ID: " id
-        [[ "$id" =~ ^[0-9]+$ ]] || { echo "Invalid ID."; pause; continue; }
-        read -r -p "Renew for how many days? " days
-        [[ "$days" =~ ^[0-9]+$ ]] || { echo "Invalid days."; pause; continue; }
-        json="$(jq -n --argjson id "$id" --arg action renew --argjson days "$days" '{id:$id,action:$action,days:$days}')"
-        api_action "$json" | python3 -m json.tool
+        if id="$(select_account_id "$p" "renew")"; then
+          read -r -p "Renew for how many days? " days
+          [[ "$days" =~ ^[0-9]+$ && "$days" -gt 0 ]] || { echo "Invalid days."; pause; continue; }
+          json="$(jq -n --argjson id "$id" --arg action renew --argjson days "$days" '{id:$id,action:$action,days:$days}')"
+          api_action "$json" | python3 -m json.tool
+        fi
         pause ;;
       5|6)
-        read -r -p "Account ID: " id
-        [[ "$id" =~ ^[0-9]+$ ]] || { echo "Invalid ID."; pause; continue; }
-        if [[ "$n" == 5 ]]; then action=enable; else action=disable; fi
-        api_action "$(jq -n --argjson id "$id" --arg action "$action" '{id:$id,action:$action}')" | python3 -m json.tool
+        if [[ "$n" == 5 ]]; then action=enable; action_name=enable; else action=disable; action_name=disable; fi
+        if id="$(select_account_id "$p" "$action_name")"; then
+          api_action "$(jq -n --argjson id "$id" --arg action "$action" '{id:$id,action:$action}')" | python3 -m json.tool
+        fi
         pause ;;
-      7) return ;;
+      7) show_usage_summary; pause ;;
+      8) return ;;
     esac
   done
 }
@@ -167,6 +219,8 @@ protocol_menu(){
 all_accounts(){
   clear
   api_get | python3 -m json.tool
+  echo
+  show_usage_summary
   pause
 }
 
