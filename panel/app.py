@@ -832,7 +832,8 @@ $("#createForm").onsubmit=async e=>{
 };
 $("#search").oninput=$("#filter").onchange=()=>{
   const q=$("#search").value.toLowerCase(), p=$("#filter").value.toLowerCase();
-  document.querySelectorAll("[data-row]").forEach(r=>{const hit=(!q||(r.dataset.user||"").includes(q)||(r.dataset.protocol||"").includes(q))&&(!p||(r.dataset.protocol||"")===p);r.style.display=hit?"":"none"})
+  document.querySelectorAll("[data-row]").forEach(r=>{const hit=(!q||(r.dataset.user||"").includes(q)||(r.dataset.protocol||"").includes(q))&&(!p||(r.dataset.protocol||"")===p);r.style.display=hit?"":"none"});
+  document.querySelectorAll("[data-card-user]").forEach(r=>{const hit=(!q||(r.dataset.cardUser||"").includes(q)||(r.dataset.cardProtocol||"").includes(q))&&(!p||(r.dataset.cardProtocol||"")===p);r.style.display=hit?"":"none"});
 };
 async function selectedIds(){return [...document.querySelectorAll(".rowcheck:checked")].map(x=>Number(x.value)).filter(Boolean)}
 async function bulk(action){
