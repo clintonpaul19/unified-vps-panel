@@ -1,4 +1,5 @@
 [DEFAULT]
+ignoreip = 127.0.0.1/8 ::1
 bantime = 1h
 findtime = 10m
 maxretry = 5
@@ -7,5 +8,5 @@ banaction = iptables-multiport
 
 [sshd]
 enabled = true
-port = 22,80,443,143,8080,8443,8880
+port = 22
 backend = systemd
