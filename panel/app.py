@@ -57,7 +57,7 @@ def conn():
     c.commit(); return c
 
 def admin_configured():
-    return bool(ADMIN and PASSWORD) and not (ADMIN=='spiderman' and PASSWORD=='spiderman')
+    return bool(ADMIN and PASSWORD) and ADMIN.lower()!='spiderman'
 
 def _session_cookie(username):
     issued=str(int(time.time()))
@@ -3645,7 +3645,6 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                     return send(self,{'error':'Too many login attempts. Try again later.'},429)
                 if not (hmac.compare_digest(username,ADMIN) and hmac.compare_digest(password,PASSWORD)):
                     attempts.append(now); LOGIN_ATTEMPTS[ip]=attempts
-                    time.sleep(1)
                     return send(self,{'error':'Invalid username or password.'},401)
                 LOGIN_ATTEMPTS.pop(ip,None)
                 cookie=_session_cookie(username)
