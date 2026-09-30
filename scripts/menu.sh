@@ -543,8 +543,8 @@ speedtest_menu(){
 }
 
 update_script(){
-  local tmp_menu tmp_app tmp_haproxy tmp_payload tmp_watch tmp_watch_unit tmp_timer tmp_backup tmp_backup_unit tmp_backup_timer tmp_f2b
-  tmp_menu="$(mktemp)"; tmp_app="$(mktemp)"; tmp_haproxy="$(mktemp)"; tmp_payload="$(mktemp)"
+  local tmp_menu tmp_app tmp_haproxy tmp_payload tmp_wstunnel_unit tmp_hysteria_unit tmp_cert_hook tmp_status tmp_watch tmp_watch_unit tmp_timer tmp_backup tmp_backup_unit tmp_backup_timer tmp_f2b
+  tmp_menu="$(mktemp)"; tmp_app="$(mktemp)"; tmp_haproxy="$(mktemp)"; tmp_payload="$(mktemp)"; tmp_wstunnel_unit="$(mktemp)"; tmp_hysteria_unit="$(mktemp)"; tmp_cert_hook="$(mktemp)"; tmp_status="$(mktemp)"
   tmp_watch="$(mktemp)"; tmp_watch_unit="$(mktemp)"; tmp_timer="$(mktemp)"
   tmp_backup="$(mktemp)"; tmp_backup_unit="$(mktemp)"; tmp_backup_timer="$(mktemp)"; tmp_f2b="$(mktemp)"
   echo "Updating Unified VPS components..."
@@ -563,13 +563,17 @@ update_script(){
      ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/config/fail2ban-unified-vps.local?$(date +%s)" -o "$tmp_f2b"; then
     echo "Update download failed."; rm -f "$tmp_menu" "$tmp_app" "$tmp_haproxy" "$tmp_payload" "$tmp_watch" "$tmp_watch_unit" "$tmp_timer" "$tmp_backup" "$tmp_backup_unit" "$tmp_backup_timer" "$tmp_f2b"; pause; return
   fi
-  if ! bash -n "$tmp_menu" || ! python3 -m py_compile "$tmp_app" || ! haproxy -c -f "$tmp_haproxy"; then
+  if ! bash -n "$tmp_menu" || ! bash -n "$tmp_cert_hook" || ! bash -n "$tmp_status" || ! python3 -m py_compile "$tmp_app" || ! haproxy -c -f "$tmp_haproxy" || ! systemd-analyze verify "$tmp_wstunnel_unit" "$tmp_hysteria_unit"; then
     echo "Validation failed. Nothing was installed."; rm -f "$tmp_menu" "$tmp_app" "$tmp_haproxy" "$tmp_payload" "$tmp_watch" "$tmp_watch_unit" "$tmp_timer" "$tmp_backup" "$tmp_backup_unit" "$tmp_backup_timer" "$tmp_f2b"; pause; return
   fi
   install -m 0755 "$tmp_menu" /usr/local/bin/menu
   install -m 0644 "$tmp_app" /opt/unified-vps/panel.py
   install -m 0644 "$tmp_haproxy" /etc/haproxy/haproxy.cfg
   install -m 0755 "$tmp_payload" /opt/unified-vps/ws-payload-ssh.py
+  install -m 0644 "$tmp_wstunnel_unit" /etc/systemd/system/unified-vps-wstunnel-ssh.service
+  install -m 0644 "$tmp_hysteria_unit" /etc/systemd/system/hysteria-server.service
+  install -m 0755 "$tmp_cert_hook" /usr/local/sbin/unified-vps-cert-reload
+  install -m 0755 "$tmp_status" /usr/local/bin/vps-status
   install -m 0755 "$tmp_watch" /usr/local/sbin/unified-vps-watchdog
   install -m 0644 "$tmp_watch_unit" /etc/systemd/system/unified-vps-watchdog.service
   install -m 0644 "$tmp_timer" /etc/systemd/system/unified-vps-watchdog.timer
@@ -581,7 +585,7 @@ update_script(){
   rm -f "$tmp_menu" "$tmp_app" "$tmp_haproxy" "$tmp_payload" "$tmp_watch" "$tmp_watch_unit" "$tmp_timer" "$tmp_backup" "$tmp_backup_unit" "$tmp_backup_timer" "$tmp_f2b"
   systemctl daemon-reload
   systemctl enable --now fail2ban unified-vps-watchdog.timer unified-vps-backup.timer
-  systemctl restart unified-vps-panel unified-vps-ws-payload-ssh haproxy
+  systemctl restart unified-vps-panel unified-vps-wstunnel-ssh unified-vps-ws-payload-ssh hysteria-server haproxy
   ensure_daily_reboot
   echo "Update complete. Watchdog, backups and Fail2Ban are active."
   pause
