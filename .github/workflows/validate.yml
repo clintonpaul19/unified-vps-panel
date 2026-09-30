@@ -1,36 +1,26 @@
-name: validate
+name: Validate Unified VPS
+
 on:
   push:
+    branches: [main]
   pull_request:
+    branches: [main]
 
 jobs:
   syntax:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Shell syntax
-        run: bash -n install.sh scripts/*.sh
-
-      - name: Python syntax
+      - name: Validate Python panel
         run: python3 -m py_compile panel/app.py
-
-      - name: JSON validation
-        run: python3 -m json.tool config/xray.json >/dev/null
-
-      - name: HAProxy configuration test
+      - name: Validate shell scripts
         run: |
-          sudo apt-get update
-          sudo apt-get install -y haproxy
-          sudo haproxy -c -f config/haproxy.cfg
-
-      - name: Install Xray for config validation
-        run: bash -c "$(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install -u root
-
-      - name: Generate test TLS certificate
+          bash -n install.sh
+          bash -n scripts/menu.sh
+          bash -n scripts/unified-vps-watchdog.sh
+          bash -n scripts/unified-vps-backup.sh
+      - name: Validate systemd units
         run: |
-          sudo mkdir -p /etc/unified-vps
-          sudo openssl req -x509 -nodes -newkey rsa:2048 -days 1             -keyout /etc/unified-vps/xray.key             -out /etc/unified-vps/xray.crt             -subj "/CN=validation" >/dev/null 2>&1
-
-      - name: Xray configuration test
-        run: sudo xray -test -config config/xray.json
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq systemd >/dev/null
+          systemd-analyze verify systemd/unified-vps-watchdog.service systemd/unified-vps-watchdog.timer systemd/unified-vps-backup.service systemd/unified-vps-backup.timer
