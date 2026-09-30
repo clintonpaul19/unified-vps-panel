@@ -1,0 +1,8 @@
+[Unit]
+Description=Unified VPS Configuration Backup
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/unified-vps-backup
