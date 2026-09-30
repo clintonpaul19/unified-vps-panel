@@ -8,6 +8,7 @@ BASE='/etc/unified-vps'
 DB=f'{BASE}/panel.db'
 CFG='/usr/local/etc/xray/config.json'
 PORT=int(os.environ.get('PANEL_PORT','6080'))
+PANEL_BUILD='2026-09-30.2'
 DOMAIN=os.environ.get('SERVER_DOMAIN','')
 ADMIN=os.environ.get('ADMIN_USER','').strip()
 PASSWORD=os.environ.get('ADMIN_PASSWORD','')
@@ -159,6 +160,7 @@ def send_html(r,body_html,status=200,headers=None):
     r.send_header('Content-Type','text/html; charset=utf-8')
     r.send_header('Cache-Control','no-store')
     r.send_header('X-Content-Type-Options','nosniff')
+    r.send_header('X-UVPS-Build',PANEL_BUILD)
     r.send_header('X-Frame-Options','DENY')
     r.send_header('Referrer-Policy','no-referrer')
     if headers:
@@ -989,7 +991,7 @@ button{cursor:pointer}
 .tablewrap{overflow:auto;border:1px solid var(--line);border-radius:12px}table{width:100%;border-collapse:collapse;min-width:1080px}th,td{padding:12px 13px;text-align:left;border-bottom:1px solid rgba(23,53,36,.72);vertical-align:top}th{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;background:#09170f}tr:last-child td{border-bottom:0}
 .usercell{display:flex;align-items:center;gap:9px}.avatar{width:31px;height:31px;border-radius:9px;display:grid;place-items:center;background:rgba(66,245,141,.1);color:var(--accent);font-weight:800}.usercell strong{display:block}.muted{display:block;color:var(--muted);font-size:11px}.pill{display:inline-block;padding:4px 7px;border-radius:7px;background:rgba(255,255,255,.04);font-size:10px;color:#bcd4c4}
 .copyline{display:flex;align-items:center;gap:7px;margin:5px 0;max-width:480px}.copyline code{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#06100a;color:#bdeccf;font:11px ui-monospace,SFMono-Regular,Menlo,monospace}.copy-btn,.ghost,.danger,.secret-btn{border:1px solid var(--line);border-radius:8px;padding:7px 9px;background:#0a170f;color:#bfe4ca;font-size:11px}.copy-btn:hover,.ghost:hover,.secret-btn:hover{border-color:#2e754c;color:var(--text)}.danger{color:#ff9da6;border-color:rgba(255,107,120,.24)}.danger:hover{background:rgba(255,107,120,.08)}.actions{display:flex;gap:6px;flex-wrap:wrap}.sshmeta{display:flex;gap:10px;flex-wrap:wrap;color:var(--muted);font-size:11px}.empty{text-align:center;color:var(--muted);padding:30px}
-.overlay{position:fixed;inset:0;background:rgba(1,7,4,.72);backdrop-filter:blur(10px);display:none;align-items:center;justify-content:center;padding:20px;z-index:30}.overlay.open{display:flex}.modal{width:min(560px,100%);background:#09170f;border:1px solid var(--line);border-radius:18px;box-shadow:0 30px 90px rgba(0,0,0,.5);padding:20px}.modalhead{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px}.modalhead h3{margin:0}.modalhead p{margin:4px 0;color:var(--muted);font-size:12px}.close{border:1px solid var(--line);background:#07110b;color:#b4c9bc;border-radius:8px;padding:6px 9px}.formgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.field{display:grid;gap:6px}.field.full{grid-column:1/-1}.field label{font-size:11px;color:var(--muted)}.field input,.field select{padding:11px 12px;border-radius:10px;border:1px solid var(--line);background:#06100a;color:var(--text);outline:none}.modalfoot{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}.secondary{border:1px solid var(--line);background:#08140c;color:#b9d0c2;border-radius:10px;padding:10px 13px}
+.overlay{position:fixed;inset:0;background:rgba(1,7,4,.72);backdrop-filter:blur(10px);display:none;align-items:center;justify-content:center;padding:20px;z-index:30}.overlay.open{display:flex}.modal{width:min(560px,100%);background:#09170f;border:1px solid var(--line);border-radius:18px;box-shadow:0 30px 90px rgba(0,0,0,.5);padding:20px}.modalhead{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px}.modalhead h3{margin:0}.modalhead p{margin:4px 0;color:var(--muted);font-size:12px}.close{border:1px solid var(--line);background:#07110b;color:#b4c9bc;border-radius:8px;padding:6px 9px}.formgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.field{display:grid;gap:6px}.field[hidden]{display:none!important}.field.full{grid-column:1/-1}.field label{font-size:11px;color:var(--muted)}.field input,.field select{padding:11px 12px;border-radius:10px;border:1px solid var(--line);background:#06100a;color:var(--text);outline:none}.modalfoot{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}.secondary{border:1px solid var(--line);background:#08140c;color:#b9d0c2;border-radius:10px;padding:10px 13px}
 .toast{position:fixed;right:20px;bottom:20px;z-index:50;padding:11px 14px;border-radius:10px;border:1px solid var(--line);background:#0c1d13;color:var(--text);box-shadow:var(--shadow);display:none}.toast.show{display:block}.account-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:14px}.account-card{border:1px solid var(--line);border-radius:14px;padding:14px;background:linear-gradient(180deg,rgba(15,36,24,.78),rgba(7,18,12,.78))}.cardtop{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.cardstats{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin:13px 0}.cardstats div{padding:8px;border-radius:9px;background:rgba(255,255,255,.025);border:1px solid var(--line)}.cardstats span{display:block;color:var(--muted);font-size:9px;text-transform:uppercase}.cardstats strong{display:block;margin-top:3px;font-size:11px}.cardactions{display:flex;gap:7px}.account-card .danger{margin-left:auto}.eventlist{display:grid;gap:7px;max-height:260px;overflow:auto}.event{padding:9px 10px;border:1px solid var(--line);border-radius:9px;background:rgba(255,255,255,.02)}.event strong{font-size:11px}.event small{display:block;color:var(--muted);margin-top:2px}.warn{color:#ffd166!important}.dangertext{color:var(--danger)!important}.metric-good{color:var(--accent)!important}
 @media(max-width:1050px){.app{grid-template-columns:1fr}.sidebar{display:none}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.grid2{grid-template-columns:1fr}.account-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.topbar{padding:0 16px}.content{padding:18px}}
 @media(max-width:620px){.stats{grid-template-columns:1fr}.account-cards{grid-template-columns:1fr}.hero{align-items:flex-start;flex-direction:column}.hero h3{font-size:23px}.formgrid{grid-template-columns:1fr}.field.full{grid-column:auto}.top-actions .badge{display:none}.accounts .panelhead{display:block}.accounts .panelhead>div:first-child{margin-bottom:12px}.accounts .toolbar{display:grid;grid-template-columns:1fr 1fr;gap:8px}.accounts .toolbar .search{min-width:0;grid-column:1/-1}.accounts .toolbar .select{min-width:0}.accounts .toolbar button{min-width:0}.services{grid-template-columns:1fr}.modal{padding:17px}.modalfoot{flex-wrap:wrap}.modalfoot>*{flex:1}.copyline{max-width:100%}}
@@ -1085,7 +1087,7 @@ button{cursor:pointer}
       <div class="formgrid">
         <div class="field"><label>Username</label><input name="username" required maxlength="32"></div>
         <div class="field"><label>Protocol</label><select name="protocol" id="protocol"><option>SSH</option><option>VLESS</option><option>VMess</option><option>Trojan</option><option>Hysteria</option></select></div>
-        <div class="field full" id="sshSecretField"><label id="sshSecretLabel">SSH password</label><input name="secret" id="sshSecret" type="password" autocomplete="new-password"></div>
+        <div class="field full" id="sshSecretField" hidden><label id="sshSecretLabel">SSH password</label><input name="secret" id="sshSecret" type="password" autocomplete="new-password"></div>
         <div class="field"><label>Duration (days)</label><input name="days" type="number" min="0" value="0"></div>
         <div class="field"><label>Quota (GB)</label><input name="quota_gb" id="quota" type="number" min="0" step="0.1" value="0"></div>
       </div>
@@ -1129,7 +1131,7 @@ document.addEventListener("click",async e=>{
 $("#openCreate").onclick=()=>$("#modal").classList.add("open");
 $("#closeCreate").onclick=$("#cancelCreate").onclick=()=>$("#modal").classList.remove("open");
 const protocol=$("#protocol"), sshField=$("#sshSecretField"), sshSecret=$("#sshSecret"), sshSecretLabel=$("#sshSecretLabel"), quota=$("#quota");
-function updateFields(){const ssh=protocol.value==="SSH";sshField.hidden=!ssh;sshSecret.required=ssh;sshSecret.disabled=!ssh;if(sshSecretLabel)sshSecretLabel.textContent=ssh?"SSH password":"Secret";quota.disabled=ssh;if(ssh)quota.value="0";if(!ssh)sshSecret.value=""}
+function updateFields(){const ssh=protocol.value==="SSH";sshField.hidden=!ssh;sshField.style.display=ssh?"":"none";sshField.setAttribute("aria-hidden",ssh?"false":"true");sshSecret.required=ssh;sshSecret.disabled=!ssh;if(sshSecretLabel)sshSecretLabel.textContent="SSH password";quota.disabled=ssh;if(ssh)quota.value="0";if(!ssh)sshSecret.value=""}
 protocol.onchange=updateFields;updateFields();
 $("#createForm").onsubmit=async e=>{
   e.preventDefault();
@@ -1184,7 +1186,7 @@ function fmtBytes(n){
 }
 async function refreshUsage(){
   try{
-    const r=await fetch("/api/usage",{cache:"no-store"}); if(!r.ok)return;
+    const r=await fetch("/api/usage",{cache:"no-store"}); if(!r.ok)throw new Error("HTTP "+r.status);
     const j=await r.json();
     const sd=document.getElementById("serverDaily"), sa=document.getElementById("serverAll");
     if(sd)sd.textContent=fmtBytes(j.server.daily_bytes);
@@ -1197,7 +1199,10 @@ async function refreshUsage(){
     }
     const stamp=document.getElementById("usageStamp");
     if(stamp)stamp.textContent="Usage updated "+new Date((j.updated_at||Date.now()/1000)*1000).toLocaleTimeString();
-  }catch(_){}
+  }catch(e){
+    const sd=document.getElementById("serverDaily"),sa=document.getElementById("serverAll"),st=document.getElementById("usageStamp");
+    if(sd)sd.textContent="Unavailable"; if(sa)sa.textContent="Unavailable"; if(st)st.textContent="Usage unavailable";
+  }
 }
 refreshUsage();
 setInterval(refreshUsage,10000);
@@ -1205,7 +1210,7 @@ setInterval(refreshUsage,10000);
 function fmtRate(n){return fmtBytes(Number(n||0))+"/s"}
 async function refreshMetrics(){
   try{
-    const r=await fetch("/api/metrics",{cache:"no-store"}); if(!r.ok)return; const j=await r.json();
+    const r=await fetch("/api/metrics",{cache:"no-store"}); if(!r.ok)throw new Error("HTTP "+r.status); const j=await r.json();
     const load=(j.cpu_load||[0])[0], mem=j.memory||{}, disk=j.disk||{}, net=j.network||{};
     const cpu=document.getElementById("cpuLoad"), mm=document.getElementById("memUse"), dd=document.getElementById("diskUse");
     if(cpu)cpu.textContent=Number(load||0).toFixed(2);
@@ -1214,21 +1219,26 @@ async function refreshMetrics(){
     const rx=document.getElementById("rxRate"),tx=document.getElementById("txRate");
     if(rx)rx.textContent=fmtRate(net.rx_bps);
     if(tx)tx.textContent=fmtRate(net.tx_bps);
-  }catch(_){}
+  }catch(e){
+    const ids=["cpuLoad","memUse","diskUse","rxRate","txRate"]; ids.forEach(id=>{const el=document.getElementById(id);if(el)el.textContent="Unavailable"});
+  }
 }
 async function refreshSessions(){
   try{
-    const r=await fetch("/api/sessions",{cache:"no-store"}); if(!r.ok)return; const j=await r.json();
+    const r=await fetch("/api/sessions",{cache:"no-store"}); if(!r.ok)throw new Error("HTTP "+r.status); const j=await r.json();
     const body=document.getElementById("sessionsBody"); if(!body)return;
     const rows=j.sessions||[];
     document.getElementById("sessionCount").textContent=String(rows.length);
     const esc=v=>String(v??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch]));
     body.innerHTML=rows.length?rows.map(x=>"<tr><td>"+esc(x.process||"—")+"</td><td>"+esc(x.user||"—")+"</td><td>"+esc(x.local||"—")+"</td><td>"+esc(x.remote||"—")+"</td><td>"+esc(x.pid||"—")+"</td></tr>").join(""):"<tr><td colspan='5' class='muted'>No established TCP sessions.</td></tr>";
-  }catch(_){}
+  }catch(e){
+    const body=document.getElementById("sessionsBody"); if(body)body.innerHTML="<tr><td colspan='5' class='muted'>Unable to load active connections.</td></tr>";
+  }
 }
 async function refreshSecurity(){
   try{
     const [s,c]=await Promise.all([fetch("/api/security",{cache:"no-store"}),fetch("/api/certificate",{cache:"no-store"})]);
+    if(!s.ok||!c.ok)throw new Error("security API unavailable");
     const j=await s.json(), cert=await c.json();
     const fs=document.getElementById("f2bState"), cs=document.getElementById("certState");
     if(fs)fs.textContent=(j.fail2ban||"unknown").toUpperCase()+" • "+(j.banned||0)+" banned";
@@ -1242,15 +1252,20 @@ async function refreshSecurity(){
       ["SSH password auth",String((j.ssh_auth||{}).passwordauthentication||"unknown").toUpperCase()],
       ["Certificate",cert.ok?(cert.days_remaining+" days left"):"Unavailable"]
     ].map(x=>"<div class='service-card'><span>"+x[0]+"</span><strong>"+x[1]+"</strong></div>").join("");
-  }catch(_){}
+  }catch(e){
+    const fs=document.getElementById("f2bState"),cs=document.getElementById("certState"); if(fs)fs.textContent="Unavailable"; if(cs)cs.textContent="Unavailable";
+    const g=document.getElementById("securityGrid"); if(g)g.innerHTML="<div class='service-card'><span>Security telemetry</span><strong>Unavailable</strong></div>";
+  }
 }
 async function refreshEvents(){
   try{
-    const r=await fetch("/api/events",{cache:"no-store"}); if(!r.ok)return; const j=await r.json();
+    const r=await fetch("/api/events",{cache:"no-store"}); if(!r.ok)throw new Error("HTTP "+r.status); const j=await r.json();
     const e=document.getElementById("events"); if(!e)return;
     const esc=v=>String(v??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch]));
     e.innerHTML=(j.events||[]).slice(0,30).map(x=>"<div class='event'><strong>"+esc(x.action)+(x.username?" • "+esc(x.username):"")+"</strong><small>"+new Date(x.created_at*1000).toLocaleString()+" "+esc(x.details||"")+"</small></div>").join("")||"<div class='muted'>No activity yet.</div>";
-  }catch(_){}
+  }catch(e){
+    const el=document.getElementById("events"); if(el)el.innerHTML="<div class='muted'>Unable to load activity events.</div>";
+  }
 }
 function drawUsageChart(data){
   const canvas=document.getElementById("usageChart"); if(!canvas)return;
@@ -1265,8 +1280,10 @@ function drawUsageChart(data){
 }
 async function refreshChart(){
   try{
-    const r=await fetch("/api/usage-history",{cache:"no-store"});if(!r.ok)return;const j=await r.json();drawUsageChart(j.values||[]);
-  }catch(_){}
+    const r=await fetch("/api/usage-history",{cache:"no-store"});if(!r.ok)throw new Error("HTTP "+r.status);const j=await r.json();drawUsageChart(j.values||[]);
+  }catch(e){
+    const canvas=document.getElementById("usageChart"); if(canvas){const ctx=canvas.getContext("2d");ctx.clearRect(0,0,canvas.width,canvas.height);ctx.font="13px system-ui";ctx.fillText("Usage history unavailable",12,40);}
+  }
 }
 refreshMetrics();refreshSessions();refreshSecurity();refreshEvents();refreshChart();
 setInterval(refreshMetrics,10000);setInterval(refreshSessions,10000);setInterval(refreshSecurity,30000);setInterval(refreshEvents,15000);setInterval(refreshChart,60000);
