@@ -4,7 +4,7 @@ source /etc/unified-vps/panel.env
 
 API="http://127.0.0.1:${PANEL_PORT}"
 AUTH="-u ${ADMIN_USER}:${ADMIN_PASSWORD}"
-PANEL_VERSION="1.1.0"
+PANEL_VERSION="1.2.0"
 REBOOT_CRON="/etc/cron.d/unified-vps-daily-reboot"
 
 pause(){ read -r -p 'Press Enter to continue...' _; }
@@ -59,7 +59,7 @@ select_account_id(){
 }
 
 show_usage_summary(){
-  local data
+  local data history
   data="$(api_usage 2>/dev/null || true)"
   if [[ -z "$data" ]]; then
     echo "Usage data unavailable."
@@ -78,6 +78,21 @@ print("Server traffic today   :",h(s.get("daily_bytes",0)))
 print("Server traffic all time:",h(s.get("all_time_bytes",0)))
 print("Live accounting interval: ~15 seconds")
 PY
+  history="$(curl -fsS $AUTH "$API/api/usage-history" 2>/dev/null || true)"
+  if [[ -n "$history" ]]; then
+    echo
+    echo "Last 7 daily totals:"
+    python3 - "$history" <<'PY'
+import json,sys
+d=json.loads(sys.argv[1])
+def h(n):
+ n=float(n or 0);u=["B","KB","MB","GB","TB","PB"];i=0
+ while n>=1024 and i<len(u)-1:n/=1024;i+=1
+ return f"{n:.2f} {u[i]}"
+for day,val in list(zip(d.get("days",[]),d.get("values",[])))[-7:]:
+ print(f"  {day}: {h(val)}")
+PY
+  fi
 }
 
 draw_header(){
@@ -253,36 +268,31 @@ install_extra(){
 
 backup_restore(){
   local dir="/opt/unified-vps/backups" n f
-  mkdir -p "$dir"
+  mkdir -p "$dir"; chmod 700 "$dir"
   while true; do
     clear
     echo "=== BACKUP / RESTORE ==="
-    echo "[01] CREATE BACKUP"
+    echo "[01] CREATE VERIFIED BACKUP"
     echo "[02] LIST BACKUPS"
     echo "[03] RESTORE LATEST BACKUP"
     echo "[04] BACK"
+    echo
+    systemctl --no-pager list-timers unified-vps-backup.timer 2>/dev/null || true
     read -r -p "Select >>> " n
     case "$n" in
-      1)
-        f="$dir/unified-vps-$(date +%Y%m%d-%H%M%S).tar.gz"
-        tar -czf "$f" /etc/unified-vps /etc/hysteria /usr/local/etc/xray /etc/ssh/sshd_config.d /etc/haproxy/haproxy.cfg /opt/unified-vps/panel.py 2>/dev/null
-        echo "Backup created: $f"
-        pause ;;
-      2)
-        ls -lh "$dir" 2>/dev/null || true
-        pause ;;
+      1) /usr/local/sbin/unified-vps-backup; pause ;;
+      2) ls -lh "$dir"/unified-vps-*.tar.gz 2>/dev/null || echo "No backups."; pause ;;
       3)
-        f="$(ls -1t "$dir"/*.tar.gz 2>/dev/null | head -1 || true)"
+        f="$(ls -1t "$dir"/unified-vps-*.tar.gz 2>/dev/null | head -1 || true)"
         if [[ -z "$f" ]]; then echo "No backup found."; pause; continue; fi
+        tar -tzf "$f" >/dev/null || { echo "Backup archive is invalid."; pause; continue; }
         echo "Restore: $f"
         read -r -p "Type RESTORE to confirm: " n
         if [[ "$n" == "RESTORE" ]]; then
           tar -xzf "$f" -C /
           systemctl restart unified-vps-panel xray hysteria-server haproxy
           echo "Restore complete."
-        else
-          echo "Cancelled."
-        fi
+        else echo "Cancelled."; fi
         pause ;;
       4) return ;;
     esac
@@ -297,7 +307,9 @@ server_settings(){
     echo "[01] CHANGE PANEL ADMIN PASSWORD"
     echo "[02] VIEW PANEL SETTINGS"
     echo "[03] DAILY REBOOT STATUS"
-    echo "[04] BACK"
+    echo "[04] CERTIFICATE STATUS"
+    echo "[05] FORCE CERTIFICATE RENEWAL"
+    echo "[06] BACK"
     read -r -p "Select >>> " n
     case "$n" in
       1)
@@ -324,7 +336,9 @@ PY
         pause ;;
       2) sed -E 's/^ADMIN_PASSWORD=.*/ADMIN_PASSWORD=[REDACTED]/' /etc/unified-vps/panel.env; pause ;;
       3) grep -v '^SHELL=' "$REBOOT_CRON" 2>/dev/null || echo "Daily reboot is not configured."; pause ;;
-      4) return ;;
+      4) openssl x509 -in /etc/unified-vps/xray.crt -noout -subject -issuer -dates 2>/dev/null || echo "Certificate unavailable."; pause ;;
+      5) /root/.acme.sh/acme.sh --renew -d "$SERVER_DOMAIN" --force || true; pause ;;
+      6) return ;;
     esac
   done
 }
@@ -361,7 +375,8 @@ monitoring_menu(){
     echo "[02] LIVE RESOURCE USAGE"
     echo "[03] VIEW SERVICE LOG"
     echo "[04] FAILED SERVICES"
-    echo "[05] BACK"
+    echo "[05] WATCHDOG / TIMERS"
+    echo "[06] BACK"
     read -r -p "Select >>> " n
     case "$n" in
       1) systemctl --no-pager --type=service --state=running | grep -E 'ssh|nginx|haproxy|xray|hysteria|unified' || true; pause ;;
@@ -371,7 +386,8 @@ monitoring_menu(){
         journalctl -u "$svc" -n 120 --no-pager || true
         pause ;;
       4) systemctl --failed --no-pager || true; pause ;;
-      5) return ;;
+      5) systemctl --no-pager list-timers unified-vps-watchdog.timer unified-vps-backup.timer 2>/dev/null || true; pause ;;
+      6) return ;;
     esac
   done
 }
@@ -408,15 +424,21 @@ logs_reports(){
     echo "[01] PANEL LOG"
     echo "[02] PROXY LOGS"
     echo "[03] SSH LOG"
-    echo "[04] INSTALL FAILURE REPORTS"
-    echo "[05] BACK"
+    echo "[04] ACTIVITY EVENTS"
+    echo "[05] WATCHDOG LOG"
+    echo "[06] FAIL2BAN LOG"
+    echo "[07] INSTALL FAILURE REPORTS"
+    echo "[08] BACK"
     read -r -p "Select >>> " n
     case "$n" in
       1) journalctl -u unified-vps-panel -n 150 --no-pager; pause ;;
       2) journalctl -u haproxy -n 150 --no-pager; journalctl -u xray -n 100 --no-pager; journalctl -u hysteria-server -n 100 --no-pager; pause ;;
       3) journalctl -u ssh -n 150 --no-pager; pause ;;
-      4) ls -lah /var/log/unified-vps/install-failure-* 2>/dev/null || echo "No install failure reports."; pause ;;
-      5) return ;;
+      4) sqlite3 /etc/unified-vps/panel.db 'select datetime(created_at,"unixepoch","localtime"),action,username,details from events order by id desc limit 100;' 2>/dev/null || true; pause ;;
+      5) tail -n 200 /var/log/unified-vps/watchdog.log 2>/dev/null || echo "No watchdog events."; pause ;;
+      6) journalctl -u fail2ban -n 150 --no-pager; pause ;;
+      7) ls -lah /var/log/unified-vps/install-failure-* 2>/dev/null || echo "No install failure reports."; pause ;;
+      8) return ;;
     esac
   done
 }
@@ -450,21 +472,26 @@ system_resource(){
 }
 
 security_menu(){
-  clear
-  echo "=== SECURITY AUDIT ==="
-  echo
-  echo "-- SSH effective auth --"
-  sshd -T | grep -E '^(port|listenaddress|addressfamily|passwordauthentication|kbdinteractiveauthentication|usepam|permitemptypasswords)'
-  echo
-  echo "-- Firewall --"
-  iptables -L INPUT -n -v --line-numbers
-  echo
-  echo "-- TLS certificate --"
-  openssl x509 -in /etc/unified-vps/xray.crt -noout -dates 2>/dev/null || true
-  echo
-  echo "-- Daily reboot --"
-  grep -v '^SHELL=' "$REBOOT_CRON" 2>/dev/null || echo "Not configured"
-  pause
+  local n
+  while true; do
+    clear
+    echo "=== SECURITY CENTER ==="
+    echo "[01] SSH / AUTH AUDIT"
+    echo "[02] FIREWALL RULES"
+    echo "[03] FAIL2BAN STATUS"
+    echo "[04] TLS CERTIFICATE"
+    echo "[05] DAILY REBOOT"
+    echo "[06] BACK"
+    read -r -p "Select >>> " n
+    case "$n" in
+      1) sshd -T | grep -E '^(port|listenaddress|addressfamily|passwordauthentication|kbdinteractiveauthentication|usepam|permitemptypasswords)'; pause ;;
+      2) iptables -L INPUT -n -v --line-numbers; pause ;;
+      3) systemctl --no-pager status fail2ban || true; echo; fail2ban-client status sshd 2>/dev/null || true; pause ;;
+      4) openssl x509 -in /etc/unified-vps/xray.crt -noout -subject -issuer -dates 2>/dev/null || true; pause ;;
+      5) grep -v '^SHELL=' "$REBOOT_CRON" 2>/dev/null || echo "Not configured"; pause ;;
+      6) return ;;
+    esac
+  done
 }
 
 restart_services(){
@@ -488,32 +515,45 @@ speedtest_menu(){
 }
 
 update_script(){
-  local tmp_menu tmp_app tmp_haproxy tmp_payload
-  tmp_menu="$(mktemp)"
-  tmp_app="$(mktemp)"
-  tmp_haproxy="$(mktemp)"
-  tmp_payload="$(mktemp)"
+  local tmp_menu tmp_app tmp_haproxy tmp_payload tmp_watch tmp_watch_unit tmp_timer tmp_backup tmp_backup_unit tmp_backup_timer tmp_f2b
+  tmp_menu="$(mktemp)"; tmp_app="$(mktemp)"; tmp_haproxy="$(mktemp)"; tmp_payload="$(mktemp)"
+  tmp_watch="$(mktemp)"; tmp_watch_unit="$(mktemp)"; tmp_timer="$(mktemp)"
+  tmp_backup="$(mktemp)"; tmp_backup_unit="$(mktemp)"; tmp_backup_timer="$(mktemp)"; tmp_f2b="$(mktemp)"
   echo "Updating Unified VPS components..."
   if ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/menu.sh?$(date +%s)" -o "$tmp_menu" ||
      ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/panel/app.py?$(date +%s)" -o "$tmp_app" ||
      ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/config/haproxy.cfg?$(date +%s)" -o "$tmp_haproxy" ||
-     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/ws-payload-ssh.py?$(date +%s)" -o "$tmp_payload"; then
-    rm -f "$tmp_menu" "$tmp_app" "$tmp_haproxy" "$tmp_payload"
-    echo "Update download failed."
-    pause
-    return
+     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/ws-payload-ssh.py?$(date +%s)" -o "$tmp_payload" ||
+     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/unified-vps-watchdog.sh?$(date +%s)" -o "$tmp_watch" ||
+     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/systemd/unified-vps-watchdog.service?$(date +%s)" -o "$tmp_watch_unit" ||
+     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/systemd/unified-vps-watchdog.timer?$(date +%s)" -o "$tmp_timer" ||
+     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/unified-vps-backup.sh?$(date +%s)" -o "$tmp_backup" ||
+     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/systemd/unified-vps-backup.service?$(date +%s)" -o "$tmp_backup_unit" ||
+     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/systemd/unified-vps-backup.timer?$(date +%s)" -o "$tmp_backup_timer" ||
+     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/config/fail2ban-unified-vps.local?$(date +%s)" -o "$tmp_f2b"; then
+    echo "Update download failed."; rm -f "$tmp_menu" "$tmp_app" "$tmp_haproxy" "$tmp_payload" "$tmp_watch" "$tmp_watch_unit" "$tmp_timer" "$tmp_backup" "$tmp_backup_unit" "$tmp_backup_timer" "$tmp_f2b"; pause; return
   fi
-  bash -n "$tmp_menu"
-  python3 -m py_compile "$tmp_app"
-  haproxy -c -f "$tmp_haproxy"
+  if ! bash -n "$tmp_menu" || ! python3 -m py_compile "$tmp_app" || ! haproxy -c -f "$tmp_haproxy"; then
+    echo "Validation failed. Nothing was installed."; rm -f "$tmp_menu" "$tmp_app" "$tmp_haproxy" "$tmp_payload" "$tmp_watch" "$tmp_watch_unit" "$tmp_timer" "$tmp_backup" "$tmp_backup_unit" "$tmp_backup_timer" "$tmp_f2b"; pause; return
+  fi
   install -m 0755 "$tmp_menu" /usr/local/bin/menu
   install -m 0644 "$tmp_app" /opt/unified-vps/panel.py
   install -m 0644 "$tmp_haproxy" /etc/haproxy/haproxy.cfg
   install -m 0755 "$tmp_payload" /opt/unified-vps/ws-payload-ssh.py
-  rm -f "$tmp_menu" "$tmp_app" "$tmp_haproxy" "$tmp_payload"
+  install -m 0755 "$tmp_watch" /usr/local/sbin/unified-vps-watchdog
+  install -m 0644 "$tmp_watch_unit" /etc/systemd/system/unified-vps-watchdog.service
+  install -m 0644 "$tmp_timer" /etc/systemd/system/unified-vps-watchdog.timer
+  install -m 0755 "$tmp_backup" /usr/local/sbin/unified-vps-backup
+  install -m 0644 "$tmp_backup_unit" /etc/systemd/system/unified-vps-backup.service
+  install -m 0644 "$tmp_backup_timer" /etc/systemd/system/unified-vps-backup.timer
+  mkdir -p /etc/fail2ban/jail.d
+  install -m 0644 "$tmp_f2b" /etc/fail2ban/jail.d/unified-vps.local
+  rm -f "$tmp_menu" "$tmp_app" "$tmp_haproxy" "$tmp_payload" "$tmp_watch" "$tmp_watch_unit" "$tmp_timer" "$tmp_backup" "$tmp_backup_unit" "$tmp_backup_timer" "$tmp_f2b"
+  systemctl daemon-reload
+  systemctl enable --now fail2ban unified-vps-watchdog.timer unified-vps-backup.timer
   systemctl restart unified-vps-panel unified-vps-ws-payload-ssh haproxy
   ensure_daily_reboot
-  echo "Update complete."
+  echo "Update complete. Watchdog, backups and Fail2Ban are active."
   pause
 }
 
