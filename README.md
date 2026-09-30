@@ -252,3 +252,20 @@ Answer `y` to reboot immediately or `N` to leave the VPS running.
 
 The requested `spiderman/spiderman` panel credentials are weak. They are included for convenience/testing, not as a secure production credential. Change them before production use.
 \n\n### Maintenance\n\nThe installer and CLI menu configure one automatic VPS reboot per day at **04:00 server local time**. The web panel also displays the reboot schedule.\n\nThe CLI menu includes functional account management, backups/restores, server settings, tools, monitoring, network diagnostics, logs, security audit, service restart, speedtest, active connections, resource views, and component updates.\n
+
+## Management features
+
+The current panel and CLI include:
+
+- Live server traffic with daily and all-time accounting.
+- Live CPU, RAM, disk and network telemetry.
+- Active TCP session inspection.
+- Persistent activity/event history.
+- Account expiry warnings and automatic expiry disabling.
+- Bulk account enable/disable/delete/renew operations.
+- Certificate status and manual renewal.
+- Verified configuration backups with seven-backup retention and daily automated backups.
+- Service watchdog checking critical services every minute.
+- SSH brute-force protection through Fail2Ban.
+- Security dashboard covering SSH authentication, firewall rules, bans and certificate state.
+- Logs and maintenance reports.
