@@ -1033,14 +1033,29 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
             return send(self,{'error':'unsupported backup action'},400)
 
         if self.path=='/api/certificate/renew':
+            haproxy_was_active=subprocess.run(['systemctl','is-active','--quiet','haproxy'],check=False).returncode==0
             try:
                 acme='/root/.acme.sh/acme.sh'
                 if not os.path.exists(acme): return send(self,{'error':'acme.sh not installed'},500)
-                p=subprocess.run([acme,'--renew','-d',public_host(),'--force'],capture_output=True,text=True,timeout=180)
-                if p.returncode: return send(self,{'error':(p.stderr or p.stdout).strip() or 'certificate renewal failed'},500)
+                if haproxy_was_active:
+                    stop=subprocess.run(['systemctl','stop','haproxy'],capture_output=True,text=True)
+                    if stop.returncode:
+                        return send(self,{'error':'could not temporarily stop HAProxy for standalone ACME renewal'},500)
+                p=subprocess.run(
+                    [acme,'--renew','-d',public_host(),'--force',
+                     '--pre-hook','systemctl stop haproxy',
+                     '--post-hook','systemctl start haproxy'],
+                    capture_output=True,text=True,timeout=180
+                )
+                if p.returncode:
+                    return send(self,{'error':(p.stderr or p.stdout).strip() or 'certificate renewal failed'},500)
                 log_event('certificate_renewed',public_host(),'')
                 return send(self,{'ok':True,'output':(p.stdout or '').strip()})
-            except Exception as e: return send(self,{'error':str(e)},500)
+            except Exception as e:
+                return send(self,{'error':str(e)},500)
+            finally:
+                if haproxy_was_active:
+                    subprocess.run(['systemctl','start','haproxy'],capture_output=True)
 
         if self.path=='/api/users':
             try: return send(self,create_user(d))
