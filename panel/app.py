@@ -1243,7 +1243,7 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
             r=c.execute('select username,expiry,enabled from users where protocol="Hysteria" and secret=?',(secret,)).fetchone(); c.close()
             if not r or not r['enabled'] or (r['expiry'] and r['expiry']<=int(time.time())): return send(self,{'ok':False})
             return send(self,{'ok':True,'id':r['username']})
-        if not auth(self.headers):
+        if not auth(self.headers,self.client_address[0] in ('127.0.0.1','::1')):
             self.send_response(401); self.end_headers(); return
         try: d=body(self)
         except Exception: return send(self,{'error':'invalid JSON'},400)
