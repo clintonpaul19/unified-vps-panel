@@ -39,6 +39,9 @@ def conn():
     c.execute('''create table if not exists events(
         id integer primary key, created_at integer, action text, username text default '', details text default ''
     )''')
+    c.execute('''create table if not exists usage_daily(
+        day text primary key, bytes integer default 0
+    )''')
     c.execute('insert or ignore into server_usage(id,raw_rx,raw_tx,all_time_bytes,daily_bytes,usage_day) values(1,0,0,0,0,?)',
               (time.strftime('%Y-%m-%d'),))
     c.commit(); return c
@@ -339,6 +342,8 @@ def sync_usage():
                 server_daily += server_delta
                 c.execute('update server_usage set raw_rx=?,raw_tx=?,all_time_bytes=?,daily_bytes=?,usage_day=? where id=1',
                           (rx,tx,server_all,server_daily,today))
+                c.execute('insert into usage_daily(day,bytes) values(?,?) on conflict(day) do update set bytes=excluded.bytes',
+                          (today,server_daily))
             c.commit(); c.close()
 
             xrows=[r for r in disable if r['protocol'] in XRAY_TAGS]
@@ -455,6 +460,39 @@ class H(BaseHTTPRequestHandler):
         if self.path=='/health': return send(self,{'ok':True})
         if not auth(self.headers):
             self.send_response(401); self.send_header('WWW-Authenticate','Basic realm="Unified VPS"'); self.end_headers(); return
+        if self.path=='/api/backup':
+            action=str(d.get('action','')).lower()
+            if action=='create':
+                try:
+                    p=subprocess.run(['/usr/local/sbin/unified-vps-backup'],capture_output=True,text=True,timeout=120)
+                    if p.returncode: return send(self,{'error':(p.stderr or p.stdout).strip() or 'backup failed'},500)
+                    log_event('backup_created',os.path.basename(p.stdout.strip()),'')
+                    return send(self,{'ok':True,'path':p.stdout.strip()})
+                except Exception as e: return send(self,{'error':str(e)},500)
+            if action=='restore':
+                files=sorted(__import__('glob').glob('/opt/unified-vps/backups/unified-vps-*.tar.gz'),reverse=True)
+                if not files: return send(self,{'error':'no backup available'},404)
+                p=subprocess.run(['tar','-tzf',files[0]],capture_output=True,text=True,timeout=30)
+                if p.returncode: return send(self,{'error':'latest backup is invalid'},500)
+                p=subprocess.run(['tar','-xzf',files[0],'-C','/'],capture_output=True,text=True,timeout=120)
+                if p.returncode: return send(self,{'error':(p.stderr or 'restore failed').strip()},500)
+                log_event('backup_restored',os.path.basename(files[0]),'')
+                subprocess.run(['systemctl','restart','unified-vps-panel','xray','hysteria-server','haproxy'],capture_output=True)
+                return send(self,{'ok':True,'path':files[0]})
+            return send(self,{'error':'unsupported backup action'},400)
+
+        if self.path=='/api/certificate/renew':
+            try:
+                acme='/root/.acme.sh/acme.sh'
+                if not os.path.exists(acme): return send(self,{'error':'acme.sh not installed'},500)
+                p=subprocess.run([acme,'--renew','-d',public_host(),'--force'],capture_output=True,text=True,timeout=180)
+                if p.returncode:
+                    return send(self,{'error':(p.stderr or p.stdout).strip() or 'certificate renewal failed'},500)
+                log_event('certificate_renewed',public_host(),'')
+                return send(self,{'ok':True,'output':(p.stdout or '').strip()})
+            except Exception as e:
+                return send(self,{'error':str(e)},500)
+
         if self.path=='/api/users':
             c=conn(); rows=[record(x) for x in c.execute('select * from users order by id desc')]; c.close()
             now=int(time.time())
@@ -464,24 +502,10 @@ class H(BaseHTTPRequestHandler):
             return send(self,rows)
         if self.path=='/api/usage-history':
             c=conn()
-            rows=c.execute('select daily_bytes,usage_day from server_usage where id=1').fetchone()
+            rows=c.execute('select day,bytes from usage_daily order by day desc limit 30').fetchall()
             c.close()
-            # Keep a lightweight seven-day history in events-free persistent state.
-            vals=[]
-            try:
-                p='/var/lib/unified-vps/usage-history.json'
-                os.makedirs('/var/lib/unified-vps',exist_ok=True)
-                if os.path.exists(p):
-                    vals=json.load(open(p)).get('values',[])
-            except Exception: vals=[]
-            today=int(rows['daily_bytes'] if rows else 0)
-            if not vals or vals[-1].get('day')!=(rows['usage_day'] if rows else time.strftime('%Y-%m-%d')):
-                vals.append({'day':rows['usage_day'] if rows else time.strftime('%Y-%m-%d'),'bytes':today})
-            else: vals[-1]['bytes']=today
-            vals=vals[-30:]
-            try: json.dump({'values':vals},open('/var/lib/unified-vps/usage-history.json','w'))
-            except Exception: pass
-            return send(self,{'values':[x['bytes'] for x in vals],'days':[x['day'] for x in vals]})
+            rows=list(reversed(rows))
+            return send(self,{'values':[int(x['bytes'] or 0) for x in rows],'days':[x['day'] for x in rows]})
 
         if self.path=='/api/usage':
             c=conn()
@@ -599,8 +623,8 @@ class H(BaseHTTPRequestHandler):
                     uri=html.escape(next(iter(x['uris'].values()),''),quote=True)
                     connection=f'<div class="copyline"><code>{uri}</code><button class="copy-btn" data-copy="{uri}" type="button">Copy URI</button></div>'
                 rows_html.append(
-                    f'<tr data-row data-user="{username}" data-protocol="{html.escape(protocol.lower())}">'
-                    f'<td><div class="usercell"><div class="avatar">{html.escape(x["username"][0].upper())}</div><div><strong>{username}</strong><span class="muted">{html.escape(protocol)}</span></div></div></td>'
+                    f'<tr data-row data-id="{xid}" data-user="{username}" data-protocol="{html.escape(protocol.lower())}">'
+                    f'<td><input class="rowcheck" type="checkbox" value="{xid}"></td><td><div class="usercell"><div class="avatar">{html.escape(x["username"][0].upper())}</div><div><strong>{username}</strong><span class="muted">{html.escape(protocol)}</span></div></div></td>'
                     f'<td>{state_badge("active" if enabled else "disabled")}</td>'
                     f'<td><span class="pill">{html.escape(str(x["port"]))}</span></td>'
                     f'<td><button class="secret-btn" data-secret="{secret}" type="button">Reveal</button></td>'
@@ -611,7 +635,7 @@ class H(BaseHTTPRequestHandler):
                     f'</tr>'
                 )
 
-            rows_html=''.join(rows_html) or '<tr><td colspan="8"><div class="empty">No accounts yet. Create the first account above.</div></td></tr>'
+            rows_html=''.join(rows_html) or '<tr><td colspan="9"><div class="empty">No accounts yet. Create the first account above.</div></td></tr>'
             service_html=''.join(f'<div class="service-card"><span>{html.escape(k)}</span>{state_badge(v)}</div>' for k,v in services.items())
 
             page = """<!doctype html>
@@ -715,12 +739,16 @@ button{cursor:pointer}
       <div class="panelhead"><div><h4>Usage history</h4><p>Server traffic is persisted daily and all-time.</p></div></div>
       <canvas id="usageChart" height="120" style="width:100%;display:block"></canvas>
     </section>
+    <section class="panel" style="margin-top:14px">
+      <div class="panelhead"><div><h4>Account expiry</h4><p>Accounts expiring within the next seven days.</p></div></div>
+      <div id="expiryList" class="services"><div class="muted">Checking expiries…</div></div>
+    </section>
     <section class="panel accounts" id="accounts">
       <div class="panelhead"><div><h4>Account management</h4><p>Create, renew, enable, disable and copy connection credentials.</p></div>
-        <div class="toolbar"><input class="search" id="search" placeholder="Search username or protocol…"><select class="select" id="filter"><option value="">All protocols</option><option>SSH</option><option>VLESS</option><option>VMess</option><option>Trojan</option><option>Hysteria</option></select><button class="secondary" id="speedtest" type="button">Run speedtest</button></div>
+        <div class="toolbar"><input class="search" id="search" placeholder="Search username or protocol…"><select class="select" id="filter"><option value="">All protocols</option><option>SSH</option><option>VLESS</option><option>VMess</option><option>Trojan</option><option>Hysteria</option></select><button class="secondary" id="bulkEnable" type="button">Enable selected</button><button class="secondary" id="bulkDisable" type="button">Disable selected</button><button class="danger" id="bulkDelete" type="button">Delete selected</button><button class="secondary" id="backupNow" type="button">Backup</button><button class="secondary" id="restoreLatest" type="button">Restore latest</button><button class="secondary" id="renewCert" type="button">Renew certificate</button><button class="secondary" id="speedtest" type="button">Run speedtest</button></div>
       </div>
       <pre id="speedout" style="display:none;max-height:260px;overflow:auto;padding:12px;border:1px solid var(--line);border-radius:10px;background:#06100a;color:#bcebcf;font-size:11px"></pre>
-      <div class="tablewrap"><table><thead><tr><th>Account</th><th>Status</th><th>Ports</th><th>Secret</th><th>Usage</th><th>Expiry</th><th>Connection URI</th><th>Actions</th></tr></thead><tbody id="accountsBody">__ROWS__</tbody></table></div>
+      <div class="tablewrap"><table><thead><tr><th><input id="selectAll" type="checkbox" title="Select all"></th><th>Account</th><th>Status</th><th>Ports</th><th>Secret</th><th>Usage</th><th>Expiry</th><th>Connection URI</th><th>Actions</th></tr></thead><tbody id="accountsBody">__ROWS__</tbody></table></div>
     </section>
   </section>
 </main>
@@ -790,6 +818,27 @@ $("#search").oninput=$("#filter").onchange=()=>{
   const q=$("#search").value.toLowerCase(), p=$("#filter").value.toLowerCase();
   document.querySelectorAll("[data-row]").forEach(r=>{const hit=(!q||(r.dataset.user||"").includes(q)||(r.dataset.protocol||"").includes(q))&&(!p||(r.dataset.protocol||"")===p);r.style.display=hit?"":"none"})
 };
+async function selectedIds(){return [...document.querySelectorAll(".rowcheck:checked")].map(x=>Number(x.value)).filter(Boolean)}
+async function bulk(action){
+  const ids=await selectedIds(); if(!ids.length){toast("Select at least one account");return}
+  let days=0;if(action==="renew"){days=Number(prompt("Renew selected accounts for how many days?","30")||0);if(!days)return}
+  if(action==="delete"&&!confirm("Delete "+ids.length+" selected accounts permanently?"))return;
+  const r=await fetch("/api/users/bulk",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ids,action,days})});
+  const j=await r.json();if(!r.ok){toast(j.error||"Bulk action failed");return}location.reload();
+}
+$("#selectAll").onchange=e=>document.querySelectorAll(".rowcheck").forEach(x=>x.checked=e.target.checked);
+$("#bulkEnable").onclick=()=>bulk("enable");$("#bulkDisable").onclick=()=>bulk("disable");$("#bulkDelete").onclick=()=>bulk("delete");
+$("#backupNow").onclick=async()=>{const r=await fetch("/api/backup",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"create"})});const j=await r.json();toast(r.ok?"Backup created":(j.error||"Backup failed"));refreshEvents()};
+$("#restoreLatest").onclick=async()=>{if(!confirm("Restore the latest backup and restart core services?"))return;const r=await fetch("/api/backup",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"restore"})});const j=await r.json();toast(r.ok?"Restore complete":(j.error||"Restore failed"));if(r.ok)setTimeout(()=>location.reload(),2500)};
+$("#renewCert").onclick=async()=>{if(!confirm("Force certificate renewal now?"))return;const r=await fetch("/api/certificate/renew",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});const j=await r.json();toast(r.ok?"Certificate renewed":(j.error||"Renewal failed"));refreshSecurity()};
+async function refreshExpiry(){
+  try{
+    const r=await fetch("/api/users",{cache:"no-store"});if(!r.ok)return;const rows=await r.json(), box=document.getElementById("expiryList");if(!box)return;
+    const soon=rows.filter(x=>x.days_remaining!==null&&x.days_remaining<=7);
+    box.innerHTML=soon.length?soon.map(x=>"<div class='service-card'><span>"+x.username+" • "+x.protocol+"</span><strong class='"+(x.days_remaining<=1?"dangertext":"warn")+"'>"+(x.days_remaining===0?"Expires today":x.days_remaining+" days")+"</strong></div>").join(""):"<div class='muted'>No accounts expire within seven days.</div>";
+  }catch(_){}
+}
+refreshExpiry();setInterval(refreshExpiry,30000);
 $("#speedtest").onclick=async()=>{
   const out=$("#speedout");out.style.display="block";out.textContent="Running Ookla Speedtest…";
   const r=await fetch("/api/speedtest"),j=await r.json();out.textContent=j.output||j.error||"No result";
