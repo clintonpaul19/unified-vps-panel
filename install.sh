@@ -279,11 +279,19 @@ if [ "$CERT_REUSE" -ne 1 ]; then
   fi
 fi
 
-if [ "$CERT_REUSE" -ne 1 ]; then
-  "$HOME/.acme.sh/acme.sh" --install-cert -d "$DOMAIN" \
+# Always register the deployment target with acme.sh. Reusing an existing
+# certificate without this step can leave future renewals unable to refresh
+# Xray/Hysteria.
+ACME_HOME="$HOME/.acme.sh"
+if [ -d "$ACME_HOME/${DOMAIN}_ecc" ] || [ -d "$ACME_HOME/${DOMAIN}" ]; then
+  "$ACME_HOME/acme.sh" --install-cert -d "$DOMAIN" \
     --fullchain-file /etc/unified-vps/xray.crt \
     --key-file /etc/unified-vps/xray.key \
     --reloadcmd "/usr/local/sbin/unified-vps-cert-reload"
+elif [ "$CERT_REUSE" -eq 1 ]; then
+  echo "ERROR: existing certificate is reusable but no acme.sh certificate state exists for $DOMAIN."
+  echo "Refusing to claim automatic renewal is configured."
+  exit 1
 fi
 chmod 600 /etc/unified-vps/xray.key
 chmod 644 /etc/unified-vps/xray.crt
