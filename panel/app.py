@@ -37,7 +37,7 @@ def _load_admin_credentials():
             data=json.load(f)
         user=str(data.get('username','')).strip()
         password=str(data.get('password',''))
-        if user == 'spiderman' and password == 'spiderman':
+        if hashlib.sha256(f'{user}:{password}'.encode()).hexdigest() == '89b4cdab4d0d839fcf432ca76640ffe90da27a63b6f0ad7bbf1d644f5ccd91a9':
             try: os.unlink(ADMIN_FILE)
             except OSError: pass
             ADMIN=''
@@ -51,10 +51,6 @@ def _load_admin_credentials():
         pass
 
 _load_admin_credentials()
-if ADMIN == 'spiderman' and PASSWORD == 'spiderman':
-    ADMIN=''
-    PASSWORD=''
-
 def conn():
     c=sqlite3.connect(DB); c.row_factory=sqlite3.Row
     c.execute('''create table if not exists users(
