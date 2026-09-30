@@ -263,7 +263,7 @@ all_accounts(){
     pause
     return
   fi
-  printf '%s\\n' "$data" | python3 -m json.tool
+  printf '%s\n' "$data" | python3 -m json.tool
   echo
   show_usage_summary
   pause
