@@ -636,6 +636,21 @@ class H(BaseHTTPRequestHandler):
                 )
 
             rows_html=''.join(rows_html) or '<tr><td colspan="9"><div class="empty">No accounts yet. Create the first account above.</div></td></tr>'
+            cards_html=[]
+            for x in rows:
+                xid=x['id']; protocol=x['protocol']; enabled=bool(x['enabled'])
+                expiry='Unlimited' if not x['expiry'] else time.strftime('%Y-%m-%d',time.localtime(x['expiry']))
+                usage='Not metered' if protocol=='SSH' else _human_bytes(x['used_bytes'])
+                today='Not metered' if protocol=='SSH' else _human_bytes(x['daily_used_bytes'])
+                expiry_warn=bool(x['expiry'] and x['expiry']<=time.time()+7*86400)
+                cards_html.append(
+                    f'<article class="account-card" data-card-user="{html.escape(x["username"],quote=True)}" data-card-protocol="{html.escape(protocol.lower())}">'
+                    f'<div class="cardtop"><div class="usercell"><div class="avatar">{html.escape(x["username"][0].upper())}</div><div><strong>{html.escape(x["username"])}</strong><span class="muted">{html.escape(protocol)}</span></div></div>{state_badge("active" if enabled else "disabled")}</div>'
+                    f'<div class="cardstats"><div><span>Today</span><strong>{today}</strong></div><div><span>All time</span><strong>{usage}</strong></div><div><span>Expiry</span><strong class="{"warn" if expiry_warn else ""}">{html.escape(expiry)}</strong></div></div>'
+                    f'<div class="cardactions"><button class="ghost" data-action="{"disable" if enabled else "enable"}" data-id="{xid}" type="button">{"Disable" if enabled else "Enable"}</button><button class="danger" data-delete="{xid}" type="button">Delete</button></div>'
+                    f'</article>'
+                )
+            cards_html=''.join(cards_html) or '<div class="empty">No accounts yet.</div>'
             service_html=''.join(f'<div class="service-card"><span>{html.escape(k)}</span>{state_badge(v)}</div>' for k,v in services.items())
 
             page = """<!doctype html>
@@ -667,9 +682,9 @@ button{cursor:pointer}
 .usercell{display:flex;align-items:center;gap:9px}.avatar{width:31px;height:31px;border-radius:9px;display:grid;place-items:center;background:rgba(66,245,141,.1);color:var(--accent);font-weight:800}.usercell strong{display:block}.muted{display:block;color:var(--muted);font-size:11px}.pill{display:inline-block;padding:4px 7px;border-radius:7px;background:rgba(255,255,255,.04);font-size:10px;color:#bcd4c4}
 .copyline{display:flex;align-items:center;gap:7px;margin:5px 0;max-width:480px}.copyline code{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#06100a;color:#bdeccf;font:11px ui-monospace,SFMono-Regular,Menlo,monospace}.copy-btn,.ghost,.danger,.secret-btn{border:1px solid var(--line);border-radius:8px;padding:7px 9px;background:#0a170f;color:#bfe4ca;font-size:11px}.copy-btn:hover,.ghost:hover,.secret-btn:hover{border-color:#2e754c;color:var(--text)}.danger{color:#ff9da6;border-color:rgba(255,107,120,.24)}.danger:hover{background:rgba(255,107,120,.08)}.actions{display:flex;gap:6px;flex-wrap:wrap}.sshmeta{display:flex;gap:10px;flex-wrap:wrap;color:var(--muted);font-size:11px}.empty{text-align:center;color:var(--muted);padding:30px}
 .overlay{position:fixed;inset:0;background:rgba(1,7,4,.72);backdrop-filter:blur(10px);display:none;align-items:center;justify-content:center;padding:20px;z-index:30}.overlay.open{display:flex}.modal{width:min(560px,100%);background:#09170f;border:1px solid var(--line);border-radius:18px;box-shadow:0 30px 90px rgba(0,0,0,.5);padding:20px}.modalhead{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px}.modalhead h3{margin:0}.modalhead p{margin:4px 0;color:var(--muted);font-size:12px}.close{border:1px solid var(--line);background:#07110b;color:#b4c9bc;border-radius:8px;padding:6px 9px}.formgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.field{display:grid;gap:6px}.field.full{grid-column:1/-1}.field label{font-size:11px;color:var(--muted)}.field input,.field select{padding:11px 12px;border-radius:10px;border:1px solid var(--line);background:#06100a;color:var(--text);outline:none}.modalfoot{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}.secondary{border:1px solid var(--line);background:#08140c;color:#b9d0c2;border-radius:10px;padding:10px 13px}
-.toast{position:fixed;right:20px;bottom:20px;z-index:50;padding:11px 14px;border-radius:10px;border:1px solid var(--line);background:#0c1d13;color:var(--text);box-shadow:var(--shadow);display:none}.toast.show{display:block}.eventlist{display:grid;gap:7px;max-height:260px;overflow:auto}.event{padding:9px 10px;border:1px solid var(--line);border-radius:9px;background:rgba(255,255,255,.02)}.event strong{font-size:11px}.event small{display:block;color:var(--muted);margin-top:2px}.warn{color:#ffd166!important}.dangertext{color:var(--danger)!important}.metric-good{color:var(--accent)!important}
-@media(max-width:1050px){.app{grid-template-columns:1fr}.sidebar{display:none}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.grid2{grid-template-columns:1fr}.topbar{padding:0 16px}.content{padding:18px}}
-@media(max-width:620px){.stats{grid-template-columns:1fr}.hero{align-items:flex-start;flex-direction:column}.hero h3{font-size:23px}.formgrid{grid-template-columns:1fr}.field.full{grid-column:auto}.top-actions .badge{display:none}}
+.toast{position:fixed;right:20px;bottom:20px;z-index:50;padding:11px 14px;border-radius:10px;border:1px solid var(--line);background:#0c1d13;color:var(--text);box-shadow:var(--shadow);display:none}.toast.show{display:block}.account-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:14px}.account-card{border:1px solid var(--line);border-radius:14px;padding:14px;background:linear-gradient(180deg,rgba(15,36,24,.78),rgba(7,18,12,.78))}.cardtop{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.cardstats{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin:13px 0}.cardstats div{padding:8px;border-radius:9px;background:rgba(255,255,255,.025);border:1px solid var(--line)}.cardstats span{display:block;color:var(--muted);font-size:9px;text-transform:uppercase}.cardstats strong{display:block;margin-top:3px;font-size:11px}.cardactions{display:flex;gap:7px}.account-card .danger{margin-left:auto}.eventlist{display:grid;gap:7px;max-height:260px;overflow:auto}.event{padding:9px 10px;border:1px solid var(--line);border-radius:9px;background:rgba(255,255,255,.02)}.event strong{font-size:11px}.event small{display:block;color:var(--muted);margin-top:2px}.warn{color:#ffd166!important}.dangertext{color:var(--danger)!important}.metric-good{color:var(--accent)!important}
+@media(max-width:1050px){.app{grid-template-columns:1fr}.sidebar{display:none}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.grid2{grid-template-columns:1fr}.account-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.topbar{padding:0 16px}.content{padding:18px}}
+@media(max-width:620px){.stats{grid-template-columns:1fr}.account-cards{grid-template-columns:1fr}.hero{align-items:flex-start;flex-direction:column}.hero h3{font-size:23px}.formgrid{grid-template-columns:1fr}.field.full{grid-column:auto}.top-actions .badge{display:none}}
 </style>
 </head>
 <body>
@@ -748,6 +763,7 @@ button{cursor:pointer}
         <div class="toolbar"><input class="search" id="search" placeholder="Search username or protocol…"><select class="select" id="filter"><option value="">All protocols</option><option>SSH</option><option>VLESS</option><option>VMess</option><option>Trojan</option><option>Hysteria</option></select><button class="secondary" id="bulkEnable" type="button">Enable selected</button><button class="secondary" id="bulkDisable" type="button">Disable selected</button><button class="danger" id="bulkDelete" type="button">Delete selected</button><button class="secondary" id="backupNow" type="button">Backup</button><button class="secondary" id="restoreLatest" type="button">Restore latest</button><button class="secondary" id="renewCert" type="button">Renew certificate</button><button class="secondary" id="speedtest" type="button">Run speedtest</button></div>
       </div>
       <pre id="speedout" style="display:none;max-height:260px;overflow:auto;padding:12px;border:1px solid var(--line);border-radius:10px;background:#06100a;color:#bcebcf;font-size:11px"></pre>
+      <div class="account-cards" id="accountCards">__ACCOUNT_CARDS__</div>
       <div class="tablewrap"><table><thead><tr><th><input id="selectAll" type="checkbox" title="Select all"></th><th>Account</th><th>Status</th><th>Ports</th><th>Secret</th><th>Usage</th><th>Expiry</th><th>Connection URI</th><th>Actions</th></tr></thead><tbody id="accountsBody">__ROWS__</tbody></table></div>
     </section>
   </section>
@@ -940,6 +956,7 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
 </script>
 </body></html>"""
             page=page.replace('__ROWS__',rows_html)
+            page=page.replace('__ACCOUNT_CARDS__',cards_html)
             page=page.replace('__SERVICES__',service_html)
             page=page.replace('__REBOOT__',html.escape(reboot,quote=True))
             page=page.replace('__PANEL_URL__',html.escape(f'http://{public_host()}:{PORT}/',quote=True))
