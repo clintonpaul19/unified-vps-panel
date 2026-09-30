@@ -201,8 +201,22 @@ def add_xray(protocol,u,secret):
             clients.append(client)
         save_xray(d)
 
-def del_xray(protocol,u):
+def ensure_xray_client(protocol,u,secret):
     with XRAY_LOCK:
+        d=load_xray(); changed=False
+        key='id' if protocol in ('VMess','VLESS') else 'password'
+        for tag in XRAY_TAGS[protocol]:
+            ib=next((i for i in d.get('inbounds',[]) if i.get('tag')==tag),None)
+            if ib is None: raise RuntimeError(f'{protocol} inbound missing: {tag}')
+            clients=ib.setdefault('settings',{}).setdefault('clients',[])
+            client=next((x for x in clients if x.get('email')==u),None)
+            if client is None:
+                clients.append({'email':u,'level':0,key:secret}); changed=True
+            elif client.get(key)!=secret:
+                client[key]=secret; changed=True
+        if changed: save_xray(d)
+
+def del_xray(protocol,u):    with XRAY_LOCK:
         d=load_xray(); changed=False
         for tag in XRAY_TAGS[protocol]:
             ib=next((i for i in d.get('inbounds',[]) if i.get('tag')==tag),None)
@@ -1210,17 +1224,7 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                     elif action in ('enable','disable'):
                         enable=action=='enable'
                         if row['protocol'] in XRAY_TAGS:
-                            if enable:
-                                with XRAY_LOCK:
-                                    dcfg=load_xray()
-                                    for tag in XRAY_TAGS[row['protocol']]:
-                                        ib=next((i for i in dcfg.get('inbounds',[]) if i.get('tag')==tag),None)
-                                        if ib:
-                                            clients=ib.setdefault('settings',{}).setdefault('clients',[])
-                                            if not any(x.get('email')==row['username'] for x in clients):
-                                                cl={'email':row['username'],'level':0}
-                                                cl['id' if row['protocol'] in ('VMess','VLESS') else 'password']=row['secret']; clients.append(cl)
-                                    save_xray(dcfg)
+                            if enable: ensure_xray_client(row['protocol'],row['username'],row['secret'])
                             else: del_xray(row['protocol'],row['username'])
                         elif row['protocol']=='Hysteria' and not enable:
                             kick_hysteria(row['username'])
@@ -1231,7 +1235,7 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                         if days <= 0: raise ValueError('renewal days must be greater than 0')
                         exp=int(time.time())+days*86400
                         if row['protocol'] in XRAY_TAGS:
-                            add_xray(row['protocol'],row['username'],row['secret'])
+                            ensure_xray_client(row['protocol'],row['username'],row['secret'])
                         elif row['protocol']=='SSH':
                             set_ssh_enabled(row['username'],True,exp)
                         baseline=int(row['raw_bytes'] or 0)
@@ -1264,9 +1268,7 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                         baseline=0
                     c.execute('update users set expiry=?,enabled=1,used_bytes=0,raw_bytes=?,daily_used_bytes=0,usage_day=? where id=?',(exp,baseline,time.strftime('%Y-%m-%d'),row['id']))
                     if row['protocol'] in XRAY_TAGS:
-                        try: del_xray(row['protocol'],row['username'])
-                        except Exception: pass
-                        add_xray(row['protocol'],row['username'],row['secret'])
+                        ensure_xray_client(row['protocol'],row['username'],row['secret'])
                     elif row['protocol']=='SSH':
                         set_ssh_enabled(row['username'],True,exp)
                     c.commit()
