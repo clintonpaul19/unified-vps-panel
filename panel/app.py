@@ -216,7 +216,8 @@ def ensure_xray_client(protocol,u,secret):
                 client[key]=secret; changed=True
         if changed: save_xray(d)
 
-def del_xray(protocol,u):    with XRAY_LOCK:
+def del_xray(protocol,u):
+    with XRAY_LOCK:
         d=load_xray(); changed=False
         for tag in XRAY_TAGS[protocol]:
             ib=next((i for i in d.get('inbounds',[]) if i.get('tag')==tag),None)
