@@ -34,8 +34,8 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq systemd >/dev/null
           sudo install -d /usr/local/sbin /usr/local/bin
-          sudo touch /usr/local/sbin/unified-vps-watchdog /usr/local/sbin/unified-vps-backup /usr/local/bin/wstunnel
-          sudo chmod +x /usr/local/sbin/unified-vps-watchdog /usr/local/sbin/unified-vps-backup /usr/local/bin/wstunnel
+          sudo touch /usr/local/sbin/unified-vps-watchdog /usr/local/sbin/unified-vps-backup /usr/local/bin/wstunnel /usr/local/bin/hysteria
+          sudo chmod +x /usr/local/sbin/unified-vps-watchdog /usr/local/sbin/unified-vps-backup /usr/local/bin/wstunnel /usr/local/bin/hysteria
           systemd-analyze verify systemd/unified-vps-watchdog.service systemd/unified-vps-watchdog.timer systemd/unified-vps-backup.service systemd/unified-vps-backup.timer systemd/unified-vps-ws-payload-ssh.service systemd/unified-vps-wstunnel-ssh.service systemd/hysteria-server.service
       - name: Validate HAProxy configuration
         run: |
