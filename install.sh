@@ -454,11 +454,6 @@ if [ -f /etc/unified-vps/panel.env ]; then
   PANEL_ADMIN_USER="$(grep -E '^ADMIN_USER=' /etc/unified-vps/panel.env | tail -n1 || true)"
   PANEL_ADMIN_PASSWORD="$(grep -E '^ADMIN_PASSWORD=' /etc/unified-vps/panel.env | tail -n1 || true)"
 fi
-if { [[ "$PANEL_ADMIN_USER" == 'ADMIN_USER=spiderman' ]] || [[ "$PANEL_ADMIN_USER" == 'ADMIN_USER="spiderman"' ]]; } &&
-   { [[ "$PANEL_ADMIN_PASSWORD" == 'ADMIN_PASSWORD=spiderman' ]] || [[ "$PANEL_ADMIN_PASSWORD" == 'ADMIN_PASSWORD="spiderman"' ]]; }; then
-  PANEL_ADMIN_USER='ADMIN_USER='
-  PANEL_ADMIN_PASSWORD='ADMIN_PASSWORD='
-fi
 printf '%s\n%s\nPANEL_PORT=6080\nSERVER_DOMAIN=%s\nACME_EMAIL=%s\nHY2_STATS_SECRET=%s\nSSH_WS_PATH=ssh\nSSH_WS_PORT=443\n'   "$PANEL_ADMIN_USER" "$PANEL_ADMIN_PASSWORD" "$DOMAIN" "$ACME_EMAIL" "$HY2_STATS_SECRET" > /etc/unified-vps/panel.env
 chmod 600 /etc/unified-vps/panel.env
 
