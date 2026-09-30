@@ -345,6 +345,7 @@ class H(BaseHTTPRequestHandler):
                     'daily_bytes':int(srv['daily_bytes'] if srv else 0),
                     'all_time_bytes':int(srv['all_time_bytes'] if srv else 0),
                 },
+                'ssh_per_user_metered':False,
                 'accounts':[
                     {
                         'id':int(r['id']),
@@ -374,13 +375,11 @@ class H(BaseHTTPRequestHandler):
             active=sum(1 for x in rows if x['enabled'])
             total_used=sum(int(x['used_bytes'] or 0) for x in rows)
             total_daily=sum(int(x['daily_used_bytes'] or 0) for x in rows)
-            srv_row=conn().execute('select * from server_usage where id=1').fetchone()
+            usage_conn=conn()
+            srv_row=usage_conn.execute('select * from server_usage where id=1').fetchone()
             server_daily=int(srv_row['daily_bytes'] if srv_row else 0)
             server_all=int(srv_row['all_time_bytes'] if srv_row else 0)
-            try:
-                srv_row.connection.close()
-            except Exception:
-                pass
+            usage_conn.close()
             services={
                 'SSH':service_state('ssh'),
                 'NGINX':service_state('nginx'),
@@ -405,7 +404,10 @@ class H(BaseHTTPRequestHandler):
                 action_label='Disable' if enabled else 'Enable'
                 expiry='Unlimited' if not x['expiry'] else time.strftime('%Y-%m-%d %H:%M',time.localtime(x['expiry']))
                 used=f"{x['used_bytes']/(1024**3):.2f} GB"
+                daily=f"{x['daily_used_bytes']/(1024**3):.2f} GB"
                 quota='Unlimited' if not x['quota_bytes'] else f"{x['quota_bytes']/(1024**3):.2f} GB"
+                usage_text = "Not metered" if protocol=='SSH' else used
+                daily_text = "Today: not metered" if protocol=='SSH' else f"Today: {daily}"
                 if protocol in XRAY_TAGS:
                     uris=[]
                     for port in ('80','443'):
@@ -427,7 +429,7 @@ class H(BaseHTTPRequestHandler):
                     f'<td>{state_badge("active" if enabled else "disabled")}</td>'
                     f'<td><span class="pill">{html.escape(str(x["port"]))}</span></td>'
                     f'<td><button class="secret-btn" data-secret="{secret}" type="button">Reveal</button></td>'
-                    f'<td><span id="alltime-{xid}">{used}</span><span class="muted"> / {quota}</span><span id="daily-{xid}" class="muted">Today: {x["daily_used_bytes"]/(1024**3):.2f} GB</span></td>'
+                    f'<td><span id="alltime-{xid}">{usage_text}</span><span class="muted"> / {quota}</span><span id="daily-{xid}" class="muted">{daily_text}</span></td>'
                     f'<td><span class="muted">{html.escape(expiry)}</span></td>'
                     f'<td>{connection}</td>'
                     f'<td><div class="actions"><button class="ghost" data-action="{action}" data-id="{xid}" type="button">{action_label}</button><button class="ghost" data-renew="{xid}" type="button">Renew</button><button class="danger" data-delete="{xid}" type="button">Delete</button></div></td>'
