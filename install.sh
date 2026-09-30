@@ -224,6 +224,9 @@ curl -fsSL https://get.acme.sh | sh -s email="$ACME_EMAIL"
 cat >/usr/local/sbin/unified-vps-cert-reload <<'EOF'
 #!/usr/bin/env bash
 set -u
+install -m 0644 /etc/unified-vps/xray.crt /etc/hysteria/server.crt 2>/dev/null || true
+install -m 0640 /etc/unified-vps/xray.key /etc/hysteria/server.key 2>/dev/null || true
+chown hysteria:hysteria /etc/hysteria/server.crt /etc/hysteria/server.key 2>/dev/null || true
 systemctl try-restart xray.service 2>/dev/null || true
 systemctl try-restart hysteria-server.service 2>/dev/null || true
 EOF
@@ -303,6 +306,7 @@ for legacy in udp-custom udp-mini; do
     systemctl disable --now "$legacy.service" 2>/dev/null || true
   fi
 done
+systemctl unmask hysteria-server.service 2>/dev/null || true
 systemctl stop hysteria-server.service 2>/dev/null || true
 
 # Do not let systemd-resolved occupy UDP/53. Keep outbound DNS working
@@ -412,8 +416,7 @@ chmod 640 /etc/hysteria/server.crt /etc/hysteria/server.key
 cat >/etc/systemd/system/hysteria-server.service <<'EOF'
 [Unit]
 Description=Hysteria 2 Server
-After=network-online.target unified-vps-panel.service
-Requires=unified-vps-panel.service
+After=network-online.target
 Wants=network-online.target
 [Service]
 User=hysteria
@@ -470,9 +473,6 @@ fi
 sleep 1
 systemctl start xray
 
-# Release the temporary mask only after all certificate/configuration work is done.
-systemctl unmask hysteria-server.service 2>/dev/null || true
-
 # Check immediately before starting Hysteria so any late listener is identified.
 if lsof -nP -iUDP:53 2>/dev/null | grep -q UDP; then
   echo "ERROR: UDP/53 is already in use:"
@@ -485,7 +485,7 @@ sshd -t
 xray -test -config /usr/local/etc/xray/config.json
 nginx -t
 haproxy -c -f /etc/haproxy/haproxy.cfg
-SERVICES=(ssh nginx haproxy unified-vps-panel xray hysteria-server fail2ban unified-vps-watchdog.timer unified-vps-backup.timer)
+SERVICES=(ssh nginx haproxy unified-vps-panel xray hysteria-server unified-vps-wstunnel-ssh unified-vps-ws-payload-ssh fail2ban unified-vps-watchdog.timer unified-vps-backup.timer)
 FAILED=0
 for s in "${SERVICES[@]}"; do
   if ! systemctl is-active --quiet "$s"; then
