@@ -601,6 +601,9 @@ def service_state(name):
 class H(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path=='/health': return send(self,{'ok':True})
+        if self.path in ('/','/setup') and not admin_configured(): return _setup_page(self)
+        if self.path=='/setup':
+            self.send_response(404); self.end_headers(); return
         if not auth(self.headers):
             self.send_response(401); self.send_header('WWW-Authenticate','Basic realm="Unified VPS"'); self.end_headers(); return
         if self.path=='/api/backup':
@@ -1095,6 +1098,30 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
         self.send_response(404); self.end_headers()
 
     def do_POST(self):
+        if self.path=='/setup':
+            if admin_configured(): return send(self,{'error':'Initial setup has already been completed.'},409)
+            try: d=body(self)
+            except ValueError as e: return send(self,{'error':str(e)},400)
+            except Exception: return send(self,{'error':'invalid JSON'},400)
+            username=str(d.get('username','')).strip()
+            password=str(d.get('password',''))
+            confirm=str(d.get('confirm',''))
+            if not re.fullmatch(r'[A-Za-z0-9_.-]{1,32}',username): return send(self,{'error':'Username must contain only letters, numbers, dots, underscores or hyphens.'},400)
+            if username.lower()=='spiderman': return send(self,{'error':'Choose a different username.'},400)
+            if len(password)<8 or len(password)>128 or '\n' in password or '\r' in password or '\x00' in password: return send(self,{'error':'Password must be 8-128 characters and cannot contain newlines.'},400)
+            if password!=confirm: return send(self,{'error':'Passwords do not match.'},400)
+            try:
+                _save_admin_credentials(username,password)
+                cookie=_session_cookie(username)
+                payload=json.dumps({'ok':True,'message':'Credentials saved. Logging in.'}).encode()
+                self.send_response(200)
+                self.send_header('Content-Type','application/json')
+                self.send_header('Cache-Control','no-store')
+                self.send_header('Set-Cookie',f'{SESSION_COOKIE}={cookie}; Path=/; HttpOnly; SameSite=Strict; Max-Age={SESSION_TTL}')
+                self.send_header('Content-Length',str(len(payload)))
+                self.end_headers(); self.wfile.write(payload)
+            except Exception as e: return send(self,{'error':str(e)},500)
+            return
         if self.path=='/hysteria-auth':
             try: d=body(self)
             except Exception: return send(self,{'ok':False},400)
