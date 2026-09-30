@@ -21,9 +21,23 @@ def conn():
     c.execute('''create table if not exists users(
         id integer primary key, username text unique, protocol text, secret text,
         quota_bytes integer default 0, used_bytes integer default 0,
-        expiry integer default 0, enabled integer default 1, created_at integer, raw_bytes integer default 0)''')
-    try: c.execute('alter table users add column raw_bytes integer default 0')
-    except sqlite3.OperationalError: pass
+        expiry integer default 0, enabled integer default 1, created_at integer, raw_bytes integer default 0,
+        daily_used_bytes integer default 0, usage_day text default '')''')
+    for stmt in (
+        'alter table users add column raw_bytes integer default 0',
+        'alter table users add column daily_used_bytes integer default 0',
+        "alter table users add column usage_day text default ''",
+    ):
+        try: c.execute(stmt)
+        except sqlite3.OperationalError: pass
+    c.execute('''create table if not exists server_usage(
+        id integer primary key check(id=1),
+        raw_rx integer default 0, raw_tx integer default 0,
+        all_time_bytes integer default 0, daily_bytes integer default 0,
+        usage_day text default ''
+    )''')
+    c.execute('insert or ignore into server_usage(id,raw_rx,raw_tx,all_time_bytes,daily_bytes,usage_day) values(1,0,0,0,0,?)',
+              (time.strftime('%Y-%m-%d'),))
     c.commit(); return c
 
 def auth(h):
@@ -132,6 +146,34 @@ def _hysteria_usage():
     except Exception:
         return {}
 
+def _primary_interface():
+    try:
+        return subprocess.check_output(
+            "ip route show default 2>/dev/null | awk 'NR==1 {print $5}'",
+            shell=True, text=True, timeout=3
+        ).strip()
+    except Exception:
+        return ''
+
+def _server_bytes():
+    iface=_primary_interface()
+    if not iface: return 0,0
+    try:
+        with open(f'/sys/class/net/{iface}/statistics/rx_bytes') as f: rx=int(f.read().strip())
+        with open(f'/sys/class/net/{iface}/statistics/tx_bytes') as f: tx=int(f.read().strip())
+        return rx,tx
+    except Exception:
+        return 0,0
+
+def _human_bytes(n):
+    n=float(max(int(n or 0),0))
+    units=('B','KB','MB','GB','TB','PB')
+    for u in units:
+        if n < 1024 or u==units[-1]:
+            return f'{n:.2f} {u}'
+        n/=1024
+    return '0.00 B'
+
 def sync_usage():
     while True:
         try:
@@ -140,6 +182,7 @@ def sync_usage():
             c=conn()
             rows=c.execute('select * from users').fetchall()
             now=int(time.time())
+            today=time.strftime('%Y-%m-%d',time.localtime(now))
             disable=[]
             for row in rows:
                 if row['protocol'] in XRAY_TAGS:
@@ -151,11 +194,30 @@ def sync_usage():
                 prev=int(row['raw_bytes'] or 0)
                 delta=max(raw-prev,0)
                 used=int(row['used_bytes'] or 0)+delta
+                daily=int(row['daily_used_bytes'] or 0)
+                usage_day=row['usage_day'] or ''
+                if usage_day != today:
+                    daily=0
+                daily += delta
                 expired=bool(row['expiry'] and row['expiry']<=now)
                 quota_hit=bool(row['quota_bytes'] and used>=row['quota_bytes'])
                 if row['enabled'] and (expired or quota_hit):
                     disable.append(row)
-                c.execute('update users set used_bytes=?,raw_bytes=? where id=?',(used,raw,row['id']))
+                c.execute('update users set used_bytes=?,raw_bytes=?,daily_used_bytes=?,usage_day=? where id=?',
+                          (used,raw,daily,today,row['id']))
+
+            rx,tx=_server_bytes()
+            srv=c.execute('select * from server_usage where id=1').fetchone()
+            if srv:
+                raw_rx=int(srv['raw_rx'] or 0); raw_tx=int(srv['raw_tx'] or 0)
+                server_delta=max(rx-raw_rx,0)+max(tx-raw_tx,0)
+                server_all=int(srv['all_time_bytes'] or 0)+server_delta
+                server_daily=int(srv['daily_bytes'] or 0)
+                if (srv['usage_day'] or '') != today:
+                    server_daily=0
+                server_daily += server_delta
+                c.execute('update server_usage set raw_rx=?,raw_tx=?,all_time_bytes=?,daily_bytes=?,usage_day=? where id=1',
+                          (rx,tx,server_all,server_daily,today))
             c.commit(); c.close()
 
             xrows=[r for r in disable if r['protocol'] in XRAY_TAGS]
@@ -272,6 +334,30 @@ class H(BaseHTTPRequestHandler):
             self.send_response(401); self.send_header('WWW-Authenticate','Basic realm="Unified VPS"'); self.end_headers(); return
         if self.path=='/api/users':
             c=conn(); rows=[record(x) for x in c.execute('select * from users order by id desc')]; c.close(); return send(self,rows)
+        if self.path=='/api/usage':
+            c=conn()
+            rows=c.execute('select id,username,protocol,used_bytes,daily_used_bytes,quota_bytes,usage_day from users order by id desc').fetchall()
+            srv=c.execute('select * from server_usage where id=1').fetchone()
+            c.close()
+            data={
+                'updated_at':int(time.time()),
+                'server':{
+                    'daily_bytes':int(srv['daily_bytes'] if srv else 0),
+                    'all_time_bytes':int(srv['all_time_bytes'] if srv else 0),
+                },
+                'accounts':[
+                    {
+                        'id':int(r['id']),
+                        'username':r['username'],
+                        'protocol':r['protocol'],
+                        'daily_bytes':int(r['daily_used_bytes'] or 0),
+                        'all_time_bytes':int(r['used_bytes'] or 0),
+                        'quota_bytes':int(r['quota_bytes'] or 0),
+                        'usage_day':r['usage_day'] or ''
+                    } for r in rows
+                ]
+            }
+            return send(self,data)
         if self.path=='/api/speedtest':
             try:
                 env=os.environ.copy()
@@ -287,6 +373,14 @@ class H(BaseHTTPRequestHandler):
             counts={p:sum(1 for x in rows if x['protocol']==p) for p in ('SSH','VLESS','VMess','Trojan','Hysteria')}
             active=sum(1 for x in rows if x['enabled'])
             total_used=sum(int(x['used_bytes'] or 0) for x in rows)
+            total_daily=sum(int(x['daily_used_bytes'] or 0) for x in rows)
+            srv_row=conn().execute('select * from server_usage where id=1').fetchone()
+            server_daily=int(srv_row['daily_bytes'] if srv_row else 0)
+            server_all=int(srv_row['all_time_bytes'] if srv_row else 0)
+            try:
+                srv_row.connection.close()
+            except Exception:
+                pass
             services={
                 'SSH':service_state('ssh'),
                 'NGINX':service_state('nginx'),
@@ -333,7 +427,7 @@ class H(BaseHTTPRequestHandler):
                     f'<td>{state_badge("active" if enabled else "disabled")}</td>'
                     f'<td><span class="pill">{html.escape(str(x["port"]))}</span></td>'
                     f'<td><button class="secret-btn" data-secret="{secret}" type="button">Reveal</button></td>'
-                    f'<td><span>{used}</span><span class="muted"> / {quota}</span></td>'
+                    f'<td><span id="alltime-{xid}">{used}</span><span class="muted"> / {quota}</span><span id="daily-{xid}" class="muted">Today: {x["daily_used_bytes"]/(1024**3):.2f} GB</span></td>'
                     f'<td><span class="muted">{html.escape(expiry)}</span></td>'
                     f'<td>{connection}</td>'
                     f'<td><div class="actions"><button class="ghost" data-action="{action}" data-id="{xid}" type="button">{action_label}</button><button class="ghost" data-renew="{xid}" type="button">Renew</button><button class="danger" data-delete="{xid}" type="button">Delete</button></div></td>'
@@ -392,11 +486,12 @@ button{cursor:pointer}
 <main class="main">
   <header class="topbar"><div><h2>Command Center</h2><p>__DOMAIN__</p></div><div class="top-actions"><span class="badge">IPv4 __IP__</span><span class="badge">__OS__</span></div></header>
   <section class="content" id="dashboard">
-    <div class="hero"><div><h3>Server overview</h3><p>Live account inventory, services and transport endpoints.</p></div><button class="primary" id="openCreate" type="button">+ Create account</button></div>
+    <div class="hero"><div><h3>Server overview</h3><p>Live account inventory, services and transport endpoints.</p><span id="usageStamp" class="muted" style="margin-top:6px">Usage updating…</span></div><button class="primary" id="openCreate" type="button">+ Create account</button></div>
     <div class="stats">
       <div class="stat"><div class="k">Total accounts</div><div class="v">__TOTAL__</div><div class="s">All protocols</div></div>
       <div class="stat"><div class="k">Active accounts</div><div class="v">__ACTIVE__</div><div class="s">Currently enabled</div></div>
-      <div class="stat"><div class="k">Data consumed</div><div class="v">__USED__</div><div class="s">Tracked traffic</div></div>
+      <div class="stat"><div class="k">Server traffic today</div><div class="v" id="serverDaily">__SERVER_DAILY__</div><div class="s">Live interface accounting</div></div>
+      <div class="stat"><div class="k">Server traffic all time</div><div class="v" id="serverAll">__SERVER_ALL__</div><div class="s">Persistent total</div></div>
       <div class="stat"><div class="k">Daily reboot</div><div class="v" style="font-size:20px">__REBOOT__</div><div class="s">Automatic maintenance</div></div>
     </div>
     <div class="grid2" id="services">
@@ -491,6 +586,31 @@ $("#speedtest").onclick=async()=>{
   const out=$("#speedout");out.style.display="block";out.textContent="Running Ookla Speedtest…";
   const r=await fetch("/api/speedtest"),j=await r.json();out.textContent=j.output||j.error||"No result";
 };
+
+function fmtBytes(n){
+  n=Math.max(Number(n||0),0);
+  const u=["B","KB","MB","GB","TB","PB"]; let i=0;
+  while(n>=1024&&i<u.length-1){n/=1024;i++}
+  return n.toFixed(2)+" "+u[i];
+}
+async function refreshUsage(){
+  try{
+    const r=await fetch("/api/usage",{cache:"no-store"}); if(!r.ok)return;
+    const j=await r.json();
+    const sd=document.getElementById("serverDaily"), sa=document.getElementById("serverAll");
+    if(sd)sd.textContent=fmtBytes(j.server.daily_bytes);
+    if(sa)sa.textContent=fmtBytes(j.server.all_time_bytes);
+    for(const a of j.accounts||[]){
+      const all=document.getElementById("alltime-"+a.id), daily=document.getElementById("daily-"+a.id);
+      if(all)all.textContent=fmtBytes(a.all_time_bytes);
+      if(daily)daily.textContent="Today: "+fmtBytes(a.daily_bytes);
+    }
+    const stamp=document.getElementById("usageStamp");
+    if(stamp)stamp.textContent="Usage updated "+new Date((j.updated_at||Date.now()/1000)*1000).toLocaleTimeString();
+  }catch(_){}
+}
+refreshUsage();
+setInterval(refreshUsage,10000);
 </script>
 </body></html>"""
             page=page.replace('__ROWS__',rows_html)
@@ -513,7 +633,8 @@ $("#speedtest").onclick=async()=>{
             page=page.replace('__OS__',html.escape(os_name))
             page=page.replace('__TOTAL__',str(len(rows)))
             page=page.replace('__ACTIVE__',str(active))
-            page=page.replace('__USED__',f'{total_used/(1024**3):.2f} GB')
+            page=page.replace('__SERVER_DAILY__',_human_bytes(server_daily))
+            page=page.replace('__SERVER_ALL__',_human_bytes(server_all))
             b=page.encode()
 
             self.send_response(200); self.send_header('Content-Type','text/html; charset=utf-8'); self.send_header('Cache-Control','no-store'); self.send_header('Content-Length',str(len(b))); self.end_headers(); self.wfile.write(b); return
