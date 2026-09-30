@@ -36,6 +36,9 @@ def conn():
         all_time_bytes integer default 0, daily_bytes integer default 0,
         usage_day text default ''
     )''')
+    c.execute('''create table if not exists events(
+        id integer primary key, created_at integer, action text, username text default '', details text default ''
+    )''')
     c.execute('insert or ignore into server_usage(id,raw_rx,raw_tx,all_time_bytes,daily_bytes,usage_day) values(1,0,0,0,0,?)',
               (time.strftime('%Y-%m-%d'),))
     c.commit(); return c
@@ -174,6 +177,124 @@ def _human_bytes(n):
         n/=1024
     return '0.00 B'
 
+def log_event(action, details='', username=''):
+    try:
+        c=conn()
+        c.execute('insert into events(created_at,action,username,details) values(?,?,?,?)',
+                  (int(time.time()),str(action),str(username),str(details)))
+        c.execute('delete from events where id not in (select id from events order by id desc limit 500)')
+        c.commit(); c.close()
+    except Exception:
+        pass
+
+def _network_rate():
+    iface=_primary_interface()
+    if not iface:
+        return {'rx_bytes':0,'tx_bytes':0,'rx_bps':0,'tx_bps':0}
+    try:
+        with open(f'/sys/class/net/{iface}/statistics/rx_bytes') as f: rx=int(f.read())
+        with open(f'/sys/class/net/{iface}/statistics/tx_bytes') as f: tx=int(f.read())
+        now=time.time()
+        prev=getattr(_network_rate,'prev',None)
+        _network_rate.prev=(now,rx,tx)
+        if not prev:
+            return {'rx_bytes':rx,'tx_bytes':tx,'rx_bps':0,'tx_bps':0}
+        dt=max(now-prev[0],0.1)
+        return {'rx_bytes':rx,'tx_bytes':tx,'rx_bps':max(rx-prev[1],0)/dt,'tx_bps':max(tx-prev[2],0)/dt}
+    except Exception:
+        return {'rx_bytes':0,'tx_bytes':0,'rx_bps':0,'tx_bps':0}
+
+def _system_metrics():
+    try:
+        load=os.getloadavg()
+    except Exception:
+        load=(0,0,0)
+    mem={}
+    try:
+        with open('/proc/meminfo') as f:
+            for line in f:
+                k,v=line.split(':',1)
+                mem[k]=int(v.strip().split()[0])*1024
+    except Exception:
+        pass
+    total=mem.get('MemTotal',0); available=mem.get('MemAvailable',0)
+    used=max(total-available,0)
+    du=__import__('shutil').disk_usage('/')
+    net=_network_rate()
+    return {
+        'timestamp':int(time.time()),
+        'cpu_load':[round(float(x),2) for x in load],
+        'cpu_count':os.cpu_count() or 1,
+        'memory':{'total':total,'used':used,'available':available},
+        'disk':{'total':du.total,'used':du.used,'free':du.free},
+        'network':net,
+        'uptime_seconds':int(time.time()-__import__('psutil').boot_time()) if __import__('importlib').util.find_spec('psutil') else 0
+    }
+
+def _active_sessions():
+    out=[]
+    try:
+        p=subprocess.run(['ss','-Hntp','state','established'],capture_output=True,text=True,timeout=5)
+        for line in p.stdout.splitlines():
+            parts=line.split()
+            if len(parts)<5: continue
+            local=parts[2]; peer=parts[3]
+            proc=''
+            pid=None
+            m=re.search(r'users:\(\("([^"]+)",pid=(\d+)',line)
+            if m:
+                proc=m.group(1); pid=int(m.group(2))
+            user=''
+            if pid:
+                try: user=subprocess.check_output(['ps','-o','user=','-p',str(pid)],text=True).strip()
+                except Exception: pass
+            out.append({'local':local,'remote':peer,'process':proc,'pid':pid,'user':user})
+            if len(out)>=100: break
+    except Exception:
+        pass
+    return out
+
+def _certificate_info():
+    path='/etc/unified-vps/xray.crt'
+    if not os.path.exists(path): return {'ok':False,'error':'Certificate not found'}
+    try:
+        p=subprocess.run(['openssl','x509','-in',path,'-noout','-subject','-issuer','-startdate','-enddate'],
+                         capture_output=True,text=True,timeout=5)
+        vals={}
+        for line in p.stdout.splitlines():
+            if '=' in line:
+                k,v=line.split('=',1); vals[k.strip()]=v.strip()
+        end=vals.get('notAfter','')
+        epoch=0
+        if end:
+            epoch=int(time.mktime(time.strptime(end,'%b %d %H:%M:%S %Y %Z')))
+        days=int((epoch-time.time())/86400) if epoch else -1
+        return {'ok':p.returncode==0,'subject':vals.get('subject',''),'issuer':vals.get('issuer',''),
+                'start':vals.get('notBefore',''),'expiry':end,'days_remaining':days}
+    except Exception as e:
+        return {'ok':False,'error':str(e)}
+
+def _security_info():
+    failed=0
+    try:
+        text=subprocess.check_output(['journalctl','-u','ssh','--since','24 hours ago','--no-pager'],text=True,stderr=subprocess.DEVNULL)
+        failed=sum(1 for x in text.splitlines() if 'Failed password' in x or 'Invalid user' in x)
+    except Exception: pass
+    banned=0; f2b='inactive'
+    try:
+        f2b=service_state('fail2ban')
+        text=subprocess.check_output(['fail2ban-client','status','sshd'],text=True,stderr=subprocess.DEVNULL)
+        m=re.search(r'Currently banned:\s*(\d+)',text); banned=int(m.group(1)) if m else 0
+    except Exception: pass
+    try:
+        fw=sum(1 for x in subprocess.check_output(['iptables','-S','INPUT'],text=True,stderr=subprocess.DEVNULL).splitlines() if x.strip())
+    except Exception: fw=0
+    try:
+        ssh_cfg=subprocess.check_output(['sshd','-T'],text=True,stderr=subprocess.DEVNULL)
+        auth_cfg={k:v for k,v in (line.split(None,1) for line in ssh_cfg.splitlines() if line.split(None,1)[0] in ('passwordauthentication','kbdinteractiveauthentication','usepam'))}
+    except Exception: auth_cfg={}
+    return {'fail2ban':f2b,'banned':banned,'failed_ssh_24h':failed,'firewall_rules':fw,'ssh_auth':auth_cfg}
+
 def sync_usage():
     while True:
         try:
@@ -234,6 +355,7 @@ def sync_usage():
 
             c=conn()
             for row in disable:
+                log_event('account_auto_disabled','expired or quota reached',row['username'])
                 if row['protocol']=='SSH':
                     subprocess.run(['usermod','-L',row['username']],capture_output=True)
                 c.execute('update users set enabled=0 where id=?',(row['id'],))
@@ -310,6 +432,7 @@ def create_user(d):
         c.execute('insert into users(username,protocol,secret,quota_bytes,expiry,created_at) values(?,?,?,?,?,?)',(u,p,secret,q,exp,int(time.time())))
         c.commit()
         row=c.execute('select * from users where username=?',(u,)).fetchone()
+        log_event('account_created',p,u)
         return record(row)
     except Exception:
         c.rollback()
@@ -333,7 +456,33 @@ class H(BaseHTTPRequestHandler):
         if not auth(self.headers):
             self.send_response(401); self.send_header('WWW-Authenticate','Basic realm="Unified VPS"'); self.end_headers(); return
         if self.path=='/api/users':
-            c=conn(); rows=[record(x) for x in c.execute('select * from users order by id desc')]; c.close(); return send(self,rows)
+            c=conn(); rows=[record(x) for x in c.execute('select * from users order by id desc')]; c.close()
+            now=int(time.time())
+            for x in rows:
+                x['days_remaining']=None if not x['expiry'] else max(int((x['expiry']-now)/86400),0)
+                x['expiry_warning']=bool(x['expiry'] and x['expiry']<=now+7*86400)
+            return send(self,rows)
+        if self.path=='/api/usage-history':
+            c=conn()
+            rows=c.execute('select daily_bytes,usage_day from server_usage where id=1').fetchone()
+            c.close()
+            # Keep a lightweight seven-day history in events-free persistent state.
+            vals=[]
+            try:
+                p='/var/lib/unified-vps/usage-history.json'
+                os.makedirs('/var/lib/unified-vps',exist_ok=True)
+                if os.path.exists(p):
+                    vals=json.load(open(p)).get('values',[])
+            except Exception: vals=[]
+            today=int(rows['daily_bytes'] if rows else 0)
+            if not vals or vals[-1].get('day')!=(rows['usage_day'] if rows else time.strftime('%Y-%m-%d')):
+                vals.append({'day':rows['usage_day'] if rows else time.strftime('%Y-%m-%d'),'bytes':today})
+            else: vals[-1]['bytes']=today
+            vals=vals[-30:]
+            try: json.dump({'values':vals},open('/var/lib/unified-vps/usage-history.json','w'))
+            except Exception: pass
+            return send(self,{'values':[x['bytes'] for x in vals],'days':[x['day'] for x in vals]})
+
         if self.path=='/api/usage':
             c=conn()
             rows=c.execute('select id,username,protocol,used_bytes,daily_used_bytes,quota_bytes,usage_day from users order by id desc').fetchall()
@@ -359,6 +508,32 @@ class H(BaseHTTPRequestHandler):
                 ]
             }
             return send(self,data)
+        if self.path=='/api/metrics':
+            return send(self,_system_metrics())
+
+        if self.path=='/api/sessions':
+            return send(self,{'updated_at':int(time.time()),'sessions':_active_sessions()})
+
+        if self.path=='/api/security':
+            return send(self,_security_info())
+
+        if self.path=='/api/certificate':
+            return send(self,_certificate_info())
+
+        if self.path=='/api/events':
+            c=conn()
+            rows=c.execute('select id,created_at,action,username,details from events order by id desc limit 100').fetchall()
+            c.close()
+            return send(self,{'events':[dict(x) for x in rows]})
+
+        if self.path=='/api/backup':
+            files=[]
+            for path in sorted(__import__('glob').glob('/opt/unified-vps/backups/unified-vps-*.tar.gz'),reverse=True)[:10]:
+                try:
+                    files.append({'name':os.path.basename(path),'size':os.path.getsize(path),'created_at':int(os.path.getmtime(path))})
+                except OSError: pass
+            return send(self,{'backups':files})
+
         if self.path=='/api/speedtest':
             try:
                 env=os.environ.copy()
@@ -430,7 +605,7 @@ class H(BaseHTTPRequestHandler):
                     f'<td><span class="pill">{html.escape(str(x["port"]))}</span></td>'
                     f'<td><button class="secret-btn" data-secret="{secret}" type="button">Reveal</button></td>'
                     f'<td><span id="alltime-{xid}">{usage_text}</span><span class="muted"> / {quota}</span><span id="daily-{xid}" class="muted">{daily_text}</span></td>'
-                    f'<td><span class="muted">{html.escape(expiry)}</span></td>'
+                    f'<td><span class="muted {"warn" if x["expiry"] and x["expiry"]<=time.time()+7*86400 else ""}">{html.escape(expiry)}</span>{("<span class=\"muted warn\">Expires soon</span>" if x["expiry"] and x["expiry"]<=time.time()+7*86400 else "")}</td>'
                     f'<td>{connection}</td>'
                     f'<td><div class="actions"><button class="ghost" data-action="{action}" data-id="{xid}" type="button">{action_label}</button><button class="ghost" data-renew="{xid}" type="button">Renew</button><button class="danger" data-delete="{xid}" type="button">Delete</button></div></td>'
                     f'</tr>'
@@ -468,7 +643,7 @@ button{cursor:pointer}
 .usercell{display:flex;align-items:center;gap:9px}.avatar{width:31px;height:31px;border-radius:9px;display:grid;place-items:center;background:rgba(66,245,141,.1);color:var(--accent);font-weight:800}.usercell strong{display:block}.muted{display:block;color:var(--muted);font-size:11px}.pill{display:inline-block;padding:4px 7px;border-radius:7px;background:rgba(255,255,255,.04);font-size:10px;color:#bcd4c4}
 .copyline{display:flex;align-items:center;gap:7px;margin:5px 0;max-width:480px}.copyline code{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#06100a;color:#bdeccf;font:11px ui-monospace,SFMono-Regular,Menlo,monospace}.copy-btn,.ghost,.danger,.secret-btn{border:1px solid var(--line);border-radius:8px;padding:7px 9px;background:#0a170f;color:#bfe4ca;font-size:11px}.copy-btn:hover,.ghost:hover,.secret-btn:hover{border-color:#2e754c;color:var(--text)}.danger{color:#ff9da6;border-color:rgba(255,107,120,.24)}.danger:hover{background:rgba(255,107,120,.08)}.actions{display:flex;gap:6px;flex-wrap:wrap}.sshmeta{display:flex;gap:10px;flex-wrap:wrap;color:var(--muted);font-size:11px}.empty{text-align:center;color:var(--muted);padding:30px}
 .overlay{position:fixed;inset:0;background:rgba(1,7,4,.72);backdrop-filter:blur(10px);display:none;align-items:center;justify-content:center;padding:20px;z-index:30}.overlay.open{display:flex}.modal{width:min(560px,100%);background:#09170f;border:1px solid var(--line);border-radius:18px;box-shadow:0 30px 90px rgba(0,0,0,.5);padding:20px}.modalhead{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px}.modalhead h3{margin:0}.modalhead p{margin:4px 0;color:var(--muted);font-size:12px}.close{border:1px solid var(--line);background:#07110b;color:#b4c9bc;border-radius:8px;padding:6px 9px}.formgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.field{display:grid;gap:6px}.field.full{grid-column:1/-1}.field label{font-size:11px;color:var(--muted)}.field input,.field select{padding:11px 12px;border-radius:10px;border:1px solid var(--line);background:#06100a;color:var(--text);outline:none}.modalfoot{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}.secondary{border:1px solid var(--line);background:#08140c;color:#b9d0c2;border-radius:10px;padding:10px 13px}
-.toast{position:fixed;right:20px;bottom:20px;z-index:50;padding:11px 14px;border-radius:10px;border:1px solid var(--line);background:#0c1d13;color:var(--text);box-shadow:var(--shadow);display:none}.toast.show{display:block}
+.toast{position:fixed;right:20px;bottom:20px;z-index:50;padding:11px 14px;border-radius:10px;border:1px solid var(--line);background:#0c1d13;color:var(--text);box-shadow:var(--shadow);display:none}.toast.show{display:block}.eventlist{display:grid;gap:7px;max-height:260px;overflow:auto}.event{padding:9px 10px;border:1px solid var(--line);border-radius:9px;background:rgba(255,255,255,.02)}.event strong{font-size:11px}.event small{display:block;color:var(--muted);margin-top:2px}.warn{color:#ffd166!important}.dangertext{color:var(--danger)!important}.metric-good{color:var(--accent)!important}
 @media(max-width:1050px){.app{grid-template-columns:1fr}.sidebar{display:none}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.grid2{grid-template-columns:1fr}.topbar{padding:0 16px}.content{padding:18px}}
 @media(max-width:620px){.stats{grid-template-columns:1fr}.hero{align-items:flex-start;flex-direction:column}.hero h3{font-size:23px}.formgrid{grid-template-columns:1fr}.field.full{grid-column:auto}.top-actions .badge{display:none}}
 </style>
@@ -495,6 +670,9 @@ button{cursor:pointer}
       <div class="stat"><div class="k">Server traffic today</div><div class="v" id="serverDaily">__SERVER_DAILY__</div><div class="s">Live interface accounting</div></div>
       <div class="stat"><div class="k">Server traffic all time</div><div class="v" id="serverAll">__SERVER_ALL__</div><div class="s">Persistent total</div></div>
       <div class="stat"><div class="k">Daily reboot</div><div class="v" style="font-size:20px">__REBOOT__</div><div class="s">Automatic maintenance</div></div>
+      <div class="stat"><div class="k">CPU load</div><div class="v" id="cpuLoad">—</div><div class="s">Live 10s telemetry</div></div>
+      <div class="stat"><div class="k">Memory</div><div class="v" id="memUse">—</div><div class="s">Used / total</div></div>
+      <div class="stat"><div class="k">Disk</div><div class="v" id="diskUse">—</div><div class="s">Used / total</div></div>
     </div>
     <div class="grid2" id="services">
       <section class="panel"><div class="panelhead"><div><h4>Service health</h4><p>Critical components detected by systemd.</p></div></div><div class="services">__SERVICES__</div></section>
@@ -509,6 +687,34 @@ button{cursor:pointer}
         </div>
       </section>
     </div>
+    <div class="grid2">
+      <section class="panel">
+        <div class="panelhead"><div><h4>Live network</h4><p>Interface throughput and active TCP sessions.</p></div></div>
+        <div class="matrix">
+          <div><span>Download / RX</span><span id="rxRate">—</span></div>
+          <div><span>Upload / TX</span><span id="txRate">—</span></div>
+          <div><span>Active sessions</span><span id="sessionCount">—</span></div>
+          <div><span>Certificate</span><span id="certState">Checking…</span></div>
+          <div><span>Fail2Ban</span><span id="f2bState">Checking…</span></div>
+        </div>
+      </section>
+      <section class="panel">
+        <div class="panelhead"><div><h4>System activity</h4><p>Recent account and maintenance events.</p></div></div>
+        <div id="events" class="eventlist"><div class="muted">Loading events…</div></div>
+      </section>
+    </div>
+    <section class="panel" id="sessionsPanel" style="margin-top:14px">
+      <div class="panelhead"><div><h4>Active connections</h4><p>Current established TCP sessions visible to the server.</p></div><button class="secondary" id="refreshSessions" type="button">Refresh</button></div>
+      <div class="tablewrap"><table style="min-width:760px"><thead><tr><th>Process</th><th>User</th><th>Local</th><th>Remote</th><th>PID</th></tr></thead><tbody id="sessionsBody"><tr><td colspan="5" class="muted">Loading…</td></tr></tbody></table></div>
+    </section>
+    <section class="panel" id="securityPanel" style="margin-top:14px">
+      <div class="panelhead"><div><h4>Security center</h4><p>SSH protection, firewall and certificate posture.</p></div></div>
+      <div class="services" id="securityGrid"><div class="service-card">Loading…</div></div>
+    </section>
+    <section class="panel" id="activityPanel" style="margin-top:14px">
+      <div class="panelhead"><div><h4>Usage history</h4><p>Server traffic is persisted daily and all-time.</p></div></div>
+      <canvas id="usageChart" height="120" style="width:100%;display:block"></canvas>
+    </section>
     <section class="panel accounts" id="accounts">
       <div class="panelhead"><div><h4>Account management</h4><p>Create, renew, enable, disable and copy connection credentials.</p></div>
         <div class="toolbar"><input class="search" id="search" placeholder="Search username or protocol…"><select class="select" id="filter"><option value="">All protocols</option><option>SSH</option><option>VLESS</option><option>VMess</option><option>Trojan</option><option>Hysteria</option></select><button class="secondary" id="speedtest" type="button">Run speedtest</button></div>
@@ -614,6 +820,74 @@ async function refreshUsage(){
 }
 refreshUsage();
 setInterval(refreshUsage,10000);
+
+function fmtRate(n){return fmtBytes(Number(n||0))+"/s"}
+async function refreshMetrics(){
+  try{
+    const r=await fetch("/api/metrics",{cache:"no-store"}); if(!r.ok)return; const j=await r.json();
+    const load=(j.cpu_load||[0])[0], mem=j.memory||{}, disk=j.disk||{}, net=j.network||{};
+    const cpu=document.getElementById("cpuLoad"), mm=document.getElementById("memUse"), dd=document.getElementById("diskUse");
+    if(cpu)cpu.textContent=Number(load||0).toFixed(2);
+    if(mm)mm.textContent=fmtBytes(mem.used||0)+" / "+fmtBytes(mem.total||0);
+    if(dd)dd.textContent=fmtBytes(disk.used||0)+" / "+fmtBytes(disk.total||0);
+    const rx=document.getElementById("rxRate"),tx=document.getElementById("txRate");
+    if(rx)rx.textContent=fmtRate(net.rx_bps);
+    if(tx)tx.textContent=fmtRate(net.tx_bps);
+  }catch(_){}
+}
+async function refreshSessions(){
+  try{
+    const r=await fetch("/api/sessions",{cache:"no-store"}); if(!r.ok)return; const j=await r.json();
+    const body=document.getElementById("sessionsBody"); if(!body)return;
+    const rows=j.sessions||[];
+    document.getElementById("sessionCount").textContent=String(rows.length);
+    body.innerHTML=rows.length?rows.map(x=>"<tr><td>"+(x.process||"—")+"</td><td>"+(x.user||"—")+"</td><td>"+(x.local||"—")+"</td><td>"+(x.remote||"—")+"</td><td>"+(x.pid||"—")+"</td></tr>").join(""):"<tr><td colspan='5' class='muted'>No established TCP sessions.</td></tr>";
+  }catch(_){}
+}
+async function refreshSecurity(){
+  try{
+    const [s,c]=await Promise.all([fetch("/api/security",{cache:"no-store"}),fetch("/api/certificate",{cache:"no-store"})]);
+    const j=await s.json(), cert=await c.json();
+    const fs=document.getElementById("f2bState"), cs=document.getElementById("certState");
+    if(fs)fs.textContent=(j.fail2ban||"unknown").toUpperCase()+" • "+(j.banned||0)+" banned";
+    if(cs){cs.textContent=cert.ok?(cert.days_remaining+" days remaining"):"Unavailable";cs.className=cert.ok&&cert.days_remaining>14?"metric-good":(cert.days_remaining>=0?"warn":"dangertext")}
+    const g=document.getElementById("securityGrid");
+    if(g)g.innerHTML=[
+      ["Fail2Ban",String(j.fail2ban||"unknown").toUpperCase()],
+      ["Banned IPs",String(j.banned||0)],
+      ["SSH failures / 24h",String(j.failed_ssh_24h||0)],
+      ["Firewall rules",String(j.firewall_rules||0)],
+      ["SSH password auth",String((j.ssh_auth||{}).passwordauthentication||"unknown").toUpperCase()],
+      ["Certificate",cert.ok?(cert.days_remaining+" days left"):"Unavailable"]
+    ].map(x=>"<div class='service-card'><span>"+x[0]+"</span><strong>"+x[1]+"</strong></div>").join("");
+  }catch(_){}
+}
+async function refreshEvents(){
+  try{
+    const r=await fetch("/api/events",{cache:"no-store"}); if(!r.ok)return; const j=await r.json();
+    const e=document.getElementById("events"); if(!e)return;
+    e.innerHTML=(j.events||[]).slice(0,30).map(x=>"<div class='event'><strong>"+x.action+(x.username?" • "+x.username:"")+"</strong><small>"+new Date(x.created_at*1000).toLocaleString()+" "+(x.details||"")+"</small></div>").join("")||"<div class='muted'>No activity yet.</div>";
+  }catch(_){}
+}
+function drawUsageChart(data){
+  const canvas=document.getElementById("usageChart"); if(!canvas)return;
+  const ctx=canvas.getContext("2d"),w=canvas.clientWidth||600,h=120,dpr=window.devicePixelRatio||1;
+  canvas.width=w*dpr;canvas.height=h*dpr;ctx.scale(dpr,dpr);ctx.clearRect(0,0,w,h);
+  ctx.strokeStyle="rgba(66,245,141,.18)";ctx.lineWidth=1;
+  for(let y=20;y<h;y+=25){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke()}
+  if(!data.length)return;
+  const max=Math.max(...data,1), step=w/Math.max(data.length-1,1);
+  ctx.strokeStyle="#42f58d";ctx.lineWidth=2;ctx.beginPath();
+  data.forEach((v,i)=>{const x=i*step,y=h-10-(v/max)*(h-25);i?ctx.lineTo(x,y):ctx.moveTo(x,y)});ctx.stroke();
+}
+async function refreshChart(){
+  try{
+    const r=await fetch("/api/usage-history",{cache:"no-store"});if(!r.ok)return;const j=await r.json();drawUsageChart(j.values||[]);
+  }catch(_){}
+}
+refreshMetrics();refreshSessions();refreshSecurity();refreshEvents();refreshChart();
+setInterval(refreshMetrics,10000);setInterval(refreshSessions,10000);setInterval(refreshSecurity,30000);setInterval(refreshEvents,15000);setInterval(refreshChart,60000);
+document.getElementById("refreshSessions").onclick=refreshSessions;
 </script>
 </body></html>"""
             page=page.replace('__ROWS__',rows_html)
@@ -658,6 +932,47 @@ setInterval(refreshUsage,10000);
         if self.path=='/api/users':
             try: return send(self,create_user(d))
             except Exception as e: return send(self,{'error':str(e)},500)
+        if self.path=='/api/users/bulk':
+            ids=[int(x) for x in d.get('ids',[]) if str(x).isdigit()]
+            action=str(d.get('action','')).lower()
+            if not ids or action not in ('enable','disable','delete','renew'):
+                return send(self,{'error':'invalid bulk request'},400)
+            if action=='renew' and int(d.get('days',0) or 0)<=0:
+                return send(self,{'error':'renewal days required'},400)
+            results=[]
+            for uid in ids:
+                try:
+                    c=conn(); row=c.execute('select * from users where id=?',(uid,)).fetchone(); c.close()
+                    if not row: results.append({'id':uid,'ok':False,'error':'not found'}); continue
+                    if action=='delete':
+                        if row['protocol']=='SSH': del_ssh(row['username'])
+                        elif row['protocol']!='Hysteria': del_xray(row['protocol'],row['username'])
+                        c=conn(); c.execute('delete from users where id=?',(uid,)); c.commit(); c.close()
+                    elif action in ('enable','disable'):
+                        enable=action=='enable'
+                        if row['protocol'] in XRAY_TAGS:
+                            if enable:
+                                dcfg=load_xray()
+                                for tag in XRAY_TAGS[row['protocol']]:
+                                    ib=next((i for i in dcfg.get('inbounds',[]) if i.get('tag')==tag),None)
+                                    if ib:
+                                        clients=ib.setdefault('settings',{}).setdefault('clients',[])
+                                        if not any(x.get('email')==row['username'] for x in clients):
+                                            cl={'email':row['username'],'level':0}
+                                            cl['id' if row['protocol'] in ('VMess','VLESS') else 'password']=row['secret']; clients.append(cl)
+                                save_xray(dcfg)
+                            else: del_xray(row['protocol'],row['username'])
+                        elif row['protocol']=='SSH': subprocess.run(['usermod','-U' if enable else '-L',row['username']],capture_output=True)
+                        c=conn(); c.execute('update users set enabled=? where id=?',(1 if enable else 0,uid)); c.commit(); c.close()
+                    else:
+                        days=int(d.get('days',0)); exp=int(time.time())+days*86400
+                        c=conn(); c.execute('update users set expiry=?,enabled=1,used_bytes=0,raw_bytes=0,daily_used_bytes=0,usage_day=? where id=?',(exp,time.strftime('%Y-%m-%d'),uid)); c.commit(); c.close()
+                    log_event('bulk_'+action,row['protocol'],row['username'])
+                    results.append({'id':uid,'ok':True})
+                except Exception as e:
+                    results.append({'id':uid,'ok':False,'error':str(e)})
+            return send(self,{'ok':all(x['ok'] for x in results),'results':results})
+
         if self.path=='/api/users/action':
             c=conn(); row=c.execute('select * from users where id=?',(int(d.get('id',0)),)).fetchone()
             if not row: c.close(); return send(self,{'error':'not found'},404)
@@ -675,6 +990,7 @@ setInterval(refreshUsage,10000);
                     elif row['protocol']=='SSH':
                         subprocess.run(['usermod','-U',row['username']],capture_output=True)
                     c.commit()
+                    log_event('account_renewed',f'{days} days',row['username'])
                     return send(self,{'ok':True,'action':'renew','id':row['id']})
                 if action in ('enable','disable'):
                     enable=action=='enable'
@@ -699,6 +1015,7 @@ setInterval(refreshUsage,10000);
                             subprocess.run(['usermod','-L',row['username']],capture_output=True)
                     c.execute('update users set enabled=? where id=?',(1 if enable else 0,row['id']))
                     c.commit()
+                    log_event('account_'+action,row['protocol'],row['username'])
                     return send(self,{'ok':True,'action':action,'id':row['id']})
                 return send(self,{'error':'unsupported action'},400)
             except Exception as e:
@@ -711,7 +1028,9 @@ setInterval(refreshUsage,10000);
             try:
                 if row['protocol']=='SSH': del_ssh(row['username'])
                 elif row['protocol']!='Hysteria': del_xray(row['protocol'],row['username'])
-                c.execute('delete from users where id=?',(row['id'],)); c.commit(); return send(self,{'ok':True})
+                c.execute('delete from users where id=?',(row['id'],)); c.commit()
+                log_event('account_deleted',row['protocol'],row['username'])
+                return send(self,{'ok':True})
             except Exception as e: c.rollback(); return send(self,{'error':str(e)},500)
             finally: c.close()
         return send(self,{'error':'not found'},404)
