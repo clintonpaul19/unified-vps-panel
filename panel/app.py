@@ -297,16 +297,20 @@ def ensure_xray_client(protocol,u,secret):
         if changed: save_xray(d)
 def add_xray(protocol,u,secret):
     with XRAY_LOCK:
-        d=load_xray()
+        d=load_xray(); changed=False
+        key='id' if protocol in ('VMess','VLESS') else 'password'
         for tag in XRAY_TAGS[protocol]:
             ib=next((i for i in d.get('inbounds',[]) if i.get('tag')==tag),None)
             if ib is None: raise RuntimeError(f'{protocol} inbound missing: {tag}')
             clients=ib.setdefault('settings',{}).setdefault('clients',[])
-            if any(c.get('email')==u for c in clients): raise RuntimeError('Username already exists in Xray')
-            client={'email':u,'level':0}
-            client['id' if protocol in ('VMess','VLESS') else 'password']=secret
-            clients.append(client)
-        save_xray(d)
+            client=next((x for x in clients if x.get('email')==u),None)
+            if client is None:
+                clients.append({'email':u,'level':0,key:secret})
+                changed=True
+            elif client.get(key)!=secret:
+                client[key]=secret
+                changed=True
+        if changed: save_xray(d)
 
 def del_xray(protocol,u):
     with XRAY_LOCK:
@@ -381,6 +385,11 @@ def _hysteria_request(path,method='GET',payload=None):
 
 def kick_hysteria(username):
     return _hysteria_request('/kick','POST',[str(username)]) is not None
+
+def _hysteria_online():
+    data=_hysteria_request('/online')
+    if not isinstance(data,dict): return {}
+    return {str(k):int(v or 0) for k,v in data.items()}
 
 def _hysteria_usage():
     data=_hysteria_request('/traffic')
@@ -487,11 +496,17 @@ def _active_sessions():
             if pid:
                 try: user=subprocess.check_output(['ps','-o','user=','-p',str(pid)],text=True).strip()
                 except Exception: pass
-            out.append({'local':local,'remote':peer,'process':proc,'pid':pid,'user':user})
+            out.append({'local':local,'remote':peer,'process':proc,'pid':pid,'user':user,'transport':'tcp'})
             if len(out)>=100: break
     except Exception:
         pass
-    return out
+    try:
+        for user,count in _hysteria_online().items():
+            if count>0:
+                out.append({'local':'udp/:53','remote':'—','process':'hysteria','pid':None,'user':user,'transport':'udp','connections':count})
+    except Exception:
+        pass
+    return out[:150]
 
 def _certificate_info():
     path='/etc/unified-vps/xray.crt'
