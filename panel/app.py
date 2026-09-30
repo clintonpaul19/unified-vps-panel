@@ -18,6 +18,7 @@ SETUP_LOCK=threading.Lock()
 CERT_LOCK=threading.Lock()
 LOGIN_LOCK=threading.Lock()
 LOGIN_ATTEMPTS={}
+SPEEDTEST_LOCK=threading.Lock()
 HY2_STATS_SECRET=os.environ.get('HY2_STATS_SECRET','')
 PUBLIC_IP_CACHE=None
 XRAY_TAGS={'VLESS':['vless443'],'VMess':['vmess443'],'Trojan':['trojan443']}
@@ -78,10 +79,10 @@ def _session_valid(cookie):
     except Exception:
         return False
 
-def auth(h):
+def auth(h,remote_addr=''):
     if not admin_configured(): return False
     v=h.get('Authorization','')
-    if v.startswith('Basic '):
+    if v.startswith('Basic ') and remote_addr in ('127.0.0.1','localhost'):
         try:
             u,p=base64.b64decode(v[6:]).decode().split(':',1)
             if hmac.compare_digest(u,ADMIN) and hmac.compare_digest(p,PASSWORD): return True
@@ -119,6 +120,14 @@ def _save_admin_credentials(username,password):
     ADMIN=username
     PASSWORD=password
 
+def retire_legacy_admin():
+    global ADMIN,PASSWORD
+    if ADMIN.lower()!='spiderman':
+        return
+    try:
+        _save_admin_credentials('','')
+    except Exception:
+        ADMIN=''; PASSWORD=''
 def send_html(r,html_body,status=200,headers=None):
     b=html_body.encode()
     r.send_response(status)
@@ -386,7 +395,7 @@ def _system_metrics():
         'memory':{'total':total,'used':used,'available':available},
         'disk':{'total':du.total,'used':du.used,'free':du.free},
         'network':net,
-        'uptime_seconds':int(time.time()-__import__('psutil').boot_time()) if __import__('importlib').util.find_spec('psutil') else 0
+        'uptime_seconds':int(float(open('/proc/uptime').read().split()[0])) if os.path.exists('/proc/uptime') else 0
     }
 
 def _active_sessions():
@@ -618,6 +627,14 @@ def create_user(d):
         raise
     finally: c.close()
 
+def parse_user_id(value):
+    try:
+        user_id=int(value)
+    except (TypeError,ValueError):
+        raise ValueError('invalid account id')
+    if user_id<=0: raise ValueError('invalid account id')
+    return user_id
+
 def account_enable_error(row):
     now=int(time.time())
     if row['expiry'] and row['expiry']<=now:
@@ -642,7 +659,7 @@ class H(BaseHTTPRequestHandler):
         if self.path in ('/','/setup') and not admin_configured(): return _setup_page(self)
         if self.path=='/setup':
             self.send_response(404); self.end_headers(); return
-        if not auth(self.headers):
+        if not auth(self.headers,self.client_address[0] if self.client_address else '')
             self.send_response(401); self.send_header('WWW-Authenticate','Basic realm="Unified VPS"'); self.end_headers(); return
         if self.path=='/api/backup':
             files=[]
@@ -710,6 +727,8 @@ class H(BaseHTTPRequestHandler):
             return send(self,{'events':[dict(x) for x in rows]})
 
         if self.path=='/api/speedtest':
+            if not SPEEDTEST_LOCK.acquire(blocking=False):
+                return send(self,{'ok':False,'output':'Speedtest already running'},409)
             try:
                 env=os.environ.copy()
                 env.update({'HOME':'/root','USER':'root','LOGNAME':'root','LANG':'C.UTF-8','LC_ALL':'C.UTF-8','PATH':'/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'})
@@ -719,6 +738,8 @@ class H(BaseHTTPRequestHandler):
                     output=f'Speedtest exited with code {p.returncode}'
                 return send(self,{'ok':p.returncode==0,'output':output},200 if p.returncode==0 else 500)
             except Exception as e: return send(self,{'ok':False,'output':str(e)},500)
+            finally:
+                SPEEDTEST_LOCK.release()
         if self.path=='/':
             c=conn(); rows=[record(x) for x in c.execute('select * from users order by id desc')]; c.close()
             counts={p:sum(1 for x in rows if x['protocol']==p) for p in ('SSH','VLESS','VMess','Trojan','Hysteria')}
@@ -1145,7 +1166,7 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
             confirm=str(d.get('confirm',''))
             if not re.fullmatch(r'[A-Za-z0-9_.-]{1,32}',username): return send(self,{'error':'Username must contain only letters, numbers, dots, underscores or hyphens.'},400)
             if username.lower()=='spiderman': return send(self,{'error':'Choose a different username.'},400)
-            if len(password)<8 or len(password)>128 or '\n' in password or '\r' in password or '\x00' in password: return send(self,{'error':'Password must be 8-128 characters and cannot contain newlines.'},400)
+            if len(password)<8 or len(password)>128 or any(ord(x)<32 or ord(x)==127 for x in password): return send(self,{'error':'Password must be 8-128 characters and cannot contain newlines.'},400)
             if password!=confirm: return send(self,{'error':'Passwords do not match.'},400)
             try:
                 with SETUP_LOCK:
@@ -1266,7 +1287,8 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                             hstats=_hysteria_usage()
                             if isinstance(hstats,dict): baseline=int(hstats.get(row['username'],baseline))
                         elif row['protocol'] in XRAY_TAGS:
-                            baseline=0
+                            xstats=_xray_usage()
+                            if isinstance(xstats,dict): baseline=int(xstats.get(row['username'],baseline))
                         c=conn(); c.execute('update users set expiry=?,enabled=1,used_bytes=0,raw_bytes=?,daily_used_bytes=0,usage_day=? where id=?',(exp,baseline,time.strftime('%Y-%m-%d'),uid)); c.commit(); c.close()
                     log_event('bulk_'+action,row['protocol'],row['username'])
                     results.append({'id':uid,'ok':True})
@@ -1275,7 +1297,7 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
             return send(self,{'ok':all(x['ok'] for x in results),'results':results})
 
         if self.path=='/api/users/action':
-            c=conn(); row=c.execute('select * from users where id=?',(int(d.get('id',0)),)).fetchone()
+            c=conn(); row=c.execute('select * from users where id=?',(parse_user_id(d.get('id',0)),)).fetchone()
             if not row: c.close(); return send(self,{'error':'not found'},404)
             action=str(d.get('action','')).lower()
             try:
@@ -1289,7 +1311,8 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                         hstats=_hysteria_usage()
                         if isinstance(hstats,dict): baseline=int(hstats.get(row['username'],baseline))
                     elif row['protocol'] in XRAY_TAGS:
-                        baseline=0
+                        xstats=_xray_usage()
+                        if isinstance(xstats,dict): baseline=int(xstats.get(row['username'],baseline))
                     c.execute('update users set expiry=?,enabled=1,used_bytes=0,raw_bytes=?,daily_used_bytes=0,usage_day=? where id=?',(exp,baseline,time.strftime('%Y-%m-%d'),row['id']))
                     if row['protocol'] in XRAY_TAGS:
                         ensure_xray_client(row['protocol'],row['username'],row['secret'])
@@ -1305,17 +1328,7 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                         if err: raise ValueError(err)
                     if enable:
                         if row['protocol'] in XRAY_TAGS:
-                            with XRAY_LOCK:
-                                dcfg=load_xray()
-                                for tag in XRAY_TAGS[row['protocol']]:
-                                    ib=next((i for i in dcfg.get('inbounds',[]) if i.get('tag')==tag),None)
-                                    if ib:
-                                        clients=ib.setdefault('settings',{}).setdefault('clients',[])
-                                        if not any(x.get('email')==row['username'] for x in clients):
-                                            client={'email':row['username'],'level':0}
-                                            client['id' if row['protocol'] in ('VMess','VLESS') else 'password']=row['secret']
-                                            clients.append(client)
-                                save_xray(dcfg)
+                            ensure_xray_client(row['protocol'],row['username'],row['secret'])
                         elif row['protocol']=='SSH':
                             set_ssh_enabled(row['username'],True,row['expiry'])
                     else:
@@ -1349,6 +1362,7 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
         return send(self,{'error':'not found'},404)
 
 if __name__=='__main__':
+    retire_legacy_admin()
     conn().close()
     threading.Thread(target=sync_usage,daemon=True).start()
     ThreadingHTTPServer((os.environ.get('PANEL_BIND','0.0.0.0'),PORT),H).serve_forever()
@@ -3638,6 +3652,13 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
             ip=self.client_address[0] if self.client_address else 'unknown'
             now=time.time()
             with LOGIN_LOCK:
+                cutoff=now-600
+                for old_ip,old_attempts in list(LOGIN_ATTEMPTS.items()):
+                    kept=[x for x in old_attempts if x>=cutoff]
+                    if kept: LOGIN_ATTEMPTS[old_ip]=kept
+                    else: LOGIN_ATTEMPTS.pop(old_ip,None)
+                if len(LOGIN_ATTEMPTS)>10000:
+                    LOGIN_ATTEMPTS.clear()
                 attempts=LOGIN_ATTEMPTS.get(ip,[])
                 attempts=[x for x in attempts if now-x<600]
                 if len(attempts)>=5:
