@@ -348,7 +348,7 @@ server_settings(){
         printf '%s' "$newpass" | python3 -c 'import sys; from pathlib import Path
 p=Path("/etc/unified-vps/panel.env")
 new=sys.stdin.read()
-q="\\\""+new.replace("\\","\\\\").replace("\\\"","\\\\\\\"").replace("$","\\\\$").replace("`","\\\\`")+"\\\""
+q='"'+new.replace("\\","\\\\").replace('"','\\"').replace("$","\\$").replace("`","\\`")+'"'
 lines=p.read_text().splitlines()
 out=[]
 for line in lines:
