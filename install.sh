@@ -168,6 +168,11 @@ if [ ! -s /usr/local/etc/xray/config.json ]; then
 fi
 if ! command -v xray >/dev/null 2>&1; then bash -c "$(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install; fi
 curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/config/xray.json" -o /usr/local/etc/xray/config.json
+chmod 640 /usr/local/etc/xray/config.json
+XRAY_USER="$(systemctl show xray.service -p User --value 2>/dev/null || true)"
+XRAY_USER="${XRAY_USER:-nobody}"
+XRAY_GROUP="$(id -gn "$XRAY_USER" 2>/dev/null || true)"
+if [ -n "$XRAY_GROUP" ]; then chown "$XRAY_USER:$XRAY_GROUP" /usr/local/etc/xray/config.json; fi
 
 # Install wstunnel for SSH-over-WebSocket. HAProxy handles cleartext WS on
 # 80/8880, while Xray's TLS fallback handles WSS on 443/8443.
@@ -185,6 +190,8 @@ rm -f /tmp/${WSTUNNEL_TARBALL} /tmp/wstunnel
 
 tmp_xray=/usr/local/etc/xray/config.json.ws.tmp
 jq '(.inbounds[] | select(.tag=="trojan443") | .settings.fallbacks) |= ([{"path":"/ssh","dest":"127.0.0.1:18446","xver":0}] + (map(select(.path != "/ssh"))))' /usr/local/etc/xray/config.json > "$tmp_xray"
+chmod 640 "$tmp_xray"
+if [ -n "${XRAY_GROUP:-}" ]; then chown "${XRAY_USER}:${XRAY_GROUP}" "$tmp_xray"; fi
 mv "$tmp_xray" /usr/local/etc/xray/config.json
 
 cat >/etc/systemd/system/unified-vps-wstunnel-ssh.service <<'EOF'
@@ -345,6 +352,8 @@ trafficStats:
   listen: 127.0.0.1:9999
   secret: ${HY2_STATS_SECRET}
 YAML
+chmod 640 /etc/hysteria/config.yaml
+chown hysteria:hysteria /etc/hysteria/config.yaml
 
 # SSH is kept on loopback; HAProxy exposes it on the requested public ports.
 mkdir -p /etc/ssh/sshd_config.d
