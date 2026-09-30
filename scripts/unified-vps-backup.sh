@@ -32,6 +32,7 @@ cp -a /usr/local/sbin/unified-vps-watchdog "$TMP/usr/local/sbin/" 2>/dev/null ||
 cp -a /usr/local/sbin/unified-vps-backup "$TMP/usr/local/sbin/" 2>/dev/null || true
 cp -a /usr/local/bin/menu "$TMP/usr/local/bin/" 2>/dev/null || true
 cp -a /usr/local/bin/vps-status "$TMP/usr/local/bin/" 2>/dev/null || true
+cp -a /usr/local/sbin/manage-user "$TMP/usr/local/sbin/" 2>/dev/null || true
 cp -a /opt/unified-vps/panel.py "$TMP/opt/unified-vps/" 2>/dev/null || true
 cp -a /opt/unified-vps/ws-payload-ssh.py "$TMP/opt/unified-vps/" 2>/dev/null || true
 
