@@ -1037,16 +1037,10 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
             try:
                 acme='/root/.acme.sh/acme.sh'
                 if not os.path.exists(acme): return send(self,{'error':'acme.sh not installed'},500)
+                renew_args=[acme,'--renew','-d',public_host(),'--force']
                 if haproxy_was_active:
-                    stop=subprocess.run(['systemctl','stop','haproxy'],capture_output=True,text=True)
-                    if stop.returncode:
-                        return send(self,{'error':'could not temporarily stop HAProxy for standalone ACME renewal'},500)
-                p=subprocess.run(
-                    [acme,'--renew','-d',public_host(),'--force',
-                     '--pre-hook','systemctl stop haproxy',
-                     '--post-hook','systemctl start haproxy'],
-                    capture_output=True,text=True,timeout=180
-                )
+                    renew_args += ['--pre-hook','systemctl stop haproxy','--post-hook','systemctl start haproxy']
+                p=subprocess.run(renew_args,capture_output=True,text=True,timeout=180)
                 if p.returncode:
                     return send(self,{'error':(p.stderr or p.stdout).strip() or 'certificate renewal failed'},500)
                 log_event('certificate_renewed',public_host(),'')
