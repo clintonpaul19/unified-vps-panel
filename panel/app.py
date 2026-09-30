@@ -309,6 +309,7 @@ def _hysteria_request(path, method='GET', payload=None):
         return None
 
 def kick_hysteria(username):
+    if not HY2_STATS_SECRET: return False
     return _hysteria_request('/kick','POST',[str(username)]) is not None
 
 def _hysteria_usage():
