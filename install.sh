@@ -7,7 +7,7 @@ case "$(dpkg --print-architecture)" in amd64|arm64) ;; *) echo 'Supported archit
 export DEBIAN_FRONTEND=noninteractive
 
 DIAG_DIR="/var/log/unified-vps"
-DIAG_ACTIVE=0
+DIAG_ACTIVE=1
 sanitize_diag() {
   sed -E \
     -e 's/(Authorization: Bearer )[A-Za-z0-9._-]+/\1[REDACTED]/g' \
