@@ -13,12 +13,14 @@ if ! flock -n 9; then
 fi
 trap 'rm -rf "$TMP"' EXIT
 
-mkdir -p "$TMP/etc/unified-vps" "$TMP/etc/hysteria" "$TMP/usr/local/etc/xray" "$TMP/etc/ssh" "$TMP/etc/haproxy" "$TMP/etc/systemd/system" "$TMP/etc/fail2ban/jail.d" "$TMP/etc/cron.d" "$TMP/etc/iptables" "$TMP/opt/unified-vps" "$TMP/usr/local/sbin" "$TMP/usr/local/bin"
+mkdir -p "$TMP/etc/unified-vps" "$TMP/etc/hysteria" "$TMP/usr/local/etc/xray" "$TMP/etc/ssh" "$TMP/etc/haproxy" "$TMP/etc/nginx" "$TMP/var/www/html" "$TMP/etc/systemd/system" "$TMP/etc/fail2ban/jail.d" "$TMP/etc/cron.d" "$TMP/etc/iptables" "$TMP/opt/unified-vps" "$TMP/usr/local/sbin" "$TMP/usr/local/bin"
 cp -a /etc/unified-vps/. "$TMP/etc/unified-vps/" 2>/dev/null || true
 cp -a /etc/hysteria/. "$TMP/etc/hysteria/" 2>/dev/null || true
 cp -a /usr/local/etc/xray/. "$TMP/usr/local/etc/xray/" 2>/dev/null || true
 cp -a /etc/ssh/sshd_config.d "$TMP/etc/ssh/" 2>/dev/null || true
 cp -a /etc/haproxy/haproxy.cfg "$TMP/etc/haproxy/" 2>/dev/null || true
+cp -a /etc/nginx/nginx.conf "$TMP/etc/nginx/" 2>/dev/null || true
+cp -a /var/www/html/index.html "$TMP/var/www/html/" 2>/dev/null || true
 cp -a /etc/fail2ban/jail.d/unified-vps.local "$TMP/etc/fail2ban/jail.d/" 2>/dev/null || true
 cp -a /etc/cron.d/unified-vps-daily-reboot "$TMP/etc/cron.d/" 2>/dev/null || true
 cp -a /etc/iptables/rules.v4 "$TMP/etc/iptables/" 2>/dev/null || true
