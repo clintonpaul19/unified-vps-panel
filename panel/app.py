@@ -33,6 +33,10 @@ def _load_admin_credentials():
             data=json.load(f)
         user=str(data.get('username','')).strip()
         password=str(data.get('password',''))
+        if user == 'spiderman' and password == 'spiderman':
+            try: os.unlink(ADMIN_FILE)
+            except OSError: pass
+            return
         if user and password:
             ADMIN=user
             PASSWORD=password
