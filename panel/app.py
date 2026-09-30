@@ -16,9 +16,7 @@ ADMIN_FILE=f'{BASE}/admin.json'
 SESSION_COOKIE='uvps_session'
 SESSION_TTL=12*60*60
 SETUP_LOCK=threading.Lock()
-SETUP_TOKEN=secrets.token_urlsafe(32)
 LOGIN_LOCK=threading.Lock()
-LOGIN_TOKEN=secrets.token_urlsafe(32)
 LOGIN_FAILURES={}
 LOGIN_WINDOW=600
 LOGIN_MAX_FAILURES=8
@@ -155,16 +153,18 @@ def send_html(r,body_html,status=200,headers=None):
     r.end_headers(); r.wfile.write(b)
 
 def _setup_page(r):
+    token=secrets.token_urlsafe(32)
     page='''<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Unified VPS Setup</title>
 <style>body{font:15px system-ui;background:#06110b;color:#ecfff2;display:grid;place-items:center;min-height:100vh;margin:0}.card{width:min(420px,90%);padding:28px;border:1px solid #173524;border-radius:16px;background:#0b1811}.card h2{margin-top:0}input,button{width:100%;box-sizing:border-box;padding:12px;margin:7px 0;border-radius:9px;border:1px solid #173524;background:#06100a;color:#ecfff2}button{background:#42f58d;color:#03200f;font-weight:800;cursor:pointer}.msg{color:#ff6b78;min-height:20px}</style>
-<div class="card"><h2>Unified VPS</h2><p>Create the administrator credentials for this VPS.</p><form id="setupForm" method="post" action="/setup"><input type="hidden" name="setup_token" value="__SETUP_TOKEN__"><input name="username" placeholder="Enter username" maxlength="32" autocomplete="username" required><input name="password" type="password" placeholder="Enter password" minlength="8" maxlength="128" autocomplete="new-password" required><input name="confirm" type="password" placeholder="Reenter password" minlength="8" maxlength="128" autocomplete="new-password" required><button type="submit">Save and login</button><div class="msg" id="setupMsg"></div></form></div><script>const form=document.getElementById('setupForm'),msg=document.getElementById('setupMsg');form.addEventListener('submit',async e=>{e.preventDefault();msg.textContent='';const d=Object.fromEntries(new FormData(form));if(d.password!==d.confirm){msg.textContent='Passwords do not match.';return}try{const r=await fetch('/setup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d),cache:'no-store'});const text=await r.text();let j={};try{j=JSON.parse(text)}catch(_){j={error:text||'Server returned an invalid response.'}}if(!r.ok){msg.textContent=j.error||'Setup failed.';return}window.location.replace('/');}catch(_){msg.textContent='Unable to reach the panel. Try again.'}});</script></div>'''.replace('__SETUP_TOKEN__',SETUP_TOKEN)
-    return send_html(r,page)
+<div class="card"><h2>Unified VPS</h2><p>Create the administrator credentials for this VPS.</p><form id="setupForm" method="post" action="/setup"><input type="hidden" name="setup_token" value="__SETUP_TOKEN__"><input name="username" placeholder="Enter username" maxlength="32" autocomplete="username" required><input name="password" type="password" placeholder="Enter password" minlength="8" maxlength="128" autocomplete="new-password" required><input name="confirm" type="password" placeholder="Reenter password" minlength="8" maxlength="128" autocomplete="new-password" required><button type="submit">Save and login</button><div class="msg" id="setupMsg"></div></form></div><script>const form=document.getElementById('setupForm'),msg=document.getElementById('setupMsg');form.addEventListener('submit',async e=>{e.preventDefault();msg.textContent='';const d=Object.fromEntries(new FormData(form));if(d.password!==d.confirm){msg.textContent='Passwords do not match.';return}try{const r=await fetch('/setup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d),cache:'no-store'});const text=await r.text();let j={};try{j=JSON.parse(text)}catch(_){j={error:text||'Server returned an invalid response.'}}if(!r.ok){msg.textContent=j.error||'Setup failed.';return}window.location.replace('/');}catch(_){msg.textContent='Unable to reach the panel. Try again.'}});</script></div>'''.replace('__SETUP_TOKEN__',token)
+    return send_html(r,page,headers={'Set-Cookie':f'uvps_setup_nonce={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=600'})
 
 def _login_page(r):
+    token=secrets.token_urlsafe(32)
     page='''<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Unified VPS Login</title>
 <style>body{font:15px system-ui;background:#06110b;color:#ecfff2;display:grid;place-items:center;min-height:100vh;margin:0}.card{width:min(420px,90%);padding:28px;border:1px solid #173524;border-radius:16px;background:#0b1811}.card h2{margin-top:0}input,button{width:100%;box-sizing:border-box;padding:12px;margin:7px 0;border-radius:9px;border:1px solid #173524;background:#06100a;color:#ecfff2}button{background:#42f58d;color:#03200f;font-weight:800;cursor:pointer}.msg{color:#ff6b78;min-height:20px}</style>
-<div class="card"><h2>Unified VPS</h2><form id="loginForm"><input type="hidden" name="login_token" value="__LOGIN_TOKEN__"><input name="username" placeholder="Username" autocomplete="username" required><input name="password" type="password" placeholder="Password" autocomplete="current-password" required><button type="submit">Login</button><div class="msg" id="loginMsg"></div></form></div><script>const form=document.getElementById('loginForm'),msg=document.getElementById('loginMsg');form.addEventListener('submit',async e=>{e.preventDefault();msg.textContent='';try{const d=Object.fromEntries(new FormData(form)),r=await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d),cache:'no-store'}),text=await r.text();let j={};try{j=JSON.parse(text)}catch(_){j={error:text||'Server returned an invalid response.'}}if(!r.ok){msg.textContent=j.error||'Login failed.';return}window.location.replace('/');}catch(_){msg.textContent='Unable to reach the panel. Try again.'}});</script></div>'''.replace('__LOGIN_TOKEN__',LOGIN_TOKEN)
-    return send_html(r,page)
+<div class="card"><h2>Unified VPS</h2><form id="loginForm"><input type="hidden" name="login_token" value="__LOGIN_TOKEN__"><input name="username" placeholder="Username" autocomplete="username" required><input name="password" type="password" placeholder="Password" autocomplete="current-password" required><button type="submit">Login</button><div class="msg" id="loginMsg"></div></form></div><script>const form=document.getElementById('loginForm'),msg=document.getElementById('loginMsg');form.addEventListener('submit',async e=>{e.preventDefault();msg.textContent='';try{const d=Object.fromEntries(new FormData(form)),r=await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d),cache:'no-store'}),text=await r.text();let j={};try{j=JSON.parse(text)}catch(_){j={error:text||'Server returned an invalid response.'}}if(!r.ok){msg.textContent=j.error||'Login failed.';return}window.location.replace('/');}catch(_){msg.textContent='Unable to reach the panel. Try again.'}});</script></div>'''.replace('__LOGIN_TOKEN__',token)
+    return send_html(r,page,headers={'Set-Cookie':f'uvps_login_nonce={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=600'})
 
 def send(r,obj,status=200,headers=None):
     b=json.dumps(obj).encode(); r.send_response(status)
@@ -1286,7 +1286,11 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
             with SETUP_LOCK:
                 if admin_configured(): return send(self,{'error':'panel is already configured'},409)
                 token=str(d.get('setup_token',''))
-                if not token or not hmac.compare_digest(token,SETUP_TOKEN): return send(self,{'error':'invalid setup request'},403)
+                cookies={}
+                for item in self.headers.get('Cookie','').split(';'):
+                    if '=' in item:
+                        k,v=item.strip().split('=',1); cookies[k]=v
+                if not token or not hmac.compare_digest(token,cookies.get('uvps_setup_nonce','')): return send(self,{'error':'invalid setup request'},403)
                 u=str(d.get('username','')).strip()
                 p=str(d.get('password',''))
                 confirm=str(d.get('confirm',''))
@@ -1306,7 +1310,11 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
             except Exception: return send(self,{'error':'invalid JSON'},400)
             if not admin_configured(): return send(self,{'error':'panel setup required'},503)
             token=str(d.get('login_token',''))
-            if not token or not hmac.compare_digest(token,LOGIN_TOKEN): return send(self,{'error':'invalid login request'},403)
+            cookies={}
+            for item in self.headers.get('Cookie','').split(';'):
+                if '=' in item:
+                    k,v=item.strip().split('=',1); cookies[k]=v
+            if not token or not hmac.compare_digest(token,cookies.get('uvps_login_nonce','')): return send(self,{'error':'invalid login request'},403)
             client_ip=self.client_address[0]; now=time.time()
             with LOGIN_LOCK:
                 state=LOGIN_FAILURES.get(client_ip,[0,now])
