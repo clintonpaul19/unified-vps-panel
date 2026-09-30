@@ -22,6 +22,7 @@ jobs:
           bash -n scripts/menu.sh
           bash -n scripts/unified-vps-watchdog.sh
           bash -n scripts/unified-vps-backup.sh
+          bash -n scripts/unified-vps-cert-reload
       - name: Validate systemd units
         run: |
           sudo apt-get update -qq
