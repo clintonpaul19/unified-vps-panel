@@ -561,30 +561,6 @@ class H(BaseHTTPRequestHandler):
                 return send(self,{'error':'authentication required'},401)
             return _login_page(self)
             self.send_response(401); self.send_header('WWW-Authenticate','Basic realm="Unified VPS"'); self.end_headers(); return
-        if self.path=='/api/backup':
-            action=str(d.get('action','')).lower()
-            if action=='create':
-                try:
-                    p=subprocess.run(['/usr/local/sbin/unified-vps-backup'],capture_output=True,text=True,timeout=120)
-                    if p.returncode: return send(self,{'error':(p.stderr or p.stdout).strip() or 'backup failed'},500)
-                    log_event('backup_created',os.path.basename(p.stdout.strip()),'')
-                    return send(self,{'ok':True,'path':p.stdout.strip()})
-                except Exception as e: return send(self,{'error':str(e)},500)
-            if action=='restore':
-                files=sorted(__import__('glob').glob('/opt/unified-vps/backups/unified-vps-*.tar.gz'),reverse=True)
-                if not files: return send(self,{'error':'no backup available'},404)
-                p=subprocess.run(['tar','-tzf',files[0]],capture_output=True,text=True,timeout=30)
-                if p.returncode: return send(self,{'error':'latest backup is invalid'},500)
-                p=subprocess.run(['tar','-xzf',files[0],'-C','/'],capture_output=True,text=True,timeout=120)
-                if p.returncode: return send(self,{'error':(p.stderr or 'restore failed').strip()},500)
-                log_event('backup_restored',os.path.basename(files[0]),'')
-                result=send(self,{'ok':True,'path':files[0],'message':'Restore applied; services will restart shortly.'})
-                def restart_restored_services():
-                    subprocess.run(['systemctl','restart','xray','hysteria-server','haproxy','unified-vps-panel'],capture_output=True)
-                threading.Timer(2.0,restart_restored_services).start()
-                return result
-            return send(self,{'error':'unsupported backup action'},400)
-
         if self.path=='/api/certificate/renew':
             try:
                 acme='/root/.acme.sh/acme.sh'
