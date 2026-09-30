@@ -17,6 +17,8 @@ collect_diagnostics() {
   local rc="$?"
   [ "$DIAG_ACTIVE" -eq 1 ] || return "$rc"
   local stamp report archive tmp
+  mkdir -p "$DIAG_DIR"
+  set +e
   stamp="$(date +%Y%m%d-%H%M%S)"
   report="$DIAG_DIR/install-failure-$stamp.txt"
   archive="$DIAG_DIR/install-failure-$stamp.tar.gz"
