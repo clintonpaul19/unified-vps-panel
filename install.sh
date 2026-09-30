@@ -15,6 +15,7 @@ sanitize_diag() {
 }
 collect_diagnostics() {
   local rc="$?"
+  trap - ERR
   [ "$DIAG_ACTIVE" -eq 1 ] || return "$rc"
   local stamp report archive tmp
   mkdir -p "$DIAG_DIR"
