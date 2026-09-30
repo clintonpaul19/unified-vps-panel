@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import base64,hashlib,hmac,html,json,math,os,secrets,sqlite3,subprocess,time,re,threading,uuid
+import base64,hashlib,hmac,html,json,math,os,secrets,sqlite3,subprocess,time,re,threading,uuid,zlib
 from urllib.request import Request,urlopen
 from urllib.parse import quote,urlsplit
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
@@ -25,6 +25,7 @@ PUBLIC_IP_CACHE=None
 XRAY_TAGS={'VLESS':['vless443'],'VMess':['vmess443'],'Trojan':['trojan443']}
 SSH_PORTS=[80,443,143,8080,8443,8880]
 MAX_REQUEST_BODY=64*1024
+MAINT_LOCK=threading.Lock()
 
 def _load_admin_credentials():
     global ADMIN,PASSWORD
@@ -208,10 +209,16 @@ def body(r):
     if not raw: return {}
     encoding=(r.headers.get('Content-Encoding','') or '').lower()
     if encoding in ('gzip','x-gzip'):
-        import gzip
-        try: raw=gzip.decompress(raw)
-        except (OSError,EOFError): raise ValueError('invalid gzip request body')
-        if len(raw)>MAX_REQUEST_BODY: raise ValueError('request body too large')
+        try:
+            dec=zlib.decompressobj(16 + zlib.MAX_WBITS)
+            raw=dec.decompress(raw,MAX_REQUEST_BODY+1)
+            if len(raw)>MAX_REQUEST_BODY or dec.unconsumed_tail:
+                raise ValueError('request body too large')
+            raw += dec.flush(MAX_REQUEST_BODY+1-len(raw))
+            if len(raw)>MAX_REQUEST_BODY:
+                raise ValueError('request body too large')
+        except (OSError,zlib.error):
+            raise ValueError('invalid gzip request body')
 
     content_type=(r.headers.get('Content-Type','') or '').lower().split(';',1)[0].strip()
     try:
@@ -747,6 +754,10 @@ def service_state(name):
         return 'unknown'
 
 class H(BaseHTTPRequestHandler):
+    def setup(self):
+        super().setup()
+        self.connection.settimeout(15)
+
     def do_GET(self):
         self.path=urlsplit(self.path).path
         if self.path=='/health':
@@ -1357,6 +1368,7 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
             self.send_response(401); self.end_headers(); return
         try: d=body(self)
         except Exception: return send(self,{'error':'invalid JSON'},400)
+        with MAINT_LOCK:
         if self.path=='/api/backup':
             action=str(d.get('action','')).lower()
             if action=='create':
@@ -1398,27 +1410,28 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                     return send(self,{'error':str(e)},500)
             return send(self,{'error':'unsupported backup action'},400)
 
+        with MAINT_LOCK:
         if self.path=='/api/certificate/renew':
-            try:
-                acme='/root/.acme.sh/acme.sh'
-                if not os.path.exists(acme): return send(self,{'error':'acme.sh not installed'},500)
-                was_active=subprocess.run(['systemctl','is-active','--quiet','haproxy'],check=False).returncode==0
-                args=[acme,'--renew','-d',public_host(),'--force']
-                if was_active:
-                    args += ['--pre-hook','systemctl stop haproxy','--post-hook','systemctl start haproxy']
-                p=subprocess.run(args,capture_output=True,text=True,timeout=180)
-                if p.returncode: return send(self,{'error':(p.stderr or p.stdout).strip() or 'certificate renewal failed'},500)
-                log_event('certificate_renewed',public_host(),'')
-                return send(self,{'ok':True,'output':(p.stdout or '').strip()})
-            except subprocess.TimeoutExpired:
-                return send(self,{'error':'certificate renewal timed out'},504)
-            except Exception as e:
-                return send(self,{'error':str(e)},500)
-            finally:
-                if 'was_active' in locals() and was_active:
-                    subprocess.run(['systemctl','start','haproxy'],capture_output=True)
-
-        if self.path=='/api/users':
+                try:
+                    acme='/root/.acme.sh/acme.sh'
+                    if not os.path.exists(acme): return send(self,{'error':'acme.sh not installed'},500)
+                    was_active=subprocess.run(['systemctl','is-active','--quiet','haproxy'],check=False).returncode==0
+                    args=[acme,'--renew','-d',public_host(),'--force']
+                    if was_active:
+                        args += ['--pre-hook','systemctl stop haproxy','--post-hook','systemctl start haproxy']
+                    p=subprocess.run(args,capture_output=True,text=True,timeout=180)
+                    if p.returncode: return send(self,{'error':(p.stderr or p.stdout).strip() or 'certificate renewal failed'},500)
+                    log_event('certificate_renewed',public_host(),'')
+                    return send(self,{'ok':True,'output':(p.stdout or '').strip()})
+                except subprocess.TimeoutExpired:
+                    return send(self,{'error':'certificate renewal timed out'},504)
+                except Exception as e:
+                    return send(self,{'error':str(e)},500)
+                finally:
+                    if 'was_active' in locals() and was_active:
+                        subprocess.run(['systemctl','start','haproxy'],capture_output=True)
+    
+            if self.path=='/api/users':
             try: return send(self,create_user(d))
             except Exception as e: return send(self,{'error':str(e)},500)
         if self.path=='/api/users/bulk':
