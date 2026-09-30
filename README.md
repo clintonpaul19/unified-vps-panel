@@ -251,3 +251,4 @@ Answer `y` to reboot immediately or `N` to leave the VPS running.
 ## Important security note
 
 The requested `spiderman/spiderman` panel credentials are weak. They are included for convenience/testing, not as a secure production credential. Change them before production use.
+\n\n### Maintenance\n\nThe installer and CLI menu configure one automatic VPS reboot per day at **04:00 server local time**. The web panel also displays the reboot schedule.\n\nThe CLI menu includes functional account management, backups/restores, server settings, tools, monitoring, network diagnostics, logs, security audit, service restart, speedtest, active connections, resource views, and component updates.\n
