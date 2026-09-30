@@ -553,6 +553,21 @@ if [ "$FAILED" -ne 0 ]; then
   exit 1
 fi
 
+echo "=== Required listeners ==="
+REQUIRED_TCP=(22 80 143 443 8080 8443 8880 6080)
+for p in "${REQUIRED_TCP[@]}"; do
+  if ! ss -lnt "( sport = :$p )" 2>/dev/null | grep -q ":$p"; then
+    echo "ERROR: required TCP listener is not active on port $p"
+    ss -lntp || true
+    exit 1
+  fi
+done
+if ! ss -lun "( sport = :53 )" 2>/dev/null | grep -q ':53'; then
+  echo "ERROR: required UDP listener is not active on port 53"
+  ss -lunp || true
+  exit 1
+fi
+
 echo "Core configuration checks passed."
 
 echo
