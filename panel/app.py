@@ -12,6 +12,7 @@ DOMAIN=os.environ.get('SERVER_DOMAIN','')
 ADMIN=os.environ.get('ADMIN_USER','').strip()
 PASSWORD=os.environ.get('ADMIN_PASSWORD','')
 PANEL_ENV=f'{BASE}/panel.env'
+ADMIN_FILE=f'{BASE}/admin.json'
 SESSION_COOKIE='uvps_session'
 SESSION_TTL=12*60*60
 SETUP_LOCK=threading.Lock()
@@ -23,6 +24,22 @@ HY2_STATS_SECRET=os.environ.get('HY2_STATS_SECRET','')
 PUBLIC_IP_CACHE=None
 XRAY_TAGS={'VLESS':['vless443'],'VMess':['vmess443'],'Trojan':['trojan443']}
 SSH_PORTS=[80,443,143,8080,8443,8880]
+
+def _load_admin_credentials():
+    global ADMIN,PASSWORD
+    try:
+        with open(ADMIN_FILE,encoding='utf-8') as f:
+            data=json.load(f)
+        user=str(data.get('username','')).strip()
+        password=str(data.get('password',''))
+        if user and password:
+            ADMIN=user
+            PASSWORD=password
+            return
+    except Exception:
+        pass
+
+_load_admin_credentials()
 
 def conn():
     c=sqlite3.connect(DB); c.row_factory=sqlite3.Row
@@ -88,31 +105,26 @@ def auth(h,basic_allowed=False):
         if item.startswith(SESSION_COOKIE+'=') and _session_valid(item.split('=',1)[1]): return True
     return False
 
-def _systemd_env_quote(value):
-    value=str(value)
-    return '"' + value.replace('\\','\\\\').replace('"','\\"').replace('$','\\$').replace(chr(96),'\\'+chr(96)) + '"'
-
 def _save_admin_credentials(username,password):
     global ADMIN,PASSWORD
     os.makedirs(BASE,exist_ok=True)
+    data={'username':str(username),'password':str(password)}
+    tmp=ADMIN_FILE+'.tmp'
+    with open(tmp,'w',encoding='utf-8') as f: json.dump(data,f,ensure_ascii=False); f.write('\n')
+    os.chmod(tmp,0o600)
+    os.replace(tmp,ADMIN_FILE)
+    # Keep legacy EnvironmentFile credentials blank so the secret is not
+    # copied into a shell-readable environment configuration.
     try:
         with open(PANEL_ENV,encoding='utf-8') as f: lines=f.read().splitlines()
+        lines=[line for line in lines if not line.startswith('ADMIN_USER=') and not line.startswith('ADMIN_PASSWORD=')]
+        lines += ['ADMIN_USER=','ADMIN_PASSWORD=']
+        tmp_env=PANEL_ENV+'.tmp'
+        with open(tmp_env,'w',encoding='utf-8') as f: f.write('\n'.join(lines)+'\n')
+        os.chmod(tmp_env,0o600); os.replace(tmp_env,PANEL_ENV)
     except OSError:
-        lines=[]
-    out=[]; user_done=False; pass_done=False
-    for line in lines:
-        if line.startswith('ADMIN_USER='):
-            out.append('ADMIN_USER='+_systemd_env_quote(username)); user_done=True
-        elif line.startswith('ADMIN_PASSWORD='):
-            out.append('ADMIN_PASSWORD='+_systemd_env_quote(password)); pass_done=True
-        else: out.append(line)
-    if not user_done: out.append('ADMIN_USER='+_systemd_env_quote(username))
-    if not pass_done: out.append('ADMIN_PASSWORD='+_systemd_env_quote(password))
-    tmp=PANEL_ENV+'.tmp'
-    with open(tmp,'w',encoding='utf-8') as f: f.write('\\n'.join(out)+'\\n')
-    os.chmod(tmp,0o600)
-    os.replace(tmp,PANEL_ENV)
-    ADMIN=username; PASSWORD=password
+        pass
+    ADMIN=str(username); PASSWORD=str(password)
 def send_html(r,body_html,status=200,headers=None):
     b=body_html.encode()
     r.send_response(status)
