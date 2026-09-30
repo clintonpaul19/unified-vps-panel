@@ -619,7 +619,7 @@ update_script(){
 
   echo "Updating Unified VPS components..."
   apt-get update -qq
-  apt-get install -y -qq fail2ban sqlite3 >/dev/null
+  apt-get install -y -qq fail2ban sqlite3 jq >/dev/null
 
   if ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/menu.sh?$(date +%s)" -o "$tmp_menu" ||
      ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/panel/app.py?$(date +%s)" -o "$tmp_app" ||
@@ -644,7 +644,7 @@ update_script(){
     return 1
   fi
 
-  if ! bash -n "$tmp_menu" "$tmp_cert_hook" "$tmp_status" "$tmp_watch" "$tmp_backup" ||
+  if ! (bash -n "$tmp_menu" && bash -n "$tmp_cert_hook" && bash -n "$tmp_status" && bash -n "$tmp_watch" && bash -n "$tmp_backup") ||
      ! python3 -m py_compile "$tmp_app" "$tmp_payload" ||
      ! haproxy -c -f "$tmp_haproxy" ||
      ! systemd-analyze verify "$tmp_panel_unit" "$tmp_wstunnel_unit" "$tmp_hysteria_unit" "$tmp_watch_unit" "$tmp_watch_timer" "$tmp_backup_unit" "$tmp_backup_timer"; then
