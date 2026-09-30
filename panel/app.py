@@ -56,6 +56,19 @@ def _load_admin_credentials():
         pass
 
 _load_admin_credentials()
+if hashlib.sha256(f'{ADMIN}:{PASSWORD}'.encode()).hexdigest() == '89b4cdab4d0d839fcf432ca76640ffe90da27a63b6f0ad7bbf1d644f5ccd91a9':
+    ADMIN=''
+    PASSWORD=''
+    try:
+        with open(PANEL_ENV,encoding='utf-8') as f: lines=f.read().splitlines()
+        lines=[line for line in lines if not line.startswith('ADMIN_USER=') and not line.startswith('ADMIN_PASSWORD=')]
+        lines += ['ADMIN_USER=','ADMIN_PASSWORD=']
+        tmp_env=PANEL_ENV+'.tmp'
+        with open(tmp_env,'w',encoding='utf-8') as f: f.write('\n'.join(lines)+'\n')
+        os.chmod(tmp_env,0o600)
+        os.replace(tmp_env,PANEL_ENV)
+    except OSError:
+        pass
 def conn():
     c=sqlite3.connect(DB); c.row_factory=sqlite3.Row
     c.execute('''create table if not exists users(
