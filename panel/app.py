@@ -188,7 +188,15 @@ def save_xray(d):
         try:
             with open(CFG,'rb') as f: previous=f.read()
         except OSError: previous=None
+        try:
+            st=os.stat(CFG); owner=(st.st_uid,st.st_gid)
+        except OSError:
+            owner=None
         with open(tmp,'w') as f: json.dump(d,f,indent=2)
+        os.chmod(tmp,0o640)
+        if owner:
+            try: os.chown(tmp,owner[0],owner[1])
+            except PermissionError: pass
         test=subprocess.run(['xray','-test','-config',tmp],capture_output=True,text=True)
         if test.returncode:
             try: os.unlink(tmp)
