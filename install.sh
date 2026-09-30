@@ -443,16 +443,23 @@ curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/ma
 PANEL_ADMIN_USER=''
 PANEL_ADMIN_PASSWORD=''
 if [ -f /etc/unified-vps/admin.json ]; then
-  if jq -e '.username=="spiderman" and .password=="spiderman"' /etc/unified-vps/admin.json >/dev/null 2>&1; then
+  legacy_digest="$(jq -r '(.username // "") + ":" + (.password // "")' /etc/unified-vps/admin.json 2>/dev/null | sha256sum | awk '{print $1}' || true)"
+  if [ "$legacy_digest" = "89b4cdab4d0d839fcf432ca76640ffe90da27a63b6f0ad7bbf1d644f5ccd91a9" ]; then
     rm -f /etc/unified-vps/admin.json
-    echo "Legacy default administrator credentials removed; first visit will require setup."
+    echo "Retired default administrator credentials removed; first visit will require setup."
+  else
+    chown root:root /etc/unified-vps/admin.json 2>/dev/null || true
+    chmod 600 /etc/unified-vps/admin.json 2>/dev/null || true
   fi
 elif [ -f /etc/unified-vps/panel.env ]; then
   old_user="$(sed -n 's/^ADMIN_USER=//p' /etc/unified-vps/panel.env | tail -n1 || true)"
   old_pass="$(sed -n 's/^ADMIN_PASSWORD=//p' /etc/unified-vps/panel.env | tail -n1 || true)"
-  if [ "$old_user" = 'spiderman' ] && [ "$old_pass" = 'spiderman' ]; then
-    old_user=''
-    old_pass=''
+  if [ -n "$old_user" ] && [ -n "$old_pass" ]; then
+    legacy_digest="$(printf '%s:%s' "$old_user" "$old_pass" | sha256sum | awk '{print $1}')"
+    if [ "$legacy_digest" = "89b4cdab4d0d839fcf432ca76640ffe90da27a63b6f0ad7bbf1d644f5ccd91a9" ]; then
+      old_user=''
+      old_pass=''
+    fi
   fi
   if [ -n "$old_user" ] && [ -n "$old_pass" ]; then
     printf '%s\0%s\0' "$old_user" "$old_pass" | python3 -c '
