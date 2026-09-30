@@ -1368,15 +1368,17 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
             self.send_response(401); self.end_headers(); return
         try: d=body(self)
         except Exception: return send(self,{'error':'invalid JSON'},400)
-        with MAINT_LOCK:
-            if self.path=='/api/backup':
+        if self.path=='/api/backup':
+            with MAINT_LOCK:
                 action=str(d.get('action','')).lower()
                 if action=='create':
                     try:
                         p=subprocess.run(['/usr/local/sbin/unified-vps-backup'],capture_output=True,text=True,timeout=120)
-                        if p.returncode: return send(self,{'error':(p.stderr or p.stdout).strip() or 'backup failed'},500)
+                        if p.returncode:
+                            return send(self,{'error':(p.stderr or p.stdout).strip() or 'backup failed'},500)
                         path=p.stdout.strip()
-                        if not path or not os.path.isfile(path): return send(self,{'error':'backup command did not produce a valid archive'},500)
+                        if not path or not os.path.isfile(path):
+                            return send(self,{'error':'backup command did not produce a valid archive'},500)
                         log_event('backup_created',os.path.basename(path),'')
                         return send(self,{'ok':True,'path':path})
                     except subprocess.TimeoutExpired:
@@ -1385,13 +1387,16 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                         return send(self,{'error':str(e)},500)
                 if action=='restore':
                     files=sorted(__import__('glob').glob('/opt/unified-vps/backups/unified-vps-*.tar.gz'),reverse=True)
-                    if not files: return send(self,{'error':'no backup available'},404)
+                    if not files:
+                        return send(self,{'error':'no backup available'},404)
                     latest=files[0]
                     test=subprocess.run(['tar','-tzf',latest],capture_output=True,text=True,timeout=30)
-                    if test.returncode: return send(self,{'error':'latest backup is invalid'},500)
+                    if test.returncode:
+                        return send(self,{'error':'latest backup is invalid'},500)
                     try:
                         p=subprocess.run(['tar','-xzf',latest,'-C','/'],capture_output=True,text=True,timeout=120)
-                        if p.returncode: return send(self,{'error':(p.stderr or p.stdout).strip() or 'restore failed'},500)
+                        if p.returncode:
+                            return send(self,{'error':(p.stderr or p.stdout).strip() or 'restore failed'},500)
                         log_event('backup_restored',os.path.basename(latest),'')
                         result=send(self,{'ok':True,'path':latest,'message':'Restore applied; services will restart shortly.'})
                         def restart_restored_services():
@@ -1410,28 +1415,30 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                         return send(self,{'error':str(e)},500)
                 return send(self,{'error':'unsupported backup action'},400)
 
-        with MAINT_LOCK:
-            if self.path=='/api/certificate/renew':
-                    try:
-                        acme='/root/.acme.sh/acme.sh'
-                        if not os.path.exists(acme): return send(self,{'error':'acme.sh not installed'},500)
-                        was_active=subprocess.run(['systemctl','is-active','--quiet','haproxy'],check=False).returncode==0
-                        args=[acme,'--renew','-d',public_host(),'--force']
-                        if was_active:
-                            args += ['--pre-hook','systemctl stop haproxy','--post-hook','systemctl start haproxy']
-                        p=subprocess.run(args,capture_output=True,text=True,timeout=180)
-                        if p.returncode: return send(self,{'error':(p.stderr or p.stdout).strip() or 'certificate renewal failed'},500)
-                        log_event('certificate_renewed',public_host(),'')
-                        return send(self,{'ok':True,'output':(p.stdout or '').strip()})
-                    except subprocess.TimeoutExpired:
-                        return send(self,{'error':'certificate renewal timed out'},504)
-                    except Exception as e:
-                        return send(self,{'error':str(e)},500)
-                    finally:
-                        if 'was_active' in locals() and was_active:
-                            subprocess.run(['systemctl','start','haproxy'],capture_output=True)
-        
-                if self.path=='/api/users':
+        if self.path=='/api/certificate/renew':
+            with MAINT_LOCK:
+                try:
+                    acme='/root/.acme.sh/acme.sh'
+                    if not os.path.exists(acme):
+                        return send(self,{'error':'acme.sh not installed'},500)
+                    was_active=subprocess.run(['systemctl','is-active','--quiet','haproxy'],check=False).returncode==0
+                    args=[acme,'--renew','-d',public_host(),'--force']
+                    if was_active:
+                        args += ['--pre-hook','systemctl stop haproxy','--post-hook','systemctl start haproxy']
+                    p=subprocess.run(args,capture_output=True,text=True,timeout=180)
+                    if p.returncode:
+                        return send(self,{'error':(p.stderr or p.stdout).strip() or 'certificate renewal failed'},500)
+                    log_event('certificate_renewed',public_host(),'')
+                    return send(self,{'ok':True,'output':(p.stdout or '').strip()})
+                except subprocess.TimeoutExpired:
+                    return send(self,{'error':'certificate renewal timed out'},504)
+                except Exception as e:
+                    return send(self,{'error':str(e)},500)
+                finally:
+                    if 'was_active' in locals() and was_active:
+                        subprocess.run(['systemctl','start','haproxy'],capture_output=True)
+
+        if self.path=='/api/users':
             try: return send(self,create_user(d))
             except Exception as e: return send(self,{'error':str(e)},500)
         if self.path=='/api/users/bulk':
