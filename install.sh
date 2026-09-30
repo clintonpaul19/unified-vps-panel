@@ -423,6 +423,43 @@ chmod 640 /etc/hysteria/server.crt /etc/hysteria/server.key
 
 curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/systemd/hysteria-server.service" -o /etc/systemd/system/hysteria-server.service
 
+# The web panel stores its administrator credentials in a root-only local
+# file. Migrate credentials from the legacy panel.env store when necessary,
+# and remove the legacy spiderman/spiderman default rather than retaining it.
+PANEL_ADMIN_USER=''
+PANEL_ADMIN_PASSWORD=''
+if [ -f /etc/unified-vps/admin.json ]; then
+  if jq -e '.username=="spiderman" and .password=="spiderman"' /etc/unified-vps/admin.json >/dev/null 2>&1; then
+    rm -f /etc/unified-vps/admin.json
+    echo "Legacy default administrator credentials removed; first visit will require setup."
+  fi
+elif [ -f /etc/unified-vps/panel.env ]; then
+  old_user="$(sed -n 's/^ADMIN_USER=//p' /etc/unified-vps/panel.env | tail -n1 || true)"
+  old_pass="$(sed -n 's/^ADMIN_PASSWORD=//p' /etc/unified-vps/panel.env | tail -n1 || true)"
+  if [ "$old_user" = 'spiderman' ] && [ "$old_pass" = 'spiderman' ]; then
+    old_user=''
+    old_pass=''
+  fi
+  if [ -n "$old_user" ] && [ -n "$old_pass" ]; then
+    printf '%s\0%s\0' "$old_user" "$old_pass" | python3 -c '
+import json,sys,os,tempfile
+from pathlib import Path
+raw=sys.stdin.buffer.read().split(b"\0")
+if len(raw)<2: raise SystemExit(1)
+p=Path("/etc/unified-vps/admin.json")
+fd,tmp=tempfile.mkstemp(prefix=".admin.",dir=str(p.parent))
+try:
+    with os.fdopen(fd,"w",encoding="utf-8") as f:
+        json.dump({"username":raw[0].decode(),"password":raw[1].decode()},f)
+        f.write("\n")
+    os.chmod(tmp,0o600)
+    os.replace(tmp,p)
+finally:
+    try: os.unlink(tmp)
+    except FileNotFoundError: pass
+'
+  fi
+fi
 printf '%s\n%s\nPANEL_PORT=6080\nSERVER_DOMAIN=%s\nACME_EMAIL=%s\nHY2_STATS_SECRET=%s\nSSH_WS_PATH=ssh\nSSH_WS_PORT=443\n' "$PANEL_ADMIN_USER" "$PANEL_ADMIN_PASSWORD" "$DOMAIN" "$ACME_EMAIL" "$HY2_STATS_SECRET" > /etc/unified-vps/panel.env
 chmod 600 /etc/unified-vps/panel.env
 
