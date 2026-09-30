@@ -1236,7 +1236,12 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                     result=send(self,{'ok':True,'path':latest,'message':'Restore applied; services will restart shortly.'})
                     def restart_restored_services():
                         subprocess.run(['systemctl','daemon-reload'],capture_output=True)
+                        if os.path.exists('/etc/iptables/rules.v4'):
+                            with open('/etc/iptables/rules.v4','rb') as fh:
+                                subprocess.run(['iptables-restore'],stdin=fh,capture_output=True)
+                        subprocess.run(['systemctl','restart','fail2ban'],capture_output=True)
                         subprocess.run(['systemctl','restart','nginx','xray','hysteria-server','haproxy','unified-vps-panel','unified-vps-wstunnel-ssh','unified-vps-ws-payload-ssh'],capture_output=True)
+                        subprocess.run(['systemctl','restart','unified-vps-watchdog.timer','unified-vps-backup.timer'],capture_output=True)
                     threading.Timer(2.0,restart_restored_services).start()
                     return result
                 except subprocess.TimeoutExpired:
