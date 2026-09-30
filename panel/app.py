@@ -129,11 +129,13 @@ def sync_ssh_expiry(u,expiry):
     else:
         subprocess.run(['chage','-E','-1',u],check=False)
 
-def set_ssh_enabled(u,enabled):
+def set_ssh_enabled(u,enabled,expiry=None):
     p=subprocess.run(['usermod','-U' if enabled else '-L',u],capture_output=True,text=True)
     if p.returncode:
         raise RuntimeError((p.stderr or p.stdout).strip() or 'Failed to change SSH account state')
-    if not enabled:
+    if enabled and expiry is not None:
+        sync_ssh_expiry(u,expiry)
+    elif not enabled:
         subprocess.run(['pkill','-TERM','-u',u],capture_output=True)
 
 def add_ssh(u,password,days):
@@ -580,14 +582,6 @@ class H(BaseHTTPRequestHandler):
             rows=c.execute('select id,created_at,action,username,details from events order by id desc limit 100').fetchall()
             c.close()
             return send(self,{'events':[dict(x) for x in rows]})
-
-        if self.path=='/api/backup':
-            files=[]
-            for path in sorted(__import__('glob').glob('/opt/unified-vps/backups/unified-vps-*.tar.gz'),reverse=True)[:10]:
-                try:
-                    files.append({'name':os.path.basename(path),'size':os.path.getsize(path),'created_at':int(os.path.getmtime(path))})
-                except OSError: pass
-            return send(self,{'backups':files})
 
         if self.path=='/api/speedtest':
             try:
@@ -1109,7 +1103,7 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                             else: del_xray(row['protocol'],row['username'])
                         elif row['protocol']=='Hysteria' and not enable:
                             kick_hysteria(row['username'])
-                        elif row['protocol']=='SSH': set_ssh_enabled(row['username'],enable)
+                        elif row['protocol']=='SSH': set_ssh_enabled(row['username'],enable,row['expiry'])
                         c=conn(); c.execute('update users set enabled=? where id=?',(1 if enable else 0,uid)); c.commit(); c.close()
                     else:
                         days=int(d.get('days',0));
@@ -1118,8 +1112,7 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                         if row['protocol'] in XRAY_TAGS:
                             add_xray(row['protocol'],row['username'],row['secret'])
                         elif row['protocol']=='SSH':
-                            set_ssh_enabled(row['username'],True)
-                            sync_ssh_expiry(row['username'],exp)
+                            set_ssh_enabled(row['username'],True,exp)
                         baseline=int(row['raw_bytes'] or 0)
                         if row['protocol']=='Hysteria':
                             hstats=_hysteria_usage()
@@ -1154,8 +1147,7 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                         except Exception: pass
                         add_xray(row['protocol'],row['username'],row['secret'])
                     elif row['protocol']=='SSH':
-                        set_ssh_enabled(row['username'],True)
-                        sync_ssh_expiry(row['username'],exp)
+                        set_ssh_enabled(row['username'],True,exp)
                     c.commit()
                     log_event('account_renewed',f'{days} days',row['username'])
                     return send(self,{'ok':True,'action':'renew','id':row['id']})
@@ -1175,7 +1167,7 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                                             clients.append(client)
                                 save_xray(dcfg)
                         elif row['protocol']=='SSH':
-                            set_ssh_enabled(row['username'],True)
+                            set_ssh_enabled(row['username'],True,row['expiry'])
                     else:
                         if row['protocol'] in XRAY_TAGS:
                             del_xray(row['protocol'],row['username'])
