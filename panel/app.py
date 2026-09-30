@@ -674,6 +674,7 @@ def create_user(d):
     except (TypeError,ValueError): raise ValueError('quota must be a number')
     if not math.isfinite(quota_gb) or quota_gb < 0: raise ValueError('quota must be a finite non-negative number')
     q=int(quota_gb*(1024**3))
+    if q > 9223372036854775807: raise ValueError('quota is too large')
     try: days=int(d.get('days',0) or 0)
     except (TypeError,ValueError): raise ValueError('days must be a whole number')
     if days < 0 or days > 36500: raise ValueError('duration must be between 0 and 36500 days')
@@ -697,13 +698,22 @@ def create_user(d):
     xray_created=False
     try:
         if c.execute('select 1 from users where username=?',(u,)).fetchone(): raise ValueError('username already exists')
+        raw_baseline=0
+        if p in XRAY_TAGS:
+            stats=_xray_usage()
+            if isinstance(stats,dict): raw_baseline=int(stats.get(u,0))
+        elif p=='Hysteria':
+            stats=_hysteria_usage()
+            if isinstance(stats,dict): raw_baseline=int(stats.get(u,0))
         if p=='SSH':
             add_ssh(u,secret,days)
             ssh_created=True
         elif p!='Hysteria':
             add_xray(p,u,secret)
             xray_created=True
-        c.execute('insert into users(username,protocol,secret,quota_bytes,expiry,created_at) values(?,?,?,?,?,?)',(u,p,secret,q,exp,int(time.time())))
+        today=time.strftime('%Y-%m-%d')
+        c.execute('insert into users(username,protocol,secret,quota_bytes,expiry,created_at,raw_bytes,daily_used_bytes,usage_day) values(?,?,?,?,?,?,?,?,?)',
+                  (u,p,secret,q,exp,int(time.time()),raw_baseline,0,today))
         c.commit()
         row=c.execute('select * from users where username=?',(u,)).fetchone()
         log_event('account_created',p,u)
