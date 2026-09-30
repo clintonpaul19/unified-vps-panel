@@ -13,12 +13,23 @@ if ! flock -n 9; then
 fi
 trap 'rm -rf "$TMP"' EXIT
 
-mkdir -p "$TMP/etc/unified-vps" "$TMP/etc/hysteria" "$TMP/usr/local/etc/xray" "$TMP/etc/ssh" "$TMP/etc/haproxy" "$TMP/opt/unified-vps"
+mkdir -p "$TMP/etc/unified-vps" "$TMP/etc/hysteria" "$TMP/usr/local/etc/xray" "$TMP/etc/ssh" "$TMP/etc/haproxy" "$TMP/etc/systemd/system" "$TMP/etc/fail2ban/jail.d" "$TMP/etc/cron.d" "$TMP/etc/iptables" "$TMP/opt/unified-vps" "$TMP/usr/local/sbin" "$TMP/usr/local/bin"
 cp -a /etc/unified-vps/. "$TMP/etc/unified-vps/" 2>/dev/null || true
 cp -a /etc/hysteria/. "$TMP/etc/hysteria/" 2>/dev/null || true
 cp -a /usr/local/etc/xray/. "$TMP/usr/local/etc/xray/" 2>/dev/null || true
 cp -a /etc/ssh/sshd_config.d "$TMP/etc/ssh/" 2>/dev/null || true
 cp -a /etc/haproxy/haproxy.cfg "$TMP/etc/haproxy/" 2>/dev/null || true
+cp -a /etc/fail2ban/jail.d/unified-vps.local "$TMP/etc/fail2ban/jail.d/" 2>/dev/null || true
+cp -a /etc/cron.d/unified-vps-daily-reboot "$TMP/etc/cron.d/" 2>/dev/null || true
+cp -a /etc/iptables/rules.v4 "$TMP/etc/iptables/" 2>/dev/null || true
+for unit in hysteria-server.service unified-vps-panel.service unified-vps-wstunnel-ssh.service unified-vps-ws-payload-ssh.service unified-vps-watchdog.service unified-vps-watchdog.timer unified-vps-backup.service unified-vps-backup.timer; do
+  cp -a "/etc/systemd/system/$unit" "$TMP/etc/systemd/system/" 2>/dev/null || true
+done
+cp -a /usr/local/sbin/unified-vps-cert-reload "$TMP/usr/local/sbin/" 2>/dev/null || true
+cp -a /usr/local/sbin/unified-vps-watchdog "$TMP/usr/local/sbin/" 2>/dev/null || true
+cp -a /usr/local/sbin/unified-vps-backup "$TMP/usr/local/sbin/" 2>/dev/null || true
+cp -a /usr/local/bin/menu "$TMP/usr/local/bin/" 2>/dev/null || true
+cp -a /usr/local/bin/vps-status "$TMP/usr/local/bin/" 2>/dev/null || true
 cp -a /opt/unified-vps/panel.py "$TMP/opt/unified-vps/" 2>/dev/null || true
 cp -a /opt/unified-vps/ws-payload-ssh.py "$TMP/opt/unified-vps/" 2>/dev/null || true
 
