@@ -319,9 +319,12 @@ backup_restore(){
         if [[ "$n" == "RESTORE" ]]; then
           tar -xzf "$f" -C /
           systemctl daemon-reload
+          if [[ -f /etc/iptables/rules.v4 ]]; then iptables-restore < /etc/iptables/rules.v4 || true; fi
+          systemctl restart fail2ban || true
           if ! systemctl restart nginx unified-vps-panel xray hysteria-server haproxy unified-vps-wstunnel-ssh unified-vps-ws-payload-ssh; then
             echo "Restore applied, but one or more services failed to restart."
           else
+            systemctl restart unified-vps-watchdog.timer unified-vps-backup.timer || true
             echo "Restore complete."
           fi
         else echo "Cancelled."; fi
