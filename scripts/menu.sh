@@ -314,7 +314,7 @@ backup_restore(){
         if [[ "$n" == "RESTORE" ]]; then
           tar -xzf "$f" -C /
           systemctl daemon-reload
-          if ! systemctl restart unified-vps-panel xray hysteria-server haproxy unified-vps-wstunnel-ssh unified-vps-ws-payload-ssh; then
+          if ! systemctl restart nginx unified-vps-panel xray hysteria-server haproxy unified-vps-wstunnel-ssh unified-vps-ws-payload-ssh; then
             echo "Restore applied, but one or more services failed to restart."
           else
             echo "Restore complete."
