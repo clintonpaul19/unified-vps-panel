@@ -460,23 +460,44 @@ RestartSec=3
 WantedBy=multi-user.target
 EOF
 
-PANEL_ADMIN_USER='ADMIN_USER='
-PANEL_ADMIN_PASSWORD='ADMIN_PASSWORD='
-if [ -f /etc/unified-vps/panel.env ]; then
-  PANEL_ADMIN_USER="$(grep -E '^ADMIN_USER=' /etc/unified-vps/panel.env | tail -n1 || true)"
-  PANEL_ADMIN_PASSWORD="$(grep -E '^ADMIN_PASSWORD=' /etc/unified-vps/panel.env | tail -n1 || true)"
-  if [ "$PANEL_ADMIN_USER" = 'ADMIN_USER=spiderman' ] && [ "$PANEL_ADMIN_PASSWORD" = 'ADMIN_PASSWORD=spiderman' ]; then
-    PANEL_ADMIN_USER='ADMIN_USER='
-    PANEL_ADMIN_PASSWORD='ADMIN_PASSWORD='
+# The web panel stores its administrator credentials in a root-only local
+# file. Migrate any credentials left by an older panel.env-only release once,
+# then keep the environment copy blank.
+PANEL_ADMIN_USER=''
+PANEL_ADMIN_PASSWORD=''
+if [ -f /etc/unified-vps/admin.json ]; then
+  if jq -e '.username=="spiderman" and .password=="spiderman"' /etc/unified-vps/admin.json >/dev/null 2>&1; then
     rm -f /etc/unified-vps/admin.json
-    echo "Legacy spiderman panel credentials removed; first visit will require administrator setup."
+    echo "Legacy default administrator credentials removed; first visit will require setup."
+  fi
+elif [ -f /etc/unified-vps/panel.env ]; then
+  old_user="$(sed -n 's/^ADMIN_USER=//p' /etc/unified-vps/panel.env | tail -n1 || true)"
+  old_pass="$(sed -n 's/^ADMIN_PASSWORD=//p' /etc/unified-vps/panel.env | tail -n1 || true)"
+  if [ "$old_user" = 'spiderman' ] && [ "$old_pass" = 'spiderman' ]; then
+    old_user=''
+    old_pass=''
+  fi
+  if [ -n "$old_user" ] && [ -n "$old_pass" ]; then
+    printf '%s %s ' "$old_user" "$old_pass" | python3 -c '
+import json,sys,os,tempfile
+from pathlib import Path
+raw=sys.stdin.buffer.read().split(b"\0")
+if len(raw)<2: raise SystemExit(1)
+p=Path("/etc/unified-vps/admin.json")
+fd,tmp=tempfile.mkstemp(prefix=".admin.",dir=str(p.parent))
+try:
+    with os.fdopen(fd,"w",encoding="utf-8") as f:
+        json.dump({"username":raw[0].decode(),"password":raw[1].decode()},f)
+        f.write("\n")
+    os.chmod(tmp,0o600)
+    os.replace(tmp,p)
+finally:
+    try: os.unlink(tmp)
+    except FileNotFoundError: pass
+'
   fi
 fi
-if [ -f /etc/unified-vps/admin.json ] && jq -e '.username=="spiderman" and .password=="spiderman"' /etc/unified-vps/admin.json >/dev/null 2>&1; then
-  rm -f /etc/unified-vps/admin.json
-  echo "Legacy spiderman administrator file removed; first visit will require administrator setup."
-fi
-printf '%s\n%s\nPANEL_PORT=6080\nSERVER_DOMAIN=%s\nACME_EMAIL=%s\nHY2_STATS_SECRET=%s\nSSH_WS_PATH=ssh\nSSH_WS_PORT=443\n'   "$PANEL_ADMIN_USER" "$PANEL_ADMIN_PASSWORD" "$DOMAIN" "$ACME_EMAIL" "$HY2_STATS_SECRET" > /etc/unified-vps/panel.env
+printf '%s\n%s\nPANEL_PORT=6080\nSERVER_DOMAIN=%s\nACME_EMAIL=%s\nHY2_STATS_SECRET=%s\nSSH_WS_PATH=ssh\nSSH_WS_PORT=443\n' "$PANEL_ADMIN_USER" "$PANEL_ADMIN_PASSWORD" "$DOMAIN" "$ACME_EMAIL" "$HY2_STATS_SECRET" > /etc/unified-vps/panel.env
 chmod 600 /etc/unified-vps/panel.env
 
 curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/panel/app.py" -o /opt/unified-vps/panel.py
