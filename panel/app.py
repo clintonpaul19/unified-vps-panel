@@ -1062,14 +1062,14 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                             if enable:
                                 with XRAY_LOCK:
                                     dcfg=load_xray()
-                                for tag in XRAY_TAGS[row['protocol']]:
-                                    ib=next((i for i in dcfg.get('inbounds',[]) if i.get('tag')==tag),None)
-                                    if ib:
-                                        clients=ib.setdefault('settings',{}).setdefault('clients',[])
-                                        if not any(x.get('email')==row['username'] for x in clients):
-                                            cl={'email':row['username'],'level':0}
-                                            cl['id' if row['protocol'] in ('VMess','VLESS') else 'password']=row['secret']; clients.append(cl)
-                                save_xray(dcfg)
+                                    for tag in XRAY_TAGS[row['protocol']]:
+                                        ib=next((i for i in dcfg.get('inbounds',[]) if i.get('tag')==tag),None)
+                                        if ib:
+                                            clients=ib.setdefault('settings',{}).setdefault('clients',[])
+                                            if not any(x.get('email')==row['username'] for x in clients):
+                                                cl={'email':row['username'],'level':0}
+                                                cl['id' if row['protocol'] in ('VMess','VLESS') else 'password']=row['secret']; clients.append(cl)
+                                    save_xray(dcfg)
                             else: del_xray(row['protocol'],row['username'])
                         elif row['protocol']=='Hysteria' and not enable:
                             kick_hysteria(row['username'])
@@ -1113,15 +1113,15 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                         if row['protocol'] in XRAY_TAGS:
                             with XRAY_LOCK:
                                 dcfg=load_xray()
-                            for tag in XRAY_TAGS[row['protocol']]:
-                                ib=next((i for i in dcfg.get('inbounds',[]) if i.get('tag')==tag),None)
-                                if ib:
-                                    clients=ib.setdefault('settings',{}).setdefault('clients',[])
-                                    if not any(x.get('email')==row['username'] for x in clients):
-                                        client={'email':row['username'],'level':0}
-                                        client['id' if row['protocol'] in ('VMess','VLESS') else 'password']=row['secret']
-                                        clients.append(client)
-                            save_xray(dcfg)
+                                for tag in XRAY_TAGS[row['protocol']]:
+                                    ib=next((i for i in dcfg.get('inbounds',[]) if i.get('tag')==tag),None)
+                                    if ib:
+                                        clients=ib.setdefault('settings',{}).setdefault('clients',[])
+                                        if not any(x.get('email')==row['username'] for x in clients):
+                                            client={'email':row['username'],'level':0}
+                                            client['id' if row['protocol'] in ('VMess','VLESS') else 'password']=row['secret']
+                                            clients.append(client)
+                                save_xray(dcfg)
                         elif row['protocol']=='SSH':
                             subprocess.run(['usermod','-U',row['username']],capture_output=True)
                     else:
