@@ -22,7 +22,8 @@ XRAY_LOCK=threading.RLock()
 MAX_REQUEST_BODY=64*1024
 
 def conn():
-    c=sqlite3.connect(DB); c.row_factory=sqlite3.Row
+    os.makedirs(BASE,exist_ok=True)
+    c=sqlite3.connect(DB,timeout=10); c.row_factory=sqlite3.Row
     c.execute('''create table if not exists users(
         id integer primary key, username text unique, protocol text, secret text,
         quota_bytes integer default 0, used_bytes integer default 0,
@@ -148,10 +149,13 @@ def public_ip():
     global PUBLIC_IP_CACHE
     if PUBLIC_IP_CACHE: return PUBLIC_IP_CACHE
     try:
-        PUBLIC_IP_CACHE=subprocess.check_output(['curl','-4fsS','--max-time','3','https://api.ipify.org'],text=True).strip()
+        value=subprocess.check_output(['curl','-4fsS','--max-time','3','https://api.ipify.org'],text=True).strip()
+        if value:
+            PUBLIC_IP_CACHE=value
+            return value
     except Exception:
-        PUBLIC_IP_CACHE='SERVER_IP'
-    return PUBLIC_IP_CACHE
+        pass
+    return 'SERVER_IP'
 
 def load_xray():
     with open(CFG) as f: return json.load(f)
@@ -283,10 +287,9 @@ def _hysteria_usage():
 
 def _primary_interface():
     try:
-        return subprocess.check_output(
-            "ip route show default 2>/dev/null | awk 'NR==1 {print $5}'",
-            shell=True, text=True, timeout=3
-        ).strip()
+        out=subprocess.check_output(['ip','route','show','default'],text=True,timeout=3)
+        parts=out.split()
+        return parts[parts.index('dev')+1] if 'dev' in parts else ''
     except Exception:
         return ''
 
@@ -599,6 +602,10 @@ def service_state(name):
         return 'unknown'
 
 class H(BaseHTTPRequestHandler):
+    def setup(self):
+        super().setup()
+        self.connection.settimeout(20)
+
     def do_GET(self):
         if self.path=='/health': return send(self,{'ok':True})
         if self.path in ('/','/setup') and not admin_configured(): return _setup_page(self)
