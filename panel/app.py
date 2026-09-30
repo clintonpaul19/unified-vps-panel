@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import base64,hmac,html,json,math,os,secrets,sqlite3,subprocess,time,re,threading,uuid
+import base64,hashlib,hmac,html,json,math,os,secrets,shlex,sqlite3,subprocess,time,re,threading,uuid
 from urllib.request import Request,urlopen
 from urllib.parse import quote
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
@@ -9,8 +9,11 @@ DB=f'{BASE}/panel.db'
 CFG='/usr/local/etc/xray/config.json'
 PORT=int(os.environ.get('PANEL_PORT','6080'))
 DOMAIN=os.environ.get('SERVER_DOMAIN','')
-ADMIN=os.environ.get('ADMIN_USER','spiderman')
-PASSWORD=os.environ.get('ADMIN_PASSWORD','spiderman')
+ADMIN=os.environ.get('ADMIN_USER','').strip()
+PASSWORD=os.environ.get('ADMIN_PASSWORD','')
+PANEL_ENV=f'{BASE}/panel.env'
+SESSION_COOKIE='uvps_session'
+SESSION_TTL=12*60*60
 HY2_STATS_SECRET=os.environ.get('HY2_STATS_SECRET','')
 PUBLIC_IP_CACHE=None
 XRAY_TAGS={'VLESS':['vless443'],'VMess':['vmess443'],'Trojan':['trojan443']}
