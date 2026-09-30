@@ -392,7 +392,13 @@ PY
       2) echo "Admin username: $ADMIN_USER"; echo "Credentials file: $ADMIN_FILE (root-only)"; pause ;;
       3) grep -v '^SHELL=' "$REBOOT_CRON" 2>/dev/null || echo "Daily reboot is not configured."; pause ;;
       4) openssl x509 -in /etc/unified-vps/xray.crt -noout -subject -issuer -dates 2>/dev/null || echo "Certificate unavailable."; pause ;;
-      5) /root/.acme.sh/acme.sh --renew -d "$SERVER_DOMAIN" --force || true; pause ;;
+      5)
+        if systemctl is-active --quiet haproxy 2>/dev/null; then
+          /root/.acme.sh/acme.sh --renew -d "$SERVER_DOMAIN" --force --pre-hook "systemctl stop haproxy" --post-hook "systemctl start haproxy" || true
+        else
+          /root/.acme.sh/acme.sh --renew -d "$SERVER_DOMAIN" --force || true
+        fi
+        pause ;;
       6) return ;;
     esac
   done
