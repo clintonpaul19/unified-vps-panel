@@ -438,8 +438,8 @@ chmod 640 /etc/hysteria/server.crt /etc/hysteria/server.key
 curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/systemd/hysteria-server.service" -o /etc/systemd/system/hysteria-server.service
 
 # The web panel stores its administrator credentials in a root-only local
-# file. Migrate credentials from the legacy panel.env store when necessary,
-# and remove the legacy spiderman/spiderman default rather than retaining it.
+# file. Legacy environment credentials are migrated only when they are not
+# the retired built-in default.
 PANEL_ADMIN_USER=''
 PANEL_ADMIN_PASSWORD=''
 if [ -f /etc/unified-vps/admin.json ]; then
