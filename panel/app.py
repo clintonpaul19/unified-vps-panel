@@ -47,6 +47,9 @@ def _load_admin_credentials():
         pass
 
 _load_admin_credentials()
+if ADMIN == 'spiderman' and PASSWORD == 'spiderman':
+    ADMIN=''
+    PASSWORD=''
 
 def conn():
     c=sqlite3.connect(DB); c.row_factory=sqlite3.Row
