@@ -122,6 +122,33 @@ PY
   fi
 }
 
+apply_firewall(){
+  command -v iptables >/dev/null 2>&1 || return 0
+  local p
+  insert_rule(){
+    local chain="$1"; shift
+    iptables -C "$chain" "$@" -j ACCEPT 2>/dev/null && return 0
+    local pos
+    pos="$(iptables -S "$chain" 2>/dev/null | awk -v chain="$chain" '$1=="-A" && $2==chain {n++; for(i=3;i<NF;i++) if($i=="-j" && ($(i+1)=="DROP" || $(i+1)=="REJECT")) {print n; exit}}' || true)"
+    if [[ -n "$pos" ]]; then iptables -I "$chain" "$pos" "$@" -j ACCEPT; else iptables -A "$chain" "$@" -j ACCEPT; fi
+  }
+  for p in 22 80 143 443 8080 8443 8880 6080; do insert_rule INPUT -p tcp --dport "$p"; done
+  insert_rule INPUT -p tcp --dport 53
+  insert_rule INPUT -p udp --dport 53
+  insert_rule INPUT -p udp --dport 443
+  insert_rule INPUT -m conntrack --ctstate ESTABLISHED,RELATED
+  iptables-save >/etc/iptables/rules.v4 2>/dev/null || true
+  systemctl enable --now netfilter-persistent.service >/dev/null 2>&1 || true
+}
+
+verify_listeners(){
+  local p
+  for p in 22 80 143 443 8080 8443 8880 6080; do
+    ss -lntH "sport = :$p" 2>/dev/null | grep -q ":$p" || { echo "Missing TCP listener: $p"; return 1; }
+  done
+  ss -lunH "sport = :53" 2>/dev/null | grep -q ':53' || { echo "Missing UDP listener: 53"; return 1; }
+}
+
 draw_header(){
   clear
   local ip host os cores ram load date_now time_now uptime domain isp location disk
@@ -590,6 +617,11 @@ update_script(){
   systemctl daemon-reload
   systemctl enable --now fail2ban unified-vps-watchdog.timer unified-vps-backup.timer
   systemctl restart unified-vps-panel unified-vps-wstunnel-ssh unified-vps-ws-payload-ssh hysteria-server haproxy
+  apply_firewall
+  if ! verify_listeners; then
+    echo "Update finished, but one or more required listeners are missing."
+    ss -lntup || true
+  fi
   ensure_daily_reboot
   echo "Update complete. Watchdog, backups and Fail2Ban are active."
   pause
