@@ -1148,181 +1148,181 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                 self.end_headers(); self.wfile.write(payload)
             except Exception as e: return send(self,{'error':str(e)},500)
             return
-    if self.path=='/hysteria-auth':
+        if self.path=='/hysteria-auth':
+            try: d=body(self)
+            except Exception: return send(self,{'ok':False},400)
+            secret=str(d.get('auth','')); c=conn()
+            r=c.execute('select username,expiry,enabled from users where protocol="Hysteria" and secret=?',(secret,)).fetchone(); c.close()
+            if not r or not r['enabled'] or (r['expiry'] and r['expiry']<=int(time.time())): return send(self,{'ok':False})
+            return send(self,{'ok':True,'id':r['username']})
+        if not auth(self.headers):
+            self.send_response(401); self.end_headers(); return
         try: d=body(self)
-        except Exception: return send(self,{'ok':False},400)
-        secret=str(d.get('auth','')); c=conn()
-        r=c.execute('select username,expiry,enabled from users where protocol="Hysteria" and secret=?',(secret,)).fetchone(); c.close()
-        if not r or not r['enabled'] or (r['expiry'] and r['expiry']<=int(time.time())): return send(self,{'ok':False})
-        return send(self,{'ok':True,'id':r['username']})
-    if not auth(self.headers):
-        self.send_response(401); self.end_headers(); return
-    try: d=body(self)
-    except ValueError as e: return send(self,{'error':str(e)},400)
-    except Exception: return send(self,{'error':'invalid JSON'},400)
+        except ValueError as e: return send(self,{'error':str(e)},400)
+        except Exception: return send(self,{'error':'invalid JSON'},400)
 
-    if self.path=='/api/backup':
-        action=str(d.get('action','')).lower()
-        if action=='create':
+        if self.path=='/api/backup':
+            action=str(d.get('action','')).lower()
+            if action=='create':
+                try:
+                    p=subprocess.run(['/usr/local/sbin/unified-vps-backup'],capture_output=True,text=True,timeout=120)
+                    if p.returncode: return send(self,{'error':(p.stderr or p.stdout).strip() or 'backup failed'},500)
+                    log_event('backup_created',os.path.basename(p.stdout.strip()),'')
+                    return send(self,{'ok':True,'path':p.stdout.strip()})
+                except Exception as e: return send(self,{'error':str(e)},500)
+            if action=='restore':
+                files=sorted(__import__('glob').glob('/opt/unified-vps/backups/unified-vps-*.tar.gz'),reverse=True)
+                if not files: return send(self,{'error':'no backup available'},404)
+                p=subprocess.run(['tar','-tzf',files[0]],capture_output=True,text=True,timeout=30)
+                if p.returncode: return send(self,{'error':'latest backup is invalid'},500)
+                p=subprocess.run(['tar','-xzf',files[0],'-C','/'],capture_output=True,text=True,timeout=120)
+                if p.returncode: return send(self,{'error':(p.stderr or 'restore failed').strip()},500)
+                log_event('backup_restored',os.path.basename(files[0]),'')
+                result=send(self,{'ok':True,'path':files[0],'message':'Restore applied; services will restart shortly.'})
+                def restart_restored_services():
+                    subprocess.run(['systemctl','restart','xray','hysteria-server','haproxy','unified-vps-panel'],capture_output=True)
+                threading.Timer(2.0,restart_restored_services).start()
+                return result
+            return send(self,{'error':'unsupported backup action'},400)
+
+        if self.path=='/api/certificate/renew':
+            haproxy_was_active=subprocess.run(['systemctl','is-active','--quiet','haproxy'],check=False).returncode==0
             try:
-                p=subprocess.run(['/usr/local/sbin/unified-vps-backup'],capture_output=True,text=True,timeout=120)
-                if p.returncode: return send(self,{'error':(p.stderr or p.stdout).strip() or 'backup failed'},500)
-                log_event('backup_created',os.path.basename(p.stdout.strip()),'')
-                return send(self,{'ok':True,'path':p.stdout.strip()})
+                acme='/root/.acme.sh/acme.sh'
+                if not os.path.exists(acme): return send(self,{'error':'acme.sh not installed'},500)
+                renew_args=[acme,'--renew','-d',public_host(),'--force']
+                if haproxy_was_active:
+                    renew_args += ['--pre-hook','systemctl stop haproxy','--post-hook','systemctl start haproxy']
+                p=subprocess.run(renew_args,capture_output=True,text=True,timeout=180)
+                if p.returncode:
+                    return send(self,{'error':(p.stderr or p.stdout).strip() or 'certificate renewal failed'},500)
+                log_event('certificate_renewed',public_host(),'')
+                return send(self,{'ok':True,'output':(p.stdout or '').strip()})
+            except Exception as e:
+                return send(self,{'error':str(e)},500)
+            finally:
+                if haproxy_was_active:
+                    subprocess.run(['systemctl','start','haproxy'],capture_output=True)
+
+        if self.path=='/api/users':
+            try: return send(self,create_user(d))
             except Exception as e: return send(self,{'error':str(e)},500)
-        if action=='restore':
-            files=sorted(__import__('glob').glob('/opt/unified-vps/backups/unified-vps-*.tar.gz'),reverse=True)
-            if not files: return send(self,{'error':'no backup available'},404)
-            p=subprocess.run(['tar','-tzf',files[0]],capture_output=True,text=True,timeout=30)
-            if p.returncode: return send(self,{'error':'latest backup is invalid'},500)
-            p=subprocess.run(['tar','-xzf',files[0],'-C','/'],capture_output=True,text=True,timeout=120)
-            if p.returncode: return send(self,{'error':(p.stderr or 'restore failed').strip()},500)
-            log_event('backup_restored',os.path.basename(files[0]),'')
-            result=send(self,{'ok':True,'path':files[0],'message':'Restore applied; services will restart shortly.'})
-            def restart_restored_services():
-                subprocess.run(['systemctl','restart','xray','hysteria-server','haproxy','unified-vps-panel'],capture_output=True)
-            threading.Timer(2.0,restart_restored_services).start()
-            return result
-        return send(self,{'error':'unsupported backup action'},400)
-
-    if self.path=='/api/certificate/renew':
-        haproxy_was_active=subprocess.run(['systemctl','is-active','--quiet','haproxy'],check=False).returncode==0
-        try:
-            acme='/root/.acme.sh/acme.sh'
-            if not os.path.exists(acme): return send(self,{'error':'acme.sh not installed'},500)
-            renew_args=[acme,'--renew','-d',public_host(),'--force']
-            if haproxy_was_active:
-                renew_args += ['--pre-hook','systemctl stop haproxy','--post-hook','systemctl start haproxy']
-            p=subprocess.run(renew_args,capture_output=True,text=True,timeout=180)
-            if p.returncode:
-                return send(self,{'error':(p.stderr or p.stdout).strip() or 'certificate renewal failed'},500)
-            log_event('certificate_renewed',public_host(),'')
-            return send(self,{'ok':True,'output':(p.stdout or '').strip()})
-        except Exception as e:
-            return send(self,{'error':str(e)},500)
-        finally:
-            if haproxy_was_active:
-                subprocess.run(['systemctl','start','haproxy'],capture_output=True)
-
-    if self.path=='/api/users':
-        try: return send(self,create_user(d))
-        except Exception as e: return send(self,{'error':str(e)},500)
-    if self.path=='/api/users/bulk':
-        ids=[int(x) for x in d.get('ids',[]) if str(x).isdigit()]
-        action=str(d.get('action','')).lower()
-        if not ids or action not in ('enable','disable','delete','renew'):
-            return send(self,{'error':'invalid bulk request'},400)
-        if action=='renew' and int(d.get('days',0) or 0)<=0:
-            return send(self,{'error':'renewal days required'},400)
-        results=[]
-        for uid in ids:
-            try:
-                c=conn(); row=c.execute('select * from users where id=?',(uid,)).fetchone(); c.close()
-                if not row: results.append({'id':uid,'ok':False,'error':'not found'}); continue
-                if action=='delete':
-                    if row['protocol']=='SSH': del_ssh(row['username'])
-                    elif row['protocol']=='Hysteria': kick_hysteria(row['username'])
-                    else: del_xray(row['protocol'],row['username'])
-                    c=conn(); c.execute('delete from users where id=?',(uid,)); c.commit(); c.close()
-                elif action in ('enable','disable'):
-                    enable=action=='enable'
-                    if row['protocol'] in XRAY_TAGS:
-                        if enable: ensure_xray_client(row['protocol'],row['username'],row['secret'])
+        if self.path=='/api/users/bulk':
+            ids=[int(x) for x in d.get('ids',[]) if str(x).isdigit()]
+            action=str(d.get('action','')).lower()
+            if not ids or action not in ('enable','disable','delete','renew'):
+                return send(self,{'error':'invalid bulk request'},400)
+            if action=='renew' and int(d.get('days',0) or 0)<=0:
+                return send(self,{'error':'renewal days required'},400)
+            results=[]
+            for uid in ids:
+                try:
+                    c=conn(); row=c.execute('select * from users where id=?',(uid,)).fetchone(); c.close()
+                    if not row: results.append({'id':uid,'ok':False,'error':'not found'}); continue
+                    if action=='delete':
+                        if row['protocol']=='SSH': del_ssh(row['username'])
+                        elif row['protocol']=='Hysteria': kick_hysteria(row['username'])
                         else: del_xray(row['protocol'],row['username'])
-                    elif row['protocol']=='Hysteria' and not enable:
-                        kick_hysteria(row['username'])
-                    elif row['protocol']=='SSH': set_ssh_enabled(row['username'],enable,row['expiry'])
-                    c=conn(); c.execute('update users set enabled=? where id=?',(1 if enable else 0,uid)); c.commit(); c.close()
-                else:
-                    days=int(d.get('days',0));
+                        c=conn(); c.execute('delete from users where id=?',(uid,)); c.commit(); c.close()
+                    elif action in ('enable','disable'):
+                        enable=action=='enable'
+                        if row['protocol'] in XRAY_TAGS:
+                            if enable: ensure_xray_client(row['protocol'],row['username'],row['secret'])
+                            else: del_xray(row['protocol'],row['username'])
+                        elif row['protocol']=='Hysteria' and not enable:
+                            kick_hysteria(row['username'])
+                        elif row['protocol']=='SSH': set_ssh_enabled(row['username'],enable,row['expiry'])
+                        c=conn(); c.execute('update users set enabled=? where id=?',(1 if enable else 0,uid)); c.commit(); c.close()
+                    else:
+                        days=int(d.get('days',0));
+                        if days <= 0: raise ValueError('renewal days must be greater than 0')
+                        exp=int(time.time())+days*86400
+                        if row['protocol'] in XRAY_TAGS:
+                            ensure_xray_client(row['protocol'],row['username'],row['secret'])
+                        elif row['protocol']=='SSH':
+                            set_ssh_enabled(row['username'],True,exp)
+                        baseline=int(row['raw_bytes'] or 0)
+                        if row['protocol']=='Hysteria':
+                            hstats=_hysteria_usage()
+                            if isinstance(hstats,dict): baseline=int(hstats.get(row['username'],baseline))
+                        elif row['protocol'] in XRAY_TAGS:
+                            baseline=0
+                        c=conn(); c.execute('update users set expiry=?,enabled=1,used_bytes=0,raw_bytes=?,daily_used_bytes=0,usage_day=? where id=?',(exp,baseline,time.strftime('%Y-%m-%d'),uid)); c.commit(); c.close()
+                    log_event('bulk_'+action,row['protocol'],row['username'])
+                    results.append({'id':uid,'ok':True})
+                except Exception as e:
+                    results.append({'id':uid,'ok':False,'error':str(e)})
+            return send(self,{'ok':all(x['ok'] for x in results),'results':results})
+
+        if self.path=='/api/users/action':
+            c=conn(); row=c.execute('select * from users where id=?',(int(d.get('id',0)),)).fetchone()
+            if not row: c.close(); return send(self,{'error':'not found'},404)
+            action=str(d.get('action','')).lower()
+            try:
+                if action=='renew':
+                    days=int(d.get('days',0) or 0)
                     if days <= 0: raise ValueError('renewal days must be greater than 0')
                     exp=int(time.time())+days*86400
-                    if row['protocol'] in XRAY_TAGS:
-                        ensure_xray_client(row['protocol'],row['username'],row['secret'])
-                    elif row['protocol']=='SSH':
-                        set_ssh_enabled(row['username'],True,exp)
                     baseline=int(row['raw_bytes'] or 0)
                     if row['protocol']=='Hysteria':
                         hstats=_hysteria_usage()
                         if isinstance(hstats,dict): baseline=int(hstats.get(row['username'],baseline))
                     elif row['protocol'] in XRAY_TAGS:
                         baseline=0
-                    c=conn(); c.execute('update users set expiry=?,enabled=1,used_bytes=0,raw_bytes=?,daily_used_bytes=0,usage_day=? where id=?',(exp,baseline,time.strftime('%Y-%m-%d'),uid)); c.commit(); c.close()
-                log_event('bulk_'+action,row['protocol'],row['username'])
-                results.append({'id':uid,'ok':True})
+                    c.execute('update users set expiry=?,enabled=1,used_bytes=0,raw_bytes=?,daily_used_bytes=0,usage_day=? where id=?',(exp,baseline,time.strftime('%Y-%m-%d'),row['id']))
+                    if row['protocol'] in XRAY_TAGS:
+                        ensure_xray_client(row['protocol'],row['username'],row['secret'])
+                    elif row['protocol']=='SSH':
+                        set_ssh_enabled(row['username'],True,exp)
+                    c.commit()
+                    log_event('account_renewed',f'{days} days',row['username'])
+                    return send(self,{'ok':True,'action':'renew','id':row['id']})
+                if action in ('enable','disable'):
+                    enable=action=='enable'
+                    if enable:
+                        if row['protocol'] in XRAY_TAGS:
+                            with XRAY_LOCK:
+                                dcfg=load_xray()
+                                for tag in XRAY_TAGS[row['protocol']]:
+                                    ib=next((i for i in dcfg.get('inbounds',[]) if i.get('tag')==tag),None)
+                                    if ib:
+                                        clients=ib.setdefault('settings',{}).setdefault('clients',[])
+                                        if not any(x.get('email')==row['username'] for x in clients):
+                                            client={'email':row['username'],'level':0}
+                                            client['id' if row['protocol'] in ('VMess','VLESS') else 'password']=row['secret']
+                                            clients.append(client)
+                                save_xray(dcfg)
+                        elif row['protocol']=='SSH':
+                            set_ssh_enabled(row['username'],True,row['expiry'])
+                    else:
+                        if row['protocol'] in XRAY_TAGS:
+                            del_xray(row['protocol'],row['username'])
+                        elif row['protocol']=='Hysteria':
+                            kick_hysteria(row['username'])
+                        elif row['protocol']=='SSH':
+                            set_ssh_enabled(row['username'],False)
+                    c.execute('update users set enabled=? where id=?',(1 if enable else 0,row['id']))
+                    c.commit()
+                    log_event('account_'+action,row['protocol'],row['username'])
+                    return send(self,{'ok':True,'action':action,'id':row['id']})
+                return send(self,{'error':'unsupported action'},400)
             except Exception as e:
-                results.append({'id':uid,'ok':False,'error':str(e)})
-        return send(self,{'ok':all(x['ok'] for x in results),'results':results})
+                c.rollback(); return send(self,{'error':str(e)},500)
+            finally: c.close()
 
-    if self.path=='/api/users/action':
-        c=conn(); row=c.execute('select * from users where id=?',(int(d.get('id',0)),)).fetchone()
-        if not row: c.close(); return send(self,{'error':'not found'},404)
-        action=str(d.get('action','')).lower()
-        try:
-            if action=='renew':
-                days=int(d.get('days',0) or 0)
-                if days <= 0: raise ValueError('renewal days must be greater than 0')
-                exp=int(time.time())+days*86400
-                baseline=int(row['raw_bytes'] or 0)
-                if row['protocol']=='Hysteria':
-                    hstats=_hysteria_usage()
-                    if isinstance(hstats,dict): baseline=int(hstats.get(row['username'],baseline))
-                elif row['protocol'] in XRAY_TAGS:
-                    baseline=0
-                c.execute('update users set expiry=?,enabled=1,used_bytes=0,raw_bytes=?,daily_used_bytes=0,usage_day=? where id=?',(exp,baseline,time.strftime('%Y-%m-%d'),row['id']))
-                if row['protocol'] in XRAY_TAGS:
-                    ensure_xray_client(row['protocol'],row['username'],row['secret'])
-                elif row['protocol']=='SSH':
-                    set_ssh_enabled(row['username'],True,exp)
-                c.commit()
-                log_event('account_renewed',f'{days} days',row['username'])
-                return send(self,{'ok':True,'action':'renew','id':row['id']})
-            if action in ('enable','disable'):
-                enable=action=='enable'
-                if enable:
-                    if row['protocol'] in XRAY_TAGS:
-                        with XRAY_LOCK:
-                            dcfg=load_xray()
-                            for tag in XRAY_TAGS[row['protocol']]:
-                                ib=next((i for i in dcfg.get('inbounds',[]) if i.get('tag')==tag),None)
-                                if ib:
-                                    clients=ib.setdefault('settings',{}).setdefault('clients',[])
-                                    if not any(x.get('email')==row['username'] for x in clients):
-                                        client={'email':row['username'],'level':0}
-                                        client['id' if row['protocol'] in ('VMess','VLESS') else 'password']=row['secret']
-                                        clients.append(client)
-                            save_xray(dcfg)
-                    elif row['protocol']=='SSH':
-                        set_ssh_enabled(row['username'],True,row['expiry'])
-                else:
-                    if row['protocol'] in XRAY_TAGS:
-                        del_xray(row['protocol'],row['username'])
-                    elif row['protocol']=='Hysteria':
-                        kick_hysteria(row['username'])
-                    elif row['protocol']=='SSH':
-                        set_ssh_enabled(row['username'],False)
-                c.execute('update users set enabled=? where id=?',(1 if enable else 0,row['id']))
-                c.commit()
-                log_event('account_'+action,row['protocol'],row['username'])
-                return send(self,{'ok':True,'action':action,'id':row['id']})
-            return send(self,{'error':'unsupported action'},400)
-        except Exception as e:
-            c.rollback(); return send(self,{'error':str(e)},500)
-        finally: c.close()
-
-    if self.path=='/api/users/delete':
-        c=conn(); row=c.execute('select * from users where id=?',(int(d.get('id',0)),)).fetchone()
-        if not row: c.close(); return send(self,{'error':'not found'},404)
-        try:
-            if row['protocol']=='SSH': del_ssh(row['username'])
-            elif row['protocol']=='Hysteria': kick_hysteria(row['username'])
-            else: del_xray(row['protocol'],row['username'])
-            c.execute('delete from users where id=?',(row['id'],)); c.commit()
-            log_event('account_deleted',row['protocol'],row['username'])
-            return send(self,{'ok':True})
-        except Exception as e: c.rollback(); return send(self,{'error':str(e)},500)
-        finally: c.close()
-    return send(self,{'error':'not found'},404)
+        if self.path=='/api/users/delete':
+            c=conn(); row=c.execute('select * from users where id=?',(int(d.get('id',0)),)).fetchone()
+            if not row: c.close(); return send(self,{'error':'not found'},404)
+            try:
+                if row['protocol']=='SSH': del_ssh(row['username'])
+                elif row['protocol']=='Hysteria': kick_hysteria(row['username'])
+                else: del_xray(row['protocol'],row['username'])
+                c.execute('delete from users where id=?',(row['id'],)); c.commit()
+                log_event('account_deleted',row['protocol'],row['username'])
+                return send(self,{'ok':True})
+            except Exception as e: c.rollback(); return send(self,{'error':str(e)},500)
+            finally: c.close()
+        return send(self,{'error':'not found'},404)
 
 if __name__=='__main__':
     conn().close()
