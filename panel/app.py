@@ -127,7 +127,7 @@ def send_html(r,body_html,status=200,headers=None):
 def _setup_page(r):
     return send_html(r,'''<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Unified VPS Setup</title>
 <style>body{font:15px system-ui;background:#06110b;color:#ecfff2;display:grid;place-items:center;min-height:100vh;margin:0}.card{width:min(420px,90%);padding:28px;border:1px solid #173524;border-radius:16px;background:#0b1811}.card h2{margin-top:0}input,button{width:100%;box-sizing:border-box;padding:12px;margin:7px 0;border-radius:9px;border:1px solid #173524;background:#06100a;color:#ecfff2}button{background:#42f58d;color:#03200f;font-weight:800;cursor:pointer}.msg{color:#ff6b78;min-height:20px}</style>
-<div class="card"><h2>Unified VPS</h2><p>Create the administrator credentials for this VPS.</p><form id="setupForm"><input name="username" placeholder="Enter username" maxlength="32" autocomplete="username" required><input name="password" type="password" placeholder="Enter password" minlength="8" maxlength="128" autocomplete="new-password" required><input name="confirm" type="password" placeholder="Reenter password" minlength="8" maxlength="128" autocomplete="new-password" required><button type="submit">Save and login</button><div class="msg" id="setupMsg"></div></form></div><script>const form=document.getElementById('setupForm'),msg=document.getElementById('setupMsg');form.addEventListener('submit',async e=>{e.preventDefault();msg.textContent='';const d=Object.fromEntries(new FormData(form));if(d.password!==d.confirm){msg.textContent='Passwords do not match.';return}try{const r=await fetch('/setup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d),cache:'no-store'});const text=await r.text();let j={};try{j=JSON.parse(text)}catch(_){j={error:text||'Server returned an invalid response.'}}if(!r.ok){msg.textContent=j.error||'Setup failed.';return}window.location.replace('/');}catch(_){msg.textContent='Unable to reach the panel. Try again.'}});</script>''')
+<div class="card"><h2>Unified VPS</h2><p>Create the administrator credentials for this VPS.</p><form id="setupForm" method="post" action="/setup"><input name="username" placeholder="Enter username" maxlength="32" autocomplete="username" required><input name="password" type="password" placeholder="Enter password" minlength="8" maxlength="128" autocomplete="new-password" required><input name="confirm" type="password" placeholder="Reenter password" minlength="8" maxlength="128" autocomplete="new-password" required><button type="submit">Save and login</button><div class="msg" id="setupMsg"></div></form></div><script>const form=document.getElementById('setupForm'),msg=document.getElementById('setupMsg');form.addEventListener('submit',async e=>{e.preventDefault();msg.textContent='';const d=Object.fromEntries(new FormData(form));if(d.password!==d.confirm){msg.textContent='Passwords do not match.';return}try{const r=await fetch('/setup',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},body:new URLSearchParams(d).toString(),cache:'no-store'});const text=await r.text();let j={};try{j=JSON.parse(text)}catch(_){j={error:text||'Server returned an invalid response.'}}if(!r.ok){msg.textContent=j.error||'Setup failed.';return}window.location.replace('/');}catch(_){msg.textContent='Unable to reach the panel. Try again.'}});</script>''')
 
 def _login_page(r):
     return send_html(r,'''<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Unified VPS Login</title>
@@ -163,7 +163,8 @@ def body(r):
             chunk=r.rfile.read(size)
             if len(chunk)!=size: raise ValueError('incomplete request body')
             chunks.append(chunk)
-            if r.rfile.read(2)!=b'\\r\\n': raise ValueError('invalid chunk framing')
+            separator=r.rfile.read(2)
+            if separator!=b'\\r\\n': raise ValueError('invalid chunk framing')
         raw=b''.join(chunks)
     else:
         try: length=int(r.headers.get('Content-Length','0') or 0)
@@ -171,11 +172,31 @@ def body(r):
         if length<0 or length>MAX_REQUEST_BODY: raise ValueError('request body too large')
         raw=r.rfile.read(length)
         if len(raw)!=length: raise ValueError('incomplete request body')
+
     if not raw: return {}
+    encoding=(r.headers.get('Content-Encoding','') or '').lower()
+    if encoding in ('gzip','x-gzip'):
+        import gzip
+        try: raw=gzip.decompress(raw)
+        except (OSError,EOFError): raise ValueError('invalid gzip request body')
+        if len(raw)>MAX_REQUEST_BODY: raise ValueError('request body too large')
+
+    content_type=(r.headers.get('Content-Type','') or '').lower().split(';',1)[0].strip()
     try:
-        return json.loads(raw.decode('utf-8'))
-    except (UnicodeDecodeError,json.JSONDecodeError):
+        decoded=raw.decode('utf-8')
+    except UnicodeDecodeError:
+        raise ValueError('request body is not valid UTF-8')
+    if content_type in ('application/x-www-form-urlencoded','text/plain'):
+        from urllib.parse import parse_qs
+        values=parse_qs(decoded,keep_blank_values=True)
+        return {k:(v[-1] if v else '') for k,v in values.items()}
+    try:
+        value=json.loads(decoded)
+    except json.JSONDecodeError:
         raise ValueError('invalid JSON')
+    if not isinstance(value,dict):
+        raise ValueError('request body must be a JSON object')
+    return value
 
 def public_host():
     return DOMAIN or public_ip()
@@ -1171,8 +1192,10 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
 
     def do_POST(self):
         if self.path=='/setup':
-            try: d=body(self)
-            except Exception: return send(self,{'error':'invalid JSON'},400)
+            try:
+                d=body(self)
+            except Exception as e:
+                return send(self,{'error':str(e) or 'invalid request body'},400)
             with SETUP_LOCK:
                 if admin_configured(): return send(self,{'error':'panel is already configured'},409)
                 u=str(d.get('username','')).strip()
@@ -1180,11 +1203,14 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                 confirm=str(d.get('confirm',''))
                 if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{2,31}',u):
                     return send(self,{'error':'Username must be 3-32 characters using letters, numbers, dot, underscore or hyphen.'},400)
-                if len(p)<8 or len(p)>128 or '\n' in p or '\r' in p:
+                if len(p)<8 or len(p)>128 or '\\n' in p or '\\r' in p:
                     return send(self,{'error':'Password must be 8-128 characters and cannot contain newlines.'},400)
                 if p!=confirm: return send(self,{'error':'Passwords do not match.'},400)
-                _save_admin_credentials(u,p)
-                log_event('panel_setup',details='Initial administrator account created')
+                try:
+                    _save_admin_credentials(u,p)
+                    log_event('panel_setup',details='Initial administrator account created')
+                except Exception as e:
+                    return send(self,{'error':'Could not save administrator credentials: '+str(e)},500)
                 return send(self,{'ok':True},200,{'Set-Cookie':f'{SESSION_COOKIE}={_session_cookie(u)}; Path=/; HttpOnly; SameSite=Strict; Max-Age={SESSION_TTL}'})
         if self.path=='/login':
             try: d=body(self)
