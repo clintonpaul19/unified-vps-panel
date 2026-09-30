@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import base64,hashlib,hmac,html,json,math,os,secrets,sqlite3,subprocess,time,re,threading,uuid
 from urllib.request import Request,urlopen
-from urllib.parse import quote
+from urllib.parse import quote,urlsplit
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 
 BASE='/etc/unified-vps'
