@@ -19,6 +19,8 @@ LOGIN_LOCK=threading.Lock()
 LOGIN_FAILURES={}
 LOGIN_WINDOW=600
 LOGIN_MAX_FAILURES=8
+LEGACY_ADMIN_USER='spiderman'
+LEGACY_ADMIN_PASSWORD='spiderman'
 HY2_STATS_SECRET=os.environ.get('HY2_STATS_SECRET','')
 PUBLIC_IP_CACHE=None
 XRAY_TAGS={'VLESS':['vless443'],'VMess':['vmess443'],'Trojan':['trojan443']}
@@ -110,6 +112,21 @@ def _save_admin_credentials(username,password):
     os.replace(tmp,PANEL_ENV)
     ADMIN=username; PASSWORD=password
 
+# Invalidate the legacy hardcoded administrator pair used by older builds.
+if ADMIN==LEGACY_ADMIN_USER and PASSWORD==LEGACY_ADMIN_PASSWORD:
+    ADMIN=''; PASSWORD=''
+    try:
+        with open(PANEL_ENV,encoding='utf-8') as f: lines=f.read().splitlines()
+        out=[]
+        for line in lines:
+            if line.startswith('ADMIN_USER='): out.append('ADMIN_USER=""')
+            elif line.startswith('ADMIN_PASSWORD='): out.append('ADMIN_PASSWORD=""')
+            else: out.append(line)
+        tmp=PANEL_ENV+'.tmp'
+        with open(tmp,'w',encoding='utf-8') as f: f.write('\n'.join(out)+'\n')
+        os.chmod(tmp,0o600); os.replace(tmp,PANEL_ENV)
+    except OSError:
+        pass
 def send_html(r,body_html,status=200,headers=None):
     b=body_html.encode()
     r.send_response(status)
@@ -1125,9 +1142,21 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
             try: d=body(self)
             except Exception: return send(self,{'error':'invalid JSON'},400)
             if not admin_configured(): return send(self,{'error':'panel setup required'},503)
+            client_ip=self.client_address[0]; now=time.time()
+            with LOGIN_LOCK:
+                state=LOGIN_FAILURES.get(client_ip,[0,now])
+                if now-state[1] > LOGIN_WINDOW: state=[0,now]
+                if state[0] >= LOGIN_MAX_FAILURES:
+                    retry=max(1,int(LOGIN_WINDOW-(now-state[1])))
+                    return send(self,{'error':'too many login attempts; try again later'},429,{'Retry-After':str(retry)})
             u=str(d.get('username','')); p=str(d.get('password',''))
             if hmac.compare_digest(u,ADMIN) and hmac.compare_digest(p,PASSWORD):
+                with LOGIN_LOCK: LOGIN_FAILURES.pop(client_ip,None)
                 return send(self,{'ok':True},200,{'Set-Cookie':f'{SESSION_COOKIE}={_session_cookie(u)}; Path=/; HttpOnly; SameSite=Strict; Max-Age={SESSION_TTL}'})
+            with LOGIN_LOCK:
+                state=LOGIN_FAILURES.get(client_ip,[0,now])
+                if now-state[1] > LOGIN_WINDOW: state=[0,now]
+                state[0]+=1; LOGIN_FAILURES[client_ip]=state
             return send(self,{'error':'invalid credentials'},401)
         if self.path=='/hysteria-auth':
             try: d=body(self)
