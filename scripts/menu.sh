@@ -602,8 +602,10 @@ update_script(){
   install -m 0644 "$tmp_f2b" /etc/fail2ban/jail.d/unified-vps.local
   rm -f "$tmp_menu" "$tmp_app" "$tmp_haproxy" "$tmp_payload" "$tmp_wstunnel_unit" "$tmp_hysteria_unit" "$tmp_cert_hook" "$tmp_watch" "$tmp_watch_unit" "$tmp_timer" "$tmp_backup" "$tmp_backup_unit" "$tmp_backup_timer" "$tmp_f2b"
   systemctl daemon-reload
+  systemctl unmask hysteria-server.service 2>/dev/null || true
+  systemctl enable fail2ban unified-vps-watchdog.timer unified-vps-backup.timer unified-vps-wstunnel-ssh unified-vps-ws-payload-ssh hysteria-server haproxy xray unified-vps-panel >/dev/null 2>&1 || true
   systemctl enable --now fail2ban unified-vps-watchdog.timer unified-vps-backup.timer
-  systemctl restart unified-vps-panel unified-vps-wstunnel-ssh unified-vps-ws-payload-ssh hysteria-server haproxy
+  systemctl restart unified-vps-panel unified-vps-wstunnel-ssh unified-vps-ws-payload-ssh hysteria-server haproxy xray
   ensure_daily_reboot
   echo "Update complete. Watchdog, backups and Fail2Ban are active."
   pause
