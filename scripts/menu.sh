@@ -400,6 +400,9 @@ finally:
     try: os.unlink(tmp)
     except FileNotFoundError: pass
 PY
+        sed -i -E '/^ADMIN_USER=/d;/^ADMIN_PASSWORD=/d' "$PANEL_ENV"
+        printf 'ADMIN_USER=\nADMIN_PASSWORD=\n' >> "$PANEL_ENV"
+        chmod 600 "$PANEL_ENV" "$ADMIN_FILE"
         ADMIN_PASSWORD="$newpass"
         AUTH=(-u "${ADMIN_USER}:${ADMIN_PASSWORD}")
         echo "Panel password changed."
