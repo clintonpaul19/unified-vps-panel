@@ -67,7 +67,8 @@ def body(r):
         raise ValueError('invalid content length')
     if length<0 or length>MAX_REQUEST_BODY:
         raise ValueError('request body too large')
-    return json.loads(r.rfile.read(length or 2))
+    raw=r.rfile.read(length)
+    return json.loads(raw or b'{}')
 
 def public_host():
     return DOMAIN or public_ip()
@@ -142,7 +143,7 @@ def del_ssh(u):
 def _xray_usage():
     try:
         p=subprocess.run(['xray','api','statsquery','--server=127.0.0.1:10085'],capture_output=True,text=True,timeout=10)
-        if p.returncode != 0: return {}
+        if p.returncode != 0: return None
         data=json.loads(p.stdout)
         out={}
         for item in data.get('stat',[]):
@@ -153,7 +154,7 @@ def _xray_usage():
                 out[parts[1]] += int(item.get('value',0))
         return out
     except Exception:
-        return {}
+        return None
 
 def _hysteria_request(path, method='GET', payload=None):
     if not HY2_STATS_SECRET:
@@ -175,6 +176,7 @@ def kick_hysteria(username):
 
 def _hysteria_usage():
     data=_hysteria_request('/traffic')
+    if data is None: return None
     if not isinstance(data,dict): return {}
     return {str(k): int(v.get('tx',0))+int(v.get('rx',0)) for k,v in data.items() if isinstance(v,dict)}
 
@@ -336,13 +338,15 @@ def sync_usage():
             disable=[]
             for row in rows:
                 if row['protocol'] in XRAY_TAGS:
+                    if xusage is None: continue
                     raw=xusage.get(row['username'],0)
                 elif row['protocol']=='Hysteria':
+                    if husage is None: continue
                     raw=husage.get(row['username'],0)
                 else:
                     raw=0
                 prev=int(row['raw_bytes'] or 0)
-                delta=max(raw-prev,0)
+                delta=raw-prev if raw >= prev else raw
                 used=int(row['used_bytes'] or 0)+delta
                 daily=int(row['daily_used_bytes'] or 0)
                 usage_day=row['usage_day'] or ''
@@ -439,6 +443,7 @@ def record(row):
 def create_user(d):
     p=d.get('protocol'); u=str(d.get('username','')); quota_gb=float(d.get('quota_gb',0) or 0); q=int(quota_gb*(1024**3)); days=int(d.get('days',0) or 0)
     if quota_gb < 0: raise ValueError('quota cannot be negative')
+    if days < 0: raise ValueError('days cannot be negative')
     if p not in XRAY_TAGS and p not in ('Hysteria','SSH'): raise ValueError('invalid protocol')
     # SSH quota accounting is not currently supported, but accept the field
     # from CLI clients for compatibility and keep the stored quota at zero.
