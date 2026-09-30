@@ -305,8 +305,12 @@ backup_restore(){
         read -r -p "Type RESTORE to confirm: " n
         if [[ "$n" == "RESTORE" ]]; then
           tar -xzf "$f" -C /
-          systemctl restart unified-vps-panel xray hysteria-server haproxy
-          echo "Restore complete."
+          systemctl daemon-reload
+          if ! systemctl restart unified-vps-panel xray hysteria-server haproxy unified-vps-wstunnel-ssh unified-vps-ws-payload-ssh; then
+            echo "Restore applied, but one or more services failed to restart."
+          else
+            echo "Restore complete."
+          fi
         else echo "Cancelled."; fi
         pause ;;
       4) return ;;
@@ -351,7 +355,21 @@ p.write_text("\n".join(out)+"\n")'
       2) sed -E 's/^ADMIN_PASSWORD=.*/ADMIN_PASSWORD=[REDACTED]/' /etc/unified-vps/panel.env; pause ;;
       3) grep -v '^SHELL=' "$REBOOT_CRON" 2>/dev/null || echo "Daily reboot is not configured."; pause ;;
       4) openssl x509 -in /etc/unified-vps/xray.crt -noout -subject -issuer -dates 2>/dev/null || echo "Certificate unavailable."; pause ;;
-      5) /root/.acme.sh/acme.sh --renew -d "$SERVER_DOMAIN" --force || true; pause ;;
+      5)
+        if systemctl is-active --quiet haproxy 2>/dev/null; then
+          if /root/.acme.sh/acme.sh --renew -d "$SERVER_DOMAIN" --force --pre-hook "systemctl stop haproxy" --post-hook "systemctl start haproxy"; then
+            echo "Certificate renewal completed."
+          else
+            echo "Certificate renewal failed."
+          fi
+        else
+          if /root/.acme.sh/acme.sh --renew -d "$SERVER_DOMAIN" --force; then
+            echo "Certificate renewal completed."
+          else
+            echo "Certificate renewal failed."
+          fi
+        fi
+        pause ;;
       6) return ;;
     esac
   done
