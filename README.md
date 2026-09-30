@@ -216,7 +216,7 @@ For a fresh installation, the installer sets:
 ```text
 Username: spiderman
 Password: spiderman
-Panel: https://YOUR-DOMAIN/
+Panel: http://YOUR-DOMAIN:6080/
 ```
 
 This is intentionally fixed as requested. **Change these credentials before exposing the panel to an untrusted network.**
