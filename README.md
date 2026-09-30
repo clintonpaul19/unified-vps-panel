@@ -189,7 +189,7 @@ Supported architectures:
 
 The project is still under development. Test it on a fresh VPS before production use.
 
-Do not expose or commit `/etc/unified-vps/admin.json`; it contains the panel administrator credentials. `/etc/unified-vps/panel.env` is kept with blank administrator credential fields on current installations.
+Do not expose or commit `/etc/unified-vps/admin.json`; it contains the panel administrator credentials. `/etc/unified-vps/panel.env` contains only non-secret panel/runtime settings and blank legacy administrator fields.
 
 
 ## Account output and copy-ready URIs
