@@ -30,6 +30,42 @@ jobs:
           bash -n scripts/unified-vps-backup.sh
           bash -n scripts/unified-vps-cert-reload
           bash -n scripts/manage-user.sh
+      - name: Shell static analysis
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq shellcheck >/dev/null
+          shellcheck --severity=error install.sh scripts/menu.sh scripts/unified-vps-watchdog.sh scripts/unified-vps-backup.sh scripts/unified-vps-cert-reload scripts/manage-user.sh
+      - name: Validate embedded browser JavaScript
+        run: |
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          src=Path("panel/app.py").read_text(encoding="utf-8")
+          blocks=re.findall(r"<script[^>]*>(.*?)</script>", src, flags=re.S)
+          if not blocks:
+              raise SystemExit("No embedded JavaScript blocks found")
+          for i,block in enumerate(blocks,1):
+              Path(f"/tmp/panel-script-{i}.js").write_text(block, encoding="utf-8")
+          print(f"Validated {len(blocks)} JavaScript blocks")
+          PY
+          for f in /tmp/panel-script-*.js; do node --check "$f"; done
+      - name: Validate critical runtime invariants
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          app=Path("panel/app.py").read_text(encoding="utf-8")
+          menu=Path("scripts/menu.sh").read_text(encoding="utf-8")
+          install=Path("install.sh").read_text(encoding="utf-8")
+          assert "self.path=urlsplit(self.path).path" in app
+          assert "ADMIN=os.environ.get('ADMIN_USER','').strip()" in app
+          assert "ADMIN_FILE=f'{BASE}/admin.json'" in app
+          assert "Save and login" in app
+          assert "manage-user" in install
+          assert "manage-user" in menu
+          assert "ADMIN_PASSWORD=spiderman" not in install
+          assert "ADMIN_USER=spiderman" not in install
+          print("Critical runtime invariants passed")
+          PY
       - name: Validate systemd units
         run: |
           sudo apt-get update -qq
