@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -u
+install -m 0644 /etc/unified-vps/xray.crt /etc/hysteria/server.crt 2>/dev/null || true
+install -m 0640 /etc/unified-vps/xray.key /etc/hysteria/server.key 2>/dev/null || true
+chown hysteria:hysteria /etc/hysteria/server.crt /etc/hysteria/server.key 2>/dev/null || true
+systemctl try-restart xray.service 2>/dev/null || true
+systemctl try-restart hysteria-server.service 2>/dev/null || true
