@@ -545,7 +545,7 @@ if lsof -nP -iUDP:53 2>/dev/null | grep -q UDP; then
   exit 1
 fi
 systemctl start hysteria-server
-systemctl start haproxy
+systemctl restart haproxy
 sshd -t
 xray -test -config /usr/local/etc/xray/config.json
 nginx -t
