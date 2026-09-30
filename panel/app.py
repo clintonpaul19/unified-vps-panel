@@ -1189,7 +1189,8 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                 log_event('backup_restored',os.path.basename(files[0]),'')
                 result=send(self,{'ok':True,'path':files[0],'message':'Restore applied; services will restart shortly.'})
                 def restart_restored_services():
-                    subprocess.run(['systemctl','restart','xray','hysteria-server','haproxy','unified-vps-panel'],capture_output=True)
+                    subprocess.run(['systemctl','daemon-reload'],capture_output=True)
+                    subprocess.run(['systemctl','restart','nginx','xray','hysteria-server','haproxy','unified-vps-panel','unified-vps-wstunnel-ssh','unified-vps-ws-payload-ssh'],capture_output=True)
                 threading.Timer(2.0,restart_restored_services).start()
                 return result
             return send(self,{'error':'unsupported backup action'},400)
