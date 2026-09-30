@@ -6,6 +6,11 @@ TMP="$(mktemp -d)"
 OUT="$DEST/unified-vps-$STAMP.tar.gz"
 mkdir -p "$DEST"
 chmod 700 "$DEST"
+exec 9>/run/unified-vps-backup.lock
+if ! flock -n 9; then
+  echo "Another Unified VPS backup is already running." >&2
+  exit 75
+fi
 trap 'rm -rf "$TMP"' EXIT
 
 mkdir -p "$TMP/etc/unified-vps" "$TMP/etc/hysteria" "$TMP/usr/local/etc/xray" "$TMP/etc/ssh" "$TMP/etc/haproxy" "$TMP/opt/unified-vps"
