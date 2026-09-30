@@ -1124,8 +1124,6 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
 
     def do_POST(self):
         if self.path=='/setup':
-            with SETUP_LOCK:
-                if admin_configured(): return send(self,{'error':'Initial setup has already been completed.'},409)
             try: d=body(self)
             except ValueError as e: return send(self,{'error':str(e)},400)
             except Exception: return send(self,{'error':'invalid JSON'},400)
@@ -1137,8 +1135,10 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
             if len(password)<8 or len(password)>128 or '\n' in password or '\r' in password or '\x00' in password: return send(self,{'error':'Password must be 8-128 characters and cannot contain newlines.'},400)
             if password!=confirm: return send(self,{'error':'Passwords do not match.'},400)
             try:
-                _save_admin_credentials(username,password)
-                cookie=_session_cookie(username)
+                with SETUP_LOCK:
+                    if admin_configured(): return send(self,{'error':'Initial setup has already been completed.'},409)
+                    _save_admin_credentials(username,password)
+                    cookie=_session_cookie(username)
                 payload=json.dumps({'ok':True,'message':'Credentials saved. Logging in.'}).encode()
                 self.send_response(200)
                 self.send_header('Content-Type','application/json')
