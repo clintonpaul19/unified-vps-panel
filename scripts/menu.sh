@@ -1,21 +1,35 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-source /etc/unified-vps/panel.env
 
-API="http://127.0.0.1:${PANEL_PORT}"
-AUTH=(-u "${ADMIN_USER}:${ADMIN_PASSWORD}")
-PANEL_VERSION="1.2.0"
+PANEL_ENV="/etc/unified-vps/panel.env"
+ADMIN_FILE="/etc/unified-vps/admin.json"
+PANEL_PORT="$(sed -n 's/^PANEL_PORT=//p' "$PANEL_ENV" 2>/dev/null | tail -n1)"
+SERVER_DOMAIN="$(sed -n 's/^SERVER_DOMAIN=//p' "$PANEL_ENV" 2>/dev/null | tail -n1)"
+PANEL_PORT="${PANEL_PORT:-6080}"
 
-# Legacy builds used spiderman/spiderman. Clear that exact pair before use.
-if [[ "${ADMIN_USER:-}" == "spiderman" && "${ADMIN_PASSWORD:-}" == "spiderman" ]]; then
-  sed -i -E "s/^ADMIN_USER=.*/ADMIN_USER=/; s/^ADMIN_PASSWORD=.*/ADMIN_PASSWORD=/" /etc/unified-vps/panel.env
+ADMIN_USER=""
+ADMIN_PASSWORD=""
+if [[ -s "$ADMIN_FILE" ]] && command -v jq >/dev/null 2>&1; then
+  ADMIN_USER="$(jq -r '.username // empty' "$ADMIN_FILE" 2>/dev/null || true)"
+  ADMIN_PASSWORD="$(jq -r '.password // empty' "$ADMIN_FILE" 2>/dev/null || true)"
+fi
+if [[ -z "$ADMIN_USER" || -z "$ADMIN_PASSWORD" ]]; then
+  ADMIN_USER="$(sed -n 's/^ADMIN_USER=//p' "$PANEL_ENV" 2>/dev/null | tail -n1)"
+  ADMIN_PASSWORD="$(sed -n 's/^ADMIN_PASSWORD=//p' "$PANEL_ENV" 2>/dev/null | tail -n1)"
+fi
+if [[ "$ADMIN_USER" == "spiderman" && "$ADMIN_PASSWORD" == "spiderman" ]]; then
+  rm -f "$ADMIN_FILE"
+  sed -i -E '/^ADMIN_USER=/d;/^ADMIN_PASSWORD=/d' "$PANEL_ENV"
   ADMIN_USER=""; ADMIN_PASSWORD=""
 fi
+API="http://127.0.0.1:${PANEL_PORT}"
+AUTH=(-u "${ADMIN_USER}:${ADMIN_PASSWORD}")
+PANEL_VERSION="1.3.0"
 REBOOT_CRON="/etc/cron.d/unified-vps-daily-reboot"
 
-if [[ -z "${ADMIN_USER:-}" || -z "${ADMIN_PASSWORD:-}" ]]; then
+if [[ -z "$ADMIN_USER" || -z "$ADMIN_PASSWORD" ]]; then
   echo "Panel administrator credentials are not configured yet."
-  echo "Open http://${SERVER_DOMAIN:-YOUR-DOMAIN}:${PANEL_PORT:-6080}/ in a browser"
+  echo "Open http://${SERVER_DOMAIN:-YOUR-DOMAIN}:${PANEL_PORT}/ in a browser"
   echo "and complete the first-run setup."
   exit 1
 fi
@@ -25,7 +39,7 @@ pause(){ read -r -p 'Press Enter to continue...' _; }
 server_ip(){ curl -4fsS --max-time 4 https://api.ipify.org 2>/dev/null || echo "Unknown"; }
 isp_info(){ curl -4fsS --max-time 4 https://ipinfo.io/org 2>/dev/null || echo "Unknown"; }
 location_info(){ curl -4fsS --max-time 4 https://ipinfo.io/city 2>/dev/null || echo "Unknown"; }
-status_word(){ local s; s="$(systemctl is-active "$1" 2>/dev/null || true)"; [ "$s" = "active" ] && echo "ON" || echo "OFF"; }
+status_word(){ systemctl is-active "$1" 2>/dev/null || echo "OFF"; }
 
 ensure_daily_reboot(){
   mkdir -p /etc/cron.d
@@ -39,19 +53,16 @@ EOF
   systemctl enable --now cron >/dev/null 2>&1 || true
 }
 
-api_get(){ curl -fsS "${AUTH[@]}" "$API/api/users"; }
-api_post(){ curl -fsS "${AUTH[@]}" -H 'Content-Type: application/json' -d "$1" "$API/api/users"; }
-api_action(){ curl -fsS "${AUTH[@]}" -H 'Content-Type: application/json' -d "$1" "$API/api/users/action"; }
-api_delete(){ curl -fsS "${AUTH[@]}" -H 'Content-Type: application/json' -d "$1" "$API/api/users/delete"; }
+api_get(){ curl -fsS $AUTH "$API/api/users"; }
+api_post(){ curl -fsS $AUTH -H 'Content-Type: application/json' -d "$1" "$API/api/users"; }
+api_action(){ curl -fsS $AUTH -H 'Content-Type: application/json' -d "$1" "$API/api/users/action"; }
+api_delete(){ curl -fsS $AUTH -H 'Content-Type: application/json' -d "$1" "$API/api/users/delete"; }
 
-api_usage(){ curl -fsS "${AUTH[@]}" "$API/api/usage"; }
+api_usage(){ curl -fsS $AUTH "$API/api/usage"; }
 
 select_account_id(){
   local p="$1" action_name="$2" data choice list count
-  if ! data="$(api_get 2>/dev/null)"; then
-    echo "Panel API unavailable."
-    return 1
-  fi
+  data="$(api_get)"
   list="$(mktemp)"
   printf '%s\n' "$data" | python3 -c 'import json,sys; p=sys.argv[1]; [print(str(x["id"])+"|"+x["username"]+"|"+("enabled" if x["enabled"] else "disabled")) for x in json.load(sys.stdin) if x["protocol"]==p]' "$p" >"$list"
   count="$(wc -l <"$list")"
@@ -94,7 +105,7 @@ print("Server traffic today   :",h(s.get("daily_bytes",0)))
 print("Server traffic all time:",h(s.get("all_time_bytes",0)))
 print("Live accounting interval: ~15 seconds")
 PY
-  history="$(curl -fsS "${AUTH[@]}" "$API/api/usage-history" 2>/dev/null || true)"
+  history="$(curl -fsS $AUTH "$API/api/usage-history" 2>/dev/null || true)"
   if [[ -n "$history" ]]; then
     echo
     echo "Last 7 daily totals:"
@@ -147,12 +158,8 @@ draw_header(){
 }
 
 print_protocol_accounts(){
-  local p="$1" data
-  if ! data="$(api_get 2>/dev/null)"; then
-    echo "Panel API unavailable."
-    return
-  fi
-  printf '%s\n' "$data" | python3 -c '
+  local p="$1"
+  api_get | python3 -c '
 import json,sys
 p=sys.argv[1]
 rows=[x for x in json.load(sys.stdin) if x["protocol"]==p]
@@ -212,14 +219,12 @@ protocol_menu(){
         fi
         read -r -p "Duration (days, 0 = unlimited): " days
         days=${days:-0}
-        [[ "$days" =~ ^[0-9]+$ ]] || { echo "Invalid duration."; pause; continue; }
         if [[ "$p" == "SSH" ]]; then
           quota=0
           echo "SSH quota: unlimited (SSH per-user quota is not supported)."
         else
           read -r -p "Quota (GB, 0 = unlimited): " quota
           quota=${quota:-0}
-          [[ "$quota" =~ ^([0-9]+([.][0-9]+)?|[.][0-9]+)$ ]] || { echo "Invalid quota."; pause; continue; }
         fi
         if [[ "$p" == "SSH" ]]; then
           json="$(jq -n --arg u "$id" --arg p "$p" --arg s "$secret" --argjson d "$days" --argjson q "$quota" '{username:$u,protocol:$p,secret:$s,days:$d,quota_gb:$q}')"
@@ -257,13 +262,7 @@ protocol_menu(){
 
 all_accounts(){
   clear
-  local data
-  if ! data="$(api_get 2>/dev/null)"; then
-    echo "Panel API unavailable."
-    pause
-    return
-  fi
-  printf '%s\n' "$data" | python3 -m json.tool
+  api_get | python3 -m json.tool
   echo
   show_usage_summary
   pause
@@ -318,15 +317,8 @@ backup_restore(){
         read -r -p "Type RESTORE to confirm: " n
         if [[ "$n" == "RESTORE" ]]; then
           tar -xzf "$f" -C /
-          systemctl daemon-reload
-          if [[ -f /etc/iptables/rules.v4 ]]; then iptables-restore < /etc/iptables/rules.v4 || true; fi
-          systemctl restart fail2ban || true
-          if ! systemctl restart nginx unified-vps-panel xray hysteria-server haproxy unified-vps-wstunnel-ssh unified-vps-ws-payload-ssh; then
-            echo "Restore applied, but one or more services failed to restart."
-          else
-            systemctl restart unified-vps-watchdog.timer unified-vps-backup.timer || true
-            echo "Restore complete."
-          fi
+          systemctl restart unified-vps-panel xray hysteria-server haproxy
+          echo "Restore complete."
         else echo "Cancelled."; fi
         pause ;;
       4) return ;;
@@ -350,47 +342,30 @@ server_settings(){
       1)
         read -r -s -p "New panel password: " newpass; echo
         read -r -s -p "Confirm password: " confirm; echo
-        if [[ -z "$newpass" || "$newpass" != "$confirm" || "$newpass" == *$'\n'* || "$newpass" == *$'\r'* ]]; then
-          echo "Passwords do not match or contain an invalid newline."; pause; continue
-        fi
-        NEWPASS="$newpass" python3 - <<'PY'
-import json, os
+        [[ -n "$newpass" && "$newpass" == "$confirm" ]] || { echo "Passwords do not match."; pause; continue; }
+        NEWPASS="$newpass" ADMIN_USER="$ADMIN_USER" python3 - <<'PY'
+import json, os, tempfile
 from pathlib import Path
-p=Path('/etc/unified-vps/panel.env')
-new=os.environ['NEWPASS']
-def q(value):
-    return json.dumps(value).replace(chr(36),chr(92)+chr(36)).replace(chr(96),chr(92)+chr(96))
-lines=p.read_text().splitlines()
-out=[]
-for line in lines:
-    if line.startswith('ADMIN_PASSWORD='): out.append('ADMIN_PASSWORD='+q(new))
-    else: out.append(line)
-p.write_text('\n'.join(out)+'\n')
+p=Path("/etc/unified-vps/admin.json")
+data={"username":os.environ["ADMIN_USER"],"password":os.environ["NEWPASS"]}
+p.parent.mkdir(parents=True,exist_ok=True)
+fd,tmp=tempfile.mkstemp(prefix=".admin.",dir=str(p.parent))
+try:
+    with os.fdopen(fd,"w",encoding="utf-8") as f: json.dump(data,f,ensure_ascii=False); f.write("\n")
+    os.chmod(tmp,0o600); os.replace(tmp,p)
+finally:
+    try: os.unlink(tmp)
+    except FileNotFoundError: pass
 PY
-        chmod 600 /etc/unified-vps/panel.env
-        systemctl restart unified-vps-panel
         ADMIN_PASSWORD="$newpass"
         AUTH=(-u "${ADMIN_USER}:${ADMIN_PASSWORD}")
+        systemctl restart unified-vps-panel
         echo "Panel password changed."
         pause ;;
-      2) sed -E 's/^ADMIN_PASSWORD=.*/ADMIN_PASSWORD=[REDACTED]/' /etc/unified-vps/panel.env; pause ;;
+      2) echo "Admin username: $ADMIN_USER"; echo "Credentials file: $ADMIN_FILE (root-only)"; pause ;;
       3) grep -v '^SHELL=' "$REBOOT_CRON" 2>/dev/null || echo "Daily reboot is not configured."; pause ;;
       4) openssl x509 -in /etc/unified-vps/xray.crt -noout -subject -issuer -dates 2>/dev/null || echo "Certificate unavailable."; pause ;;
-      5)
-        if systemctl is-active --quiet haproxy 2>/dev/null; then
-          if /root/.acme.sh/acme.sh --renew -d "$SERVER_DOMAIN" --force --pre-hook "systemctl stop haproxy" --post-hook "systemctl start haproxy"; then
-            echo "Certificate renewal completed."
-          else
-            echo "Certificate renewal failed."
-          fi
-        else
-          if /root/.acme.sh/acme.sh --renew -d "$SERVER_DOMAIN" --force; then
-            echo "Certificate renewal completed."
-          else
-            echo "Certificate renewal failed."
-          fi
-        fi
-        pause ;;
+      5) /root/.acme.sh/acme.sh --renew -d "$SERVER_DOMAIN" --force || true; pause ;;
       6) return ;;
     esac
   done
@@ -411,7 +386,7 @@ tools_menu(){
     case "$n" in
       1) host="${SERVER_DOMAIN:-}"; getent ahostsv4 "$host" || true; pause ;;
       2) host="${SERVER_DOMAIN:-}"; ping -c 4 -W 2 "$host" || true; pause ;;
-      3) read -r -p "Port: " p; if [[ "$p" =~ ^[0-9]{1,5}$ ]] && (( p >= 1 && p <= 65535 )); then timeout 5 bash -c "</dev/tcp/127.0.0.1/$p" && echo "OPEN" || echo "CLOSED"; else echo "Invalid port."; fi; pause ;;
+      3) read -r -p "Port: " p; timeout 5 bash -c "</dev/tcp/127.0.0.1/$p" && echo "OPEN" || echo "CLOSED"; pause ;;
       4) ss -lntup; pause ;;
       5) openssl x509 -in /etc/unified-vps/xray.crt -noout -subject -issuer -dates 2>/dev/null || echo "Certificate unavailable."; pause ;;
       6) return ;;
@@ -435,8 +410,7 @@ monitoring_menu(){
       1) systemctl --no-pager --type=service --state=running | grep -E 'ssh|nginx|haproxy|xray|hysteria|unified' || true; pause ;;
       2) free -h; df -h; uptime; ps -eo pid,comm,%cpu,%mem --sort=-%cpu | head -12; pause ;;
       3)
-        read -r -p "Service: " svc
-        case "$svc" in ssh|nginx|haproxy|xray|hysteria-server|unified-vps-panel|unified-vps-wstunnel-ssh|unified-vps-ws-payload-ssh|fail2ban) ;; *) echo "Invalid service."; pause; continue ;; esac
+        read -r -p "Service (ssh/nginx/haproxy/xray/hysteria-server/unified-vps-panel): " svc
         journalctl -u "$svc" -n 120 --no-pager || true
         pause ;;
       4) systemctl --failed --no-pager || true; pause ;;
@@ -550,9 +524,7 @@ security_menu(){
 
 restart_services(){
   echo "Restarting Unified VPS services..."
-  if ! systemctl restart ssh nginx haproxy unified-vps-panel xray hysteria-server unified-vps-wstunnel-ssh unified-vps-ws-payload-ssh; then
-    echo "One or more services failed to restart; check status below."
-  fi
+  systemctl restart ssh nginx haproxy unified-vps-panel xray hysteria-server unified-vps-wstunnel-ssh unified-vps-ws-payload-ssh
   echo
   systemctl is-active ssh nginx haproxy unified-vps-panel xray hysteria-server unified-vps-wstunnel-ssh unified-vps-ws-payload-ssh || true
   echo "Done."
@@ -571,8 +543,8 @@ speedtest_menu(){
 }
 
 update_script(){
-  local tmp_menu tmp_app tmp_haproxy tmp_payload tmp_wstunnel_unit tmp_hysteria_unit tmp_cert_hook tmp_status tmp_watch tmp_watch_unit tmp_timer tmp_backup tmp_backup_unit tmp_backup_timer tmp_f2b
-  tmp_menu="$(mktemp)"; tmp_app="$(mktemp)"; tmp_haproxy="$(mktemp)"; tmp_payload="$(mktemp)"; tmp_wstunnel_unit="$(mktemp)"; tmp_hysteria_unit="$(mktemp)"; tmp_cert_hook="$(mktemp)"; tmp_status="$(mktemp)"
+  local tmp_menu tmp_app tmp_haproxy tmp_payload tmp_watch tmp_watch_unit tmp_timer tmp_backup tmp_backup_unit tmp_backup_timer tmp_f2b
+  tmp_menu="$(mktemp)"; tmp_app="$(mktemp)"; tmp_haproxy="$(mktemp)"; tmp_payload="$(mktemp)"
   tmp_watch="$(mktemp)"; tmp_watch_unit="$(mktemp)"; tmp_timer="$(mktemp)"
   tmp_backup="$(mktemp)"; tmp_backup_unit="$(mktemp)"; tmp_backup_timer="$(mktemp)"; tmp_f2b="$(mktemp)"
   echo "Updating Unified VPS components..."
@@ -582,10 +554,6 @@ update_script(){
      ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/panel/app.py?$(date +%s)" -o "$tmp_app" ||
      ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/config/haproxy.cfg?$(date +%s)" -o "$tmp_haproxy" ||
      ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/ws-payload-ssh.py?$(date +%s)" -o "$tmp_payload" ||
-     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/systemd/unified-vps-wstunnel-ssh.service?$(date +%s)" -o "$tmp_wstunnel_unit" ||
-     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/systemd/hysteria-server.service?$(date +%s)" -o "$tmp_hysteria_unit" ||
-     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/unified-vps-cert-reload?$(date +%s)" -o "$tmp_cert_hook" ||
-     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/vps-status.sh?$(date +%s)" -o "$tmp_status" ||
      ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/unified-vps-watchdog.sh?$(date +%s)" -o "$tmp_watch" ||
      ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/systemd/unified-vps-watchdog.service?$(date +%s)" -o "$tmp_watch_unit" ||
      ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/systemd/unified-vps-watchdog.timer?$(date +%s)" -o "$tmp_timer" ||
@@ -593,231 +561,15 @@ update_script(){
      ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/systemd/unified-vps-backup.service?$(date +%s)" -o "$tmp_backup_unit" ||
      ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/systemd/unified-vps-backup.timer?$(date +%s)" -o "$tmp_backup_timer" ||
      ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/config/fail2ban-unified-vps.local?$(date +%s)" -o "$tmp_f2b"; then
-    echo "Update download failed."; rm -f "$tmp_menu" "$tmp_app" "$tmp_haproxy" "$tmp_payload" "$tmp_wstunnel_unit" "$tmp_hysteria_unit" "$tmp_cert_hook" "$tmp_status" "$tmp_watch" "$tmp_watch_unit" "$tmp_timer" "$tmp_backup" "$tmp_backup_unit" "$tmp_backup_timer" "$tmp_f2b"; pause; return
+    echo "Update download failed."; rm -f "$tmp_menu" "$tmp_app" "$tmp_haproxy" "$tmp_payload" "$tmp_watch" "$tmp_watch_unit" "$tmp_timer" "$tmp_backup" "$tmp_backup_unit" "$tmp_backup_timer" "$tmp_f2b"; pause; return
   fi
-  if ! bash -n "$tmp_menu" || ! bash -n "$tmp_cert_hook" || ! bash -n "$tmp_status" || ! bash -n "$tmp_watch" || ! bash -n "$tmp_backup" || ! python3 -m py_compile "$tmp_app" "$tmp_payload" || ! haproxy -c -f "$tmp_haproxy" || ! systemd-analyze verify "$tmp_wstunnel_unit" "$tmp_hysteria_unit" "$tmp_watch_unit" "$tmp_timer" "$tmp_backup_unit" "$tmp_backup_timer"; then
-    echo "Validation failed. Nothing was installed."; rm -f "$tmp_menu" "$tmp_app" "$tmp_haproxy" "$tmp_payload" "$tmp_wstunnel_unit" "$tmp_hysteria_unit" "$tmp_cert_hook" "$tmp_watch" "$tmp_watch_unit" "$tmp_timer" "$tmp_backup" "$tmp_backup_unit" "$tmp_backup_timer" "$tmp_f2b"; pause; return
-  fi
-  # Legacy default credentials are never retained.
-  if [ -f /etc/unified-vps/panel.env ]; then
-    sed -i -E '/^ADMIN_USER="?spiderman"?$/d; /^ADMIN_PASSWORD="?spiderman"?$/d' /etc/unified-vps/panel.env
-  fi
-  install -m 0644 "$tmp_app" /opt/unified-vps/panel.py
-  install -m 0644 "$tmp_haproxy" /etc/haproxy/haproxy.cfg
-  install -m 0755 "$tmp_payload" /opt/unified-vps/ws-payload-ssh.py
-  install -m 0644 "$tmp_wstunnel_unit" /etc/systemd/system/unified-vps-wstunnel-ssh.service
-  install -m 0644 "$tmp_hysteria_unit" /etc/systemd/system/hysteria-server.service
-  install -m 0755 "$tmp_cert_hook" /usr/local/sbin/unified-vps-cert-reload
-  install -m 0755 "$tmp_status" /usr/local/bin/vps-status
-  install -m 0755 "$tmp_watch" /usr/local/sbin/unified-vps-watchdog
-  install -m 0644 "$tmp_watch_unit" /etc/systemd/system/unified-vps-watchdog.service
-  install -m 0644 "$tmp_timer" /etc/systemd/system/unified-vps-watchdog.timer
-  install -m 0755 "$tmp_backup" /usr/local/sbin/unified-vps-backup
-  install -m 0644 "$tmp_backup_unit" /etc/systemd/system/unified-vps-backup.service
-  install -m 0644 "$tmp_backup_timer" /etc/systemd/system/unified-vps-backup.timer
-  mkdir -p /etc/fail2ban/jail.d
-  install -m 0644 "$tmp_f2b" /etc/fail2ban/jail.d/unified-vps.local
-  rm -f "$tmp_menu" "$tmp_app" "$tmp_haproxy" "$tmp_payload" "$tmp_wstunnel_unit" "$tmp_hysteria_unit" "$tmp_cert_hook" "$tmp_watch" "$tmp_watch_unit" "$tmp_timer" "$tmp_backup" "$tmp_backup_unit" "$tmp_backup_timer" "$tmp_f2b"
-  systemctl daemon-reload
-  systemctl unmask hysteria-server.service 2>/dev/null || true
-  systemctl enable fail2ban unified-vps-watchdog.timer unified-vps-backup.timer unified-vps-wstunnel-ssh unified-vps-ws-payload-ssh hysteria-server haproxy xray unified-vps-panel >/dev/null 2>&1 || true
-  systemctl enable --now fail2ban unified-vps-watchdog.timer unified-vps-backup.timer
-  systemctl restart unified-vps-panel unified-vps-wstunnel-ssh unified-vps-ws-payload-ssh hysteria-server haproxy xray
-  ensure_daily_reboot
-  echo "Update complete. Watchdog, backups and Fail2Ban are active."
-  pause
-}
-
-server_info(){
-  draw_header
-  echo
-  echo "IP       : $(server_ip)"
-  echo "Hostname : $(hostname -f 2>/dev/null || hostname)"
-  echo "Domain   : ${SERVER_DOMAIN:-not configured}"
-  echo "ISP      : $(isp_info)"
-  echo "Location : $(location_info)"
-  echo "Kernel   : $(uname -r)"
-  echo "Arch     : $(uname -m)"
-  echo "Disk     : $(df -h / | awk 'NR==2 {print $3" / "$2" ("$5")"}')"
-  echo "Memory   : $(free -h | awk '/Mem:/ {print $3" / "$2}')"
-  echo "Uptime   : $(uptime -p)"
-  echo "Daily reboot: 04:00 local"
-  pause
-}
-
-ensure_daily_reboot
-
-while true; do
-  draw_header
-  echo
-  echo "============================ MAIN MENU ============================"
-  echo "[01] SSH accounts"
-  echo "[02] VLESS accounts"
-  echo "[03] VMess accounts"
-  echo "[04] Trojan accounts"
-  echo "[05] Hysteria accounts"
-  echo "[06] All accounts"
-  echo "[07] Install extra tools"
-  echo "[08] Server information"
-  echo "[09] Backup / restore"
-  echo "[10] Server settings"
-  echo "[11] Tools & utilities"
-  echo "[12] Monitoring"
-  echo "[13] Domain & network"
-  echo "[14] Logs & reports"
-  echo "[15] Restart all services"
-  echo "[16] Ookla speedtest"
-  echo "[17] Active connections"
-  echo "[18] System resources"
-  echo "[19] Security audit"
-  echo "[20] Update panel / proxy files"
-  echo "[21] Exit"
-  echo
-  echo "Version = $PANEL_VERSION | Daily reboot = 04:00 local"
-  if [[ -z "${ADMIN_USER:-}" || -z "${ADMIN_PASSWORD:-}" ]]; then
-    echo "Panel setup: http://${SERVER_DOMAIN:-SERVER_IP}:${PANEL_PORT:-6080}/"
-  fi
-  echo
-  read -r -p "Select an option [1-21] >>> " n
-  case "$n" in
-    1) protocol_menu SSH ;;
-    2) protocol_menu VLESS ;;
-    3) protocol_menu VMess ;;
-    4) protocol_menu Trojan ;;
-    5) protocol_menu Hysteria ;;
-    6) all_accounts ;;
-    7) install_extra ;;
-    8) server_info ;;
-    9) backup_restore ;;
-    10) server_settings ;;
-    11) tools_menu ;;
-    12) monitoring_menu ;;
-    13) domain_network ;;
-    14) logs_reports ;;
-    15) restart_services ;;
-    16) speedtest_menu ;;
-    17) view_connections ;;
-    18) system_resource ;;
-    19) security_menu ;;
-    20) update_script ;;
-    21) exit 0 ;;
-    *) echo "Invalid option."; sleep 1 ;;
-  esac
-done
- /etc/unified-vps/panel.env && grep -Eq '^ADMIN_PASSWORD="?spiderman"?  install -m 0644 "$tmp_app" /opt/unified-vps/panel.py
-  install -m 0644 "$tmp_haproxy" /etc/haproxy/haproxy.cfg
-  install -m 0755 "$tmp_payload" /opt/unified-vps/ws-payload-ssh.py
-  install -m 0644 "$tmp_wstunnel_unit" /etc/systemd/system/unified-vps-wstunnel-ssh.service
-  install -m 0644 "$tmp_hysteria_unit" /etc/systemd/system/hysteria-server.service
-  install -m 0755 "$tmp_cert_hook" /usr/local/sbin/unified-vps-cert-reload
-  install -m 0755 "$tmp_status" /usr/local/bin/vps-status
-  install -m 0755 "$tmp_watch" /usr/local/sbin/unified-vps-watchdog
-  install -m 0644 "$tmp_watch_unit" /etc/systemd/system/unified-vps-watchdog.service
-  install -m 0644 "$tmp_timer" /etc/systemd/system/unified-vps-watchdog.timer
-  install -m 0755 "$tmp_backup" /usr/local/sbin/unified-vps-backup
-  install -m 0644 "$tmp_backup_unit" /etc/systemd/system/unified-vps-backup.service
-  install -m 0644 "$tmp_backup_timer" /etc/systemd/system/unified-vps-backup.timer
-  mkdir -p /etc/fail2ban/jail.d
-  install -m 0644 "$tmp_f2b" /etc/fail2ban/jail.d/unified-vps.local
-  rm -f "$tmp_menu" "$tmp_app" "$tmp_haproxy" "$tmp_payload" "$tmp_wstunnel_unit" "$tmp_hysteria_unit" "$tmp_cert_hook" "$tmp_watch" "$tmp_watch_unit" "$tmp_timer" "$tmp_backup" "$tmp_backup_unit" "$tmp_backup_timer" "$tmp_f2b"
-  systemctl daemon-reload
-  systemctl unmask hysteria-server.service 2>/dev/null || true
-  systemctl enable fail2ban unified-vps-watchdog.timer unified-vps-backup.timer unified-vps-wstunnel-ssh unified-vps-ws-payload-ssh hysteria-server haproxy xray unified-vps-panel >/dev/null 2>&1 || true
-  systemctl enable --now fail2ban unified-vps-watchdog.timer unified-vps-backup.timer
-  systemctl restart unified-vps-panel unified-vps-wstunnel-ssh unified-vps-ws-payload-ssh hysteria-server haproxy xray
-  ensure_daily_reboot
-  echo "Update complete. Watchdog, backups and Fail2Ban are active."
-  pause
-}
-
-server_info(){
-  draw_header
-  echo
-  echo "IP       : $(server_ip)"
-  echo "Hostname : $(hostname -f 2>/dev/null || hostname)"
-  echo "Domain   : ${SERVER_DOMAIN:-not configured}"
-  echo "ISP      : $(isp_info)"
-  echo "Location : $(location_info)"
-  echo "Kernel   : $(uname -r)"
-  echo "Arch     : $(uname -m)"
-  echo "Disk     : $(df -h / | awk 'NR==2 {print $3" / "$2" ("$5")"}')"
-  echo "Memory   : $(free -h | awk '/Mem:/ {print $3" / "$2}')"
-  echo "Uptime   : $(uptime -p)"
-  echo "Daily reboot: 04:00 local"
-  pause
-}
-
-ensure_daily_reboot
-
-while true; do
-  draw_header
-  echo
-  echo "============================ MAIN MENU ============================"
-  echo "[01] SSH accounts"
-  echo "[02] VLESS accounts"
-  echo "[03] VMess accounts"
-  echo "[04] Trojan accounts"
-  echo "[05] Hysteria accounts"
-  echo "[06] All accounts"
-  echo "[07] Install extra tools"
-  echo "[08] Server information"
-  echo "[09] Backup / restore"
-  echo "[10] Server settings"
-  echo "[11] Tools & utilities"
-  echo "[12] Monitoring"
-  echo "[13] Domain & network"
-  echo "[14] Logs & reports"
-  echo "[15] Restart all services"
-  echo "[16] Ookla speedtest"
-  echo "[17] Active connections"
-  echo "[18] System resources"
-  echo "[19] Security audit"
-  echo "[20] Update panel / proxy files"
-  echo "[21] Exit"
-  echo
-  echo "Version = $PANEL_VERSION | Daily reboot = 04:00 local"
-  if [[ -z "${ADMIN_USER:-}" || -z "${ADMIN_PASSWORD:-}" ]]; then
-    echo "Panel setup: http://${SERVER_DOMAIN:-SERVER_IP}:${PANEL_PORT:-6080}/"
-  fi
-  echo
-  read -r -p "Select an option [1-21] >>> " n
-  case "$n" in
-    1) protocol_menu SSH ;;
-    2) protocol_menu VLESS ;;
-    3) protocol_menu VMess ;;
-    4) protocol_menu Trojan ;;
-    5) protocol_menu Hysteria ;;
-    6) all_accounts ;;
-    7) install_extra ;;
-    8) server_info ;;
-    9) backup_restore ;;
-    10) server_settings ;;
-    11) tools_menu ;;
-    12) monitoring_menu ;;
-    13) domain_network ;;
-    14) logs_reports ;;
-    15) restart_services ;;
-    16) speedtest_menu ;;
-    17) view_connections ;;
-    18) system_resource ;;
-    19) security_menu ;;
-    20) update_script ;;
-    21) exit 0 ;;
-    *) echo "Invalid option."; sleep 1 ;;
-  esac
-done
- /etc/unified-vps/panel.env; then
-    sed -i -E '/^ADMIN_USER=/d;/^ADMIN_PASSWORD=/d' /etc/unified-vps/panel.env
-    echo "Legacy spiderman panel credentials removed; the panel will require first-visit setup."
+  if ! bash -n "$tmp_menu" || ! python3 -m py_compile "$tmp_app" || ! haproxy -c -f "$tmp_haproxy"; then
+    echo "Validation failed. Nothing was installed."; rm -f "$tmp_menu" "$tmp_app" "$tmp_haproxy" "$tmp_payload" "$tmp_watch" "$tmp_watch_unit" "$tmp_timer" "$tmp_backup" "$tmp_backup_unit" "$tmp_backup_timer" "$tmp_f2b"; pause; return
   fi
   install -m 0755 "$tmp_menu" /usr/local/bin/menu
   install -m 0644 "$tmp_app" /opt/unified-vps/panel.py
   install -m 0644 "$tmp_haproxy" /etc/haproxy/haproxy.cfg
   install -m 0755 "$tmp_payload" /opt/unified-vps/ws-payload-ssh.py
-  install -m 0644 "$tmp_wstunnel_unit" /etc/systemd/system/unified-vps-wstunnel-ssh.service
-  install -m 0644 "$tmp_hysteria_unit" /etc/systemd/system/hysteria-server.service
-  install -m 0755 "$tmp_cert_hook" /usr/local/sbin/unified-vps-cert-reload
-  install -m 0755 "$tmp_status" /usr/local/bin/vps-status
   install -m 0755 "$tmp_watch" /usr/local/sbin/unified-vps-watchdog
   install -m 0644 "$tmp_watch_unit" /etc/systemd/system/unified-vps-watchdog.service
   install -m 0644 "$tmp_timer" /etc/systemd/system/unified-vps-watchdog.timer
@@ -826,12 +578,10 @@ done
   install -m 0644 "$tmp_backup_timer" /etc/systemd/system/unified-vps-backup.timer
   mkdir -p /etc/fail2ban/jail.d
   install -m 0644 "$tmp_f2b" /etc/fail2ban/jail.d/unified-vps.local
-  rm -f "$tmp_menu" "$tmp_app" "$tmp_haproxy" "$tmp_payload" "$tmp_wstunnel_unit" "$tmp_hysteria_unit" "$tmp_cert_hook" "$tmp_watch" "$tmp_watch_unit" "$tmp_timer" "$tmp_backup" "$tmp_backup_unit" "$tmp_backup_timer" "$tmp_f2b"
+  rm -f "$tmp_menu" "$tmp_app" "$tmp_haproxy" "$tmp_payload" "$tmp_watch" "$tmp_watch_unit" "$tmp_timer" "$tmp_backup" "$tmp_backup_unit" "$tmp_backup_timer" "$tmp_f2b"
   systemctl daemon-reload
-  systemctl unmask hysteria-server.service 2>/dev/null || true
-  systemctl enable fail2ban unified-vps-watchdog.timer unified-vps-backup.timer unified-vps-wstunnel-ssh unified-vps-ws-payload-ssh hysteria-server haproxy xray unified-vps-panel >/dev/null 2>&1 || true
   systemctl enable --now fail2ban unified-vps-watchdog.timer unified-vps-backup.timer
-  systemctl restart unified-vps-panel unified-vps-wstunnel-ssh unified-vps-ws-payload-ssh hysteria-server haproxy xray
+  systemctl restart unified-vps-panel unified-vps-ws-payload-ssh haproxy
   ensure_daily_reboot
   echo "Update complete. Watchdog, backups and Fail2Ban are active."
   pause
@@ -883,9 +633,6 @@ while true; do
   echo "[21] Exit"
   echo
   echo "Version = $PANEL_VERSION | Daily reboot = 04:00 local"
-  if [[ -z "${ADMIN_USER:-}" || -z "${ADMIN_PASSWORD:-}" ]]; then
-    echo "Panel setup: http://${SERVER_DOMAIN:-SERVER_IP}:${PANEL_PORT:-6080}/"
-  fi
   echo
   read -r -p "Select an option [1-21] >>> " n
   case "$n" in
