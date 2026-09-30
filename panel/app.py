@@ -711,6 +711,7 @@ def service_state(name):
 
 class H(BaseHTTPRequestHandler):
     def do_GET(self):
+        self.path=urlsplit(self.path).path
         if self.path=='/health':
             services={name:service_state(name) for name in ('ssh','nginx','haproxy','xray','hysteria-server','unified-vps-wstunnel-ssh','unified-vps-ws-payload-ssh','unified-vps-panel')}
             tcp={}
@@ -1247,6 +1248,7 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
         self.send_response(404); self.end_headers()
 
     def do_POST(self):
+        self.path=urlsplit(self.path).path
         if self.path=='/setup':
             try:
                 d=body(self)
