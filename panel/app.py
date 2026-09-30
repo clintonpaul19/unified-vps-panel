@@ -9,8 +9,12 @@ DB=f'{BASE}/panel.db'
 CFG='/usr/local/etc/xray/config.json'
 PORT=int(os.environ.get('PANEL_PORT','6080'))
 DOMAIN=os.environ.get('SERVER_DOMAIN','')
-ADMIN=os.environ.get('ADMIN_USER','spiderman')
-PASSWORD=os.environ.get('ADMIN_PASSWORD','spiderman')
+ADMIN=os.environ.get('ADMIN_USER','').strip()
+PASSWORD=os.environ.get('ADMIN_PASSWORD','')
+PANEL_ENV=f'{BASE}/panel.env'
+SESSION_COOKIE='uvps_session'
+SESSION_TTL=12*60*60
+SETUP_LOCK=threading.Lock()
 HY2_STATS_SECRET=os.environ.get('HY2_STATS_SECRET','')
 PUBLIC_IP_CACHE=None
 XRAY_TAGS={'VLESS':['vless443'],'VMess':['vmess443'],'Trojan':['trojan443']}
@@ -46,12 +50,81 @@ def conn():
               (time.strftime('%Y-%m-%d'),))
     c.commit(); return c
 
+def admin_configured():
+    return bool(ADMIN and PASSWORD)
+
+def _session_cookie(username):
+    issued=str(int(time.time()))
+    payload=f'{username}|{issued}'
+    sig=hmac.new(f'{ADMIN}\\0{PASSWORD}'.encode(),payload.encode(),hashlib.sha256).hexdigest()
+    return f'{payload}|{sig}'
+
+def _session_valid(cookie):
+    if not admin_configured() or not cookie: return False
+    try:
+        username,issued,sig=cookie.split('|',2)
+        issued=int(issued)
+        if username!=ADMIN or issued<0 or time.time()-issued>SESSION_TTL: return False
+        expected=hmac.new(f'{ADMIN}\\0{PASSWORD}'.encode(),f'{username}|{issued}'.encode(),hashlib.sha256).hexdigest()
+        return hmac.compare_digest(sig,expected)
+    except Exception:
+        return False
+
 def auth(h):
+    if not admin_configured(): return False
     v=h.get('Authorization','')
-    if not v.startswith('Basic '): return False
-    try: u,p=base64.b64decode(v[6:]).decode().split(':',1)
-    except Exception: return False
-    return hmac.compare_digest(u,ADMIN) and hmac.compare_digest(p,PASSWORD)
+    if v.startswith('Basic '):
+        try:
+            u,p=base64.b64decode(v[6:]).decode().split(':',1)
+            if hmac.compare_digest(u,ADMIN) and hmac.compare_digest(p,PASSWORD): return True
+        except Exception: pass
+    for item in h.get('Cookie','').split(';'):
+        item=item.strip()
+        if item.startswith(SESSION_COOKIE+'=') and _session_valid(item.split('=',1)[1]): return True
+    return False
+
+def _save_admin_credentials(username,password):
+    global ADMIN,PASSWORD
+    os.makedirs(BASE,exist_ok=True)
+    try:
+        with open(PANEL_ENV,encoding='utf-8') as f: lines=f.read().splitlines()
+    except OSError:
+        lines=[]
+    out=[]; user_done=False; pass_done=False
+    def q(v): return json.dumps(v,ensure_ascii=False)
+    for line in lines:
+        if line.startswith('ADMIN_USER='):
+            out.append('ADMIN_USER='+q(username)); user_done=True
+        elif line.startswith('ADMIN_PASSWORD='):
+            out.append('ADMIN_PASSWORD='+q(password)); pass_done=True
+        else: out.append(line)
+    if not user_done: out.append('ADMIN_USER='+q(username))
+    if not pass_done: out.append('ADMIN_PASSWORD='+q(password))
+    tmp=PANEL_ENV+'.tmp'
+    with open(tmp,'w',encoding='utf-8') as f: f.write('\\n'.join(out)+'\\n')
+    os.chmod(tmp,0o600)
+    os.replace(tmp,PANEL_ENV)
+    ADMIN=username; PASSWORD=password
+
+def send_html(r,body_html,status=200,headers=None):
+    b=body_html.encode()
+    r.send_response(status)
+    r.send_header('Content-Type','text/html; charset=utf-8')
+    r.send_header('Cache-Control','no-store')
+    if headers:
+        for k,v in headers.items(): r.send_header(k,v)
+    r.send_header('Content-Length',str(len(b)))
+    r.end_headers(); r.wfile.write(b)
+
+def _setup_page(r):
+    return send_html(r,'''<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Unified VPS Setup</title>
+<style>body{font:15px system-ui;background:#06110b;color:#ecfff2;display:grid;place-items:center;min-height:100vh;margin:0}.card{width:min(420px,90%);padding:28px;border:1px solid #173524;border-radius:16px;background:#0b1811}input,button{width:100%;box-sizing:border-box;padding:12px;margin:7px 0;border-radius:9px;border:1px solid #173524;background:#06100a;color:#ecfff2}button{background:#42f58d;color:#03200f;font-weight:800;cursor:pointer}.msg{color:#ff6b78;min-height:20px}</style>
+<div class="card"><h2>Unified VPS</h2><p>Create your administrator credentials.</p><form id="f"><input name="username" placeholder="Enter username" maxlength="32" autocomplete="username" required><input name="password" type="password" placeholder="Enter password" minlength="8" maxlength="128" autocomplete="new-password" required><input name="confirm" type="password" placeholder="Reenter password" minlength="8" maxlength="128" autocomplete="new-password" required><button>Save and login</button><div class="msg" id="m"></div></form><script>f.onsubmit=async e=>{e.preventDefault();m.textContent='';let d=Object.fromEntries(new FormData(f));if(d.password!==d.confirm){m.textContent='Passwords do not match';return}let r=await fetch('/setup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});let j=await r.json();if(!r.ok){m.textContent=j.error||'Setup failed';return}location='/'};</script></div>''')
+
+def _login_page(r):
+    return send_html(r,'''<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Unified VPS Login</title>
+<style>body{font:15px system-ui;background:#06110b;color:#ecfff2;display:grid;place-items:center;min-height:100vh;margin:0}.card{width:min(420px,90%);padding:28px;border:1px solid #173524;border-radius:16px;background:#0b1811}input,button{width:100%;box-sizing:border-box;padding:12px;margin:7px 0;border-radius:9px;border:1px solid #173524;background:#06100a;color:#ecfff2}button{background:#42f58d;color:#03200f;font-weight:800;cursor:pointer}.msg{color:#ff6b78;min-height:20px}</style>
+<div class="card"><h2>Unified VPS</h2><form id="f"><input name="username" placeholder="Username" autocomplete="username" required><input name="password" type="password" placeholder="Password" autocomplete="current-password" required><button>Login</button><div class="msg" id="m"></div></form><script>f.onsubmit=async e=>{e.preventDefault();let d=Object.fromEntries(new FormData(f)),r=await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)}),j=await r.json();if(!r.ok){m.textContent=j.error||'Login failed';return}location='/'};</script></div>''')
 
 def send(r,obj,status=200):
     b=json.dumps(obj).encode(); r.send_response(status)
