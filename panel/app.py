@@ -15,6 +15,7 @@ PANEL_ENV=f'{BASE}/panel.env'
 SESSION_COOKIE='uvps_session'
 SESSION_TTL=12*60*60
 SETUP_LOCK=threading.Lock()
+CERT_LOCK=threading.Lock()
 HY2_STATS_SECRET=os.environ.get('HY2_STATS_SECRET','')
 PUBLIC_IP_CACHE=None
 XRAY_TAGS={'VLESS':['vless443'],'VMess':['vmess443'],'Trojan':['trojan443']}
@@ -613,6 +614,14 @@ def create_user(d):
         raise
     finally: c.close()
 
+def account_enable_error(row):
+    now=int(time.time())
+    if row['expiry'] and row['expiry']<=now:
+        return 'account has expired; renew it before enabling'
+    if row['quota_bytes'] and int(row['used_bytes'] or 0)>=int(row['quota_bytes']):
+        return 'account quota has been reached; renew it before enabling'
+    return None
+
 def service_state(name):
     try:
         return subprocess.check_output(['systemctl','is-active',name],stderr=subprocess.DEVNULL,text=True).strip()
@@ -1186,23 +1195,24 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
             return send(self,{'error':'unsupported backup action'},400)
 
         if self.path=='/api/certificate/renew':
-            haproxy_was_active=subprocess.run(['systemctl','is-active','--quiet','haproxy'],check=False).returncode==0
-            try:
-                acme='/root/.acme.sh/acme.sh'
-                if not os.path.exists(acme): return send(self,{'error':'acme.sh not installed'},500)
-                renew_args=[acme,'--renew','-d',public_host(),'--force']
-                if haproxy_was_active:
-                    renew_args += ['--pre-hook','systemctl stop haproxy','--post-hook','systemctl start haproxy']
-                p=subprocess.run(renew_args,capture_output=True,text=True,timeout=180)
-                if p.returncode:
-                    return send(self,{'error':(p.stderr or p.stdout).strip() or 'certificate renewal failed'},500)
-                log_event('certificate_renewed',public_host(),'')
-                return send(self,{'ok':True,'output':(p.stdout or '').strip()})
-            except Exception as e:
-                return send(self,{'error':str(e)},500)
-            finally:
-                if haproxy_was_active:
-                    subprocess.run(['systemctl','start','haproxy'],capture_output=True)
+            with CERT_LOCK:
+                haproxy_was_active=subprocess.run(['systemctl','is-active','--quiet','haproxy'],check=False).returncode==0
+                try:
+                    acme='/root/.acme.sh/acme.sh'
+                    if not os.path.exists(acme): return send(self,{'error':'acme.sh not installed'},500)
+                    renew_args=[acme,'--renew','-d',public_host(),'--force']
+                    if haproxy_was_active:
+                        renew_args += ['--pre-hook','systemctl stop haproxy','--post-hook','systemctl start haproxy']
+                    p=subprocess.run(renew_args,capture_output=True,text=True,timeout=180)
+                    if p.returncode:
+                        return send(self,{'error':(p.stderr or p.stdout).strip() or 'certificate renewal failed'},500)
+                    log_event('certificate_renewed',public_host(),'')
+                    return send(self,{'ok':True,'output':(p.stdout or '').strip()})
+                except Exception as e:
+                    return send(self,{'error':str(e)},500)
+                finally:
+                    if haproxy_was_active:
+                        subprocess.run(['systemctl','start','haproxy'],capture_output=True)
 
         if self.path=='/api/users':
             try: return send(self,create_user(d))
@@ -1212,8 +1222,10 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
             action=str(d.get('action','')).lower()
             if not ids or action not in ('enable','disable','delete','renew'):
                 return send(self,{'error':'invalid bulk request'},400)
-            if action=='renew' and int(d.get('days',0) or 0)<=0:
-                return send(self,{'error':'renewal days required'},400)
+            if action=='renew':
+                try: renew_days=int(d.get('days',0) or 0)
+                except (TypeError,ValueError): return send(self,{'error':'renewal days required'},400)
+                if renew_days<=0 or renew_days>36500: return send(self,{'error':'renewal days must be between 1 and 36500'},400)
             results=[]
             for uid in ids:
                 try:
@@ -1226,6 +1238,9 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                         c=conn(); c.execute('delete from users where id=?',(uid,)); c.commit(); c.close()
                     elif action in ('enable','disable'):
                         enable=action=='enable'
+                        if enable:
+                            err=account_enable_error(row)
+                            if err: raise ValueError(err)
                         if row['protocol'] in XRAY_TAGS:
                             if enable: ensure_xray_client(row['protocol'],row['username'],row['secret'])
                             else: del_xray(row['protocol'],row['username'])
@@ -1262,6 +1277,7 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                 if action=='renew':
                     days=int(d.get('days',0) or 0)
                     if days <= 0: raise ValueError('renewal days must be greater than 0')
+                    if days > 36500: raise ValueError('renewal days exceeds maximum supported duration')
                     exp=int(time.time())+days*86400
                     baseline=int(row['raw_bytes'] or 0)
                     if row['protocol']=='Hysteria':
@@ -1279,6 +1295,9 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                     return send(self,{'ok':True,'action':'renew','id':row['id']})
                 if action in ('enable','disable'):
                     enable=action=='enable'
+                    if enable:
+                        err=account_enable_error(row)
+                        if err: raise ValueError(err)
                     if enable:
                         if row['protocol'] in XRAY_TAGS:
                             with XRAY_LOCK:
