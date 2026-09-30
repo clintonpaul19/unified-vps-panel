@@ -58,9 +58,9 @@ The installer uses HAProxy as the public L4/L7 multiplexer. This replaces SSLH a
 
 For SSH-over-WebSocket, the server supports the normal `/ssh` endpoint and legacy payloads such as `GET / HTTP/1.1` or `GET /cdn-cgi/trace HTTP/1.1` with `Upgrade: websocket`. The legacy bridge proxies the resulting connection to SSH on localhost:22. Generated SSH details include WS on 80/8080/8880 and WSS on 443/8443.
 
-HAProxy's WebSocket handling is designed to preserve the HTTP upgrade and then tunnel the upgraded connection, with `timeout tunnel` used for long-lived sessions. citeturn5search2turn5search7
+HAProxy's WebSocket handling is designed to preserve the HTTP upgrade and then tunnel the upgraded connection, with `timeout tunnel` used for long-lived sessions.
 
-Xray remains the TLS terminator on 443/8443, so existing Trojan/TLS fallback routing remains under Xray. Xray fallbacks can route TLS traffic by HTTP path to separate WebSocket services. citeturn4search0turn4search7
+Xray remains the TLS terminator on 443/8443, so existing Trojan/TLS fallback routing remains under Xray. Xray fallbacks can route TLS traffic by HTTP path to separate WebSocket services.
 
 ## Xray port layout
 
@@ -144,7 +144,7 @@ Expected:
 - TCP 18445: loopback-only VMess WebSocket backend.
 - TCP 10085: loopback-only Xray API.
 
-Xray's statistics system is also enabled for user uplink/downlink/online statistics. citeturn2search0turn2search3
+Xray's statistics system is also enabled for user uplink/downlink/online statistics.
 
 ## SSH multiplexing
 
@@ -202,7 +202,7 @@ Supported generated formats:
 
 The web panel provides copy controls for each available port. The CLI displays the same connection endpoints in its output so they can be copied directly from the VPS terminal.
 
-Hysteria 2 uses the current `hysteria2://` URI format documented by the Hysteria project. citeturn0search0turn0search1
+Hysteria 2 uses the current `hysteria2://` URI format documented by the Hysteria project.
 
 The panel generates valid UUIDs for VLESS and VMess accounts. Port 80 URIs use plain WebSocket; port 443 URIs use WebSocket over TLS with the supplied domain as SNI. The generated Xray URIs use the Let's Encrypt certificate installed for the supplied domain, so normal certificate verification can remain enabled.
 
@@ -226,7 +226,7 @@ After the passwords match, the panel saves the credentials locally on the VPS an
 
 ## Ookla Speedtest
 
-The installer installs the official Ookla Speedtest CLI for Ubuntu/Debian. Ookla documents the Debian/Ubuntu installation through its package repository and supports both x86_64 and arm64 Linux systems. citeturn1search0
+The installer installs the official Ookla Speedtest CLI for Ubuntu/Debian. Ookla documents the Debian/Ubuntu installation through its package repository and supports both x86_64 and arm64 Linux systems.
 
 Run it directly:
 
