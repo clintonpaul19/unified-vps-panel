@@ -88,6 +88,10 @@ def auth(h,basic_allowed=False):
         if item.startswith(SESSION_COOKIE+'=') and _session_valid(item.split('=',1)[1]): return True
     return False
 
+def _systemd_env_quote(value):
+    value=str(value)
+    return '"' + value.replace('\\','\\\\').replace('"','\\"').replace('$','\\$').replace(chr(96),'\\'+chr(96)) + '"'
+
 def _save_admin_credentials(username,password):
     global ADMIN,PASSWORD
     os.makedirs(BASE,exist_ok=True)
@@ -96,21 +100,19 @@ def _save_admin_credentials(username,password):
     except OSError:
         lines=[]
     out=[]; user_done=False; pass_done=False
-    def q(v): return json.dumps(v,ensure_ascii=False)
     for line in lines:
         if line.startswith('ADMIN_USER='):
-            out.append('ADMIN_USER='+q(username)); user_done=True
+            out.append('ADMIN_USER='+_systemd_env_quote(username)); user_done=True
         elif line.startswith('ADMIN_PASSWORD='):
-            out.append('ADMIN_PASSWORD='+q(password)); pass_done=True
+            out.append('ADMIN_PASSWORD='+_systemd_env_quote(password)); pass_done=True
         else: out.append(line)
-    if not user_done: out.append('ADMIN_USER='+q(username))
-    if not pass_done: out.append('ADMIN_PASSWORD='+q(password))
+    if not user_done: out.append('ADMIN_USER='+_systemd_env_quote(username))
+    if not pass_done: out.append('ADMIN_PASSWORD='+_systemd_env_quote(password))
     tmp=PANEL_ENV+'.tmp'
-    with open(tmp,'w',encoding='utf-8') as f: f.write('\n'.join(out)+'\n')
+    with open(tmp,'w',encoding='utf-8') as f: f.write('\\n'.join(out)+'\\n')
     os.chmod(tmp,0o600)
     os.replace(tmp,PANEL_ENV)
     ADMIN=username; PASSWORD=password
-
 def send_html(r,body_html,status=200,headers=None):
     b=body_html.encode()
     r.send_response(status)
