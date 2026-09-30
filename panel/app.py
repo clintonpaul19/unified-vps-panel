@@ -376,14 +376,14 @@ def sync_usage():
             if xrows:
                 with XRAY_LOCK:
                     d=load_xray(); changed=False
-                for row in xrows:
-                    for tag in XRAY_TAGS[row['protocol']]:
-                        ib=next((i for i in d.get('inbounds',[]) if i.get('tag')==tag),None)
-                        if ib:
-                            before=len(ib.get('settings',{}).get('clients',[]))
-                            ib['settings']['clients']=[u for u in ib['settings'].get('clients',[]) if u.get('email')!=row['username']]
-                            changed |= before != len(ib['settings']['clients'])
-                if changed: save_xray(d)
+                    for row in xrows:
+                        for tag in XRAY_TAGS[row['protocol']]:
+                            ib=next((i for i in d.get('inbounds',[]) if i.get('tag')==tag),None)
+                            if ib:
+                                before=len(ib.get('settings',{}).get('clients',[]))
+                                ib['settings']['clients']=[u for u in ib['settings'].get('clients',[]) if u.get('email')!=row['username']]
+                                changed |= before != len(ib['settings']['clients'])
+                    if changed: save_xray(d)
 
             c=conn()
             for row in disable:
