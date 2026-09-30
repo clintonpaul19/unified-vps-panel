@@ -1168,16 +1168,21 @@ $("#restoreLatest").onclick=async()=>{if(!confirm("Restore the latest backup and
 $("#renewCert").onclick=async()=>{if(!confirm("Force certificate renewal now?"))return;const r=await fetch("/api/certificate/renew",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});const j=await r.json();toast(r.ok?"Certificate renewed":(j.error||"Renewal failed"));refreshSecurity()};
 async function refreshExpiry(){
   try{
-    const r=await fetch("/api/users",{cache:"no-store"});if(!r.ok)return;const rows=await r.json(), box=document.getElementById("expiryList");if(!box)return;
+    const r=await fetch("/api/users",{cache:"no-store"});if(!r.ok)throw new Error("HTTP "+r.status);const rows=await r.json(), box=document.getElementById("expiryList");if(!box)return;
     const soon=rows.filter(x=>x.days_remaining!==null&&x.days_remaining<=7);
     const esc=v=>String(v??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch]));
     box.innerHTML=soon.length?soon.map(x=>"<div class='service-card'><span>"+esc(x.username)+" • "+esc(x.protocol)+"</span><strong class='"+(x.days_remaining<=1?"dangertext":"warn")+"'>"+(x.days_remaining===0?"Expires today":esc(x.days_remaining)+" days")+"</strong></div>").join(""):"<div class='muted'>No accounts expire within seven days.</div>";
-  }catch(_){}
+  }catch(e){
+    const box=document.getElementById("expiryList"); if(box)box.innerHTML="<div class='muted'>Unable to load account expiry information.</div>";
+  }
 }
 refreshExpiry();setInterval(refreshExpiry,30000);
 $("#speedtest").onclick=async()=>{
   const out=$("#speedout");out.style.display="block";out.textContent="Running Ookla Speedtest…";
-  const r=await fetch("/api/speedtest"),j=await r.json();out.textContent=j.output||j.error||"No result";
+  try{
+    const r=await fetch("/api/speedtest"),j=await r.json();
+    out.textContent=j.output||j.error||"No result";
+  }catch(e){out.textContent="Speedtest unavailable.";toast("Speedtest request failed");}
 };
 
 function fmtBytes(n){
