@@ -1024,7 +1024,7 @@ button{cursor:pointer}
       <div class="formgrid">
         <div class="field"><label>Username</label><input name="username" required maxlength="32"></div>
         <div class="field"><label>Protocol</label><select name="protocol" id="protocol"><option>SSH</option><option>VLESS</option><option>VMess</option><option>Trojan</option><option>Hysteria</option></select></div>
-        <div class="field full" id="sshSecretField"><label>SSH password</label><input name="secret" id="sshSecret" type="password" autocomplete="new-password"></div>
+        <div class="field full" id="sshSecretField"><label id="sshSecretLabel">SSH password</label><input name="secret" id="sshSecret" type="password" autocomplete="new-password"></div>
         <div class="field"><label>Duration (days)</label><input name="days" type="number" min="0" value="0"></div>
         <div class="field"><label>Quota (GB)</label><input name="quota_gb" id="quota" type="number" min="0" step="0.1" value="0"></div>
       </div>
@@ -1067,15 +1067,15 @@ document.addEventListener("click",async e=>{
 });
 $("#openCreate").onclick=()=>$("#modal").classList.add("open");
 $("#closeCreate").onclick=$("#cancelCreate").onclick=()=>$("#modal").classList.remove("open");
-const protocol=$("#protocol"), sshField=$("#sshSecretField"), sshSecret=$("#sshSecret"), quota=$("#quota");
-function updateFields(){const ssh=protocol.value==="SSH";sshField.style.display=ssh?"grid":"none";sshSecret.required=ssh;quota.disabled=ssh;if(ssh)quota.value="0"}
+const protocol=$("#protocol"), sshField=$("#sshSecretField"), sshSecret=$("#sshSecret"), sshSecretLabel=$("#sshSecretLabel"), quota=$("#quota");
+function updateFields(){const ssh=protocol.value==="SSH";sshField.hidden=!ssh;sshSecret.required=ssh;sshSecret.disabled=!ssh;if(sshSecretLabel)sshSecretLabel.textContent=ssh?"SSH password":"Secret";quota.disabled=ssh;if(ssh)quota.value="0";if(!ssh)sshSecret.value=""}
 protocol.onchange=updateFields;updateFields();
 $("#createForm").onsubmit=async e=>{
   e.preventDefault();
   const submit=e.target.querySelector("button[type=submit]"); if(submit)submit.disabled=true;
   try{
     const f=new FormData(e.target), payload=Object.fromEntries(f.entries());
-    payload.days=Number(payload.days||0);payload.quota_gb=Number(payload.quota_gb||0);
+    payload.days=Number(payload.days||0);payload.quota_gb=Number(payload.quota_gb||0);if(payload.protocol!=="SSH")delete payload.secret;
     const r=await fetch("/api/users",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload),cache:"no-store"});
     const text=await r.text(); let j={}; try{j=JSON.parse(text)}catch(_){j={error:text||("HTTP "+r.status)}}
     if(!r.ok){toast(j.error||"Account creation failed");return}
