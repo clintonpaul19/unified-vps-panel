@@ -126,9 +126,13 @@ def _login_page(r):
 <style>body{font:15px system-ui;background:#06110b;color:#ecfff2;display:grid;place-items:center;min-height:100vh;margin:0}.card{width:min(420px,90%);padding:28px;border:1px solid #173524;border-radius:16px;background:#0b1811}input,button{width:100%;box-sizing:border-box;padding:12px;margin:7px 0;border-radius:9px;border:1px solid #173524;background:#06100a;color:#ecfff2}button{background:#42f58d;color:#03200f;font-weight:800;cursor:pointer}.msg{color:#ff6b78;min-height:20px}</style>
 <div class="card"><h2>Unified VPS</h2><form id="f"><input name="username" placeholder="Username" autocomplete="username" required><input name="password" type="password" placeholder="Password" autocomplete="current-password" required><button>Login</button><div class="msg" id="m"></div></form><script>f.onsubmit=async e=>{e.preventDefault();let d=Object.fromEntries(new FormData(f)),r=await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)}),j=await r.json();if(!r.ok){m.textContent=j.error||'Login failed';return}location='/'};</script></div>''')
 
-def send(r,obj,status=200):
+def send(r,obj,status=200,headers=None):
     b=json.dumps(obj).encode(); r.send_response(status)
-    r.send_header('Content-Type','application/json'); r.send_header('Content-Length',str(len(b)))
+    r.send_header('Content-Type','application/json')
+    r.send_header('Cache-Control','no-store')
+    if headers:
+        for k,v in headers.items(): r.send_header(k,v)
+    r.send_header('Content-Length',str(len(b)))
     r.end_headers(); r.wfile.write(b)
 
 def body(r): return json.loads(r.rfile.read(int(r.headers.get('Content-Length','0')) or 2))
