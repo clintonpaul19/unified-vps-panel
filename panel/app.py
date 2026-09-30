@@ -8,7 +8,7 @@ BASE='/etc/unified-vps'
 DB=f'{BASE}/panel.db'
 CFG='/usr/local/etc/xray/config.json'
 PORT=int(os.environ.get('PANEL_PORT','6080'))
-PANEL_BUILD='2026-09-30.2'
+PANEL_BUILD='2026-09-30.3'
 DOMAIN=os.environ.get('SERVER_DOMAIN','')
 ADMIN=os.environ.get('ADMIN_USER','').strip()
 PASSWORD=os.environ.get('ADMIN_PASSWORD','')
@@ -173,14 +173,14 @@ def _setup_page(r):
     page='''<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Unified VPS Setup</title>
 <style>body{font:15px system-ui;background:#06110b;color:#ecfff2;display:grid;place-items:center;min-height:100vh;margin:0}.card{width:min(420px,90%);padding:28px;border:1px solid #173524;border-radius:16px;background:#0b1811}.card h2{margin-top:0}input,button{width:100%;box-sizing:border-box;padding:12px;margin:7px 0;border-radius:9px;border:1px solid #173524;background:#06100a;color:#ecfff2}button{background:#42f58d;color:#03200f;font-weight:800;cursor:pointer}.msg{color:#ff6b78;min-height:20px}</style>
 <div class="card"><h2>Unified VPS</h2><p>Create the administrator credentials for this VPS.</p><form id="setupForm" method="post" action="/setup"><input type="hidden" name="setup_token" value="__SETUP_TOKEN__"><input name="username" placeholder="Enter username" maxlength="32" autocomplete="username" required><input name="password" type="password" placeholder="Enter password" minlength="8" maxlength="128" autocomplete="new-password" required><input name="confirm" type="password" placeholder="Reenter password" minlength="8" maxlength="128" autocomplete="new-password" required><button type="submit">Save and login</button><div class="msg" id="setupMsg"></div></form></div><script>const form=document.getElementById('setupForm'),msg=document.getElementById('setupMsg');form.addEventListener('submit',async e=>{e.preventDefault();msg.textContent='';const d=Object.fromEntries(new FormData(form));if(d.password!==d.confirm){msg.textContent='Passwords do not match.';return}try{const r=await fetch('/setup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d),cache:'no-store'});const text=await r.text();let j={};try{j=JSON.parse(text)}catch(_){j={error:text||'Server returned an invalid response.'}}if(!r.ok){msg.textContent=j.error||'Setup failed.';return}window.location.replace('/');}catch(_){msg.textContent='Unable to reach the panel. Try again.'}});</script></div>'''.replace('__SETUP_TOKEN__',token)
-    return send_html(r,page,headers={'Set-Cookie':f'uvps_setup_nonce={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=600'})
+    return send_html(r,page,headers={'Set-Cookie':f'uvps_setup_nonce={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=600','Pragma':'no-cache'})
 
 def _login_page(r):
     token=secrets.token_urlsafe(32)
     page='''<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Unified VPS Login</title>
 <style>body{font:15px system-ui;background:#06110b;color:#ecfff2;display:grid;place-items:center;min-height:100vh;margin:0}.card{width:min(420px,90%);padding:28px;border:1px solid #173524;border-radius:16px;background:#0b1811}.card h2{margin-top:0}input,button{width:100%;box-sizing:border-box;padding:12px;margin:7px 0;border-radius:9px;border:1px solid #173524;background:#06100a;color:#ecfff2}button{background:#42f58d;color:#03200f;font-weight:800;cursor:pointer}.msg{color:#ff6b78;min-height:20px}</style>
 <div class="card"><h2>Unified VPS</h2><form id="loginForm"><input type="hidden" name="login_token" value="__LOGIN_TOKEN__"><input name="username" placeholder="Username" autocomplete="username" required><input name="password" type="password" placeholder="Password" autocomplete="current-password" required><button type="submit">Login</button><div class="msg" id="loginMsg"></div></form></div><script>const form=document.getElementById('loginForm'),msg=document.getElementById('loginMsg');form.addEventListener('submit',async e=>{e.preventDefault();msg.textContent='';try{const d=Object.fromEntries(new FormData(form)),r=await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d),cache:'no-store'}),text=await r.text();let j={};try{j=JSON.parse(text)}catch(_){j={error:text||'Server returned an invalid response.'}}if(!r.ok){msg.textContent=j.error||'Login failed.';return}window.location.replace('/');}catch(_){msg.textContent='Unable to reach the panel. Try again.'}});</script></div>'''.replace('__LOGIN_TOKEN__',token)
-    return send_html(r,page,headers={'Set-Cookie':f'uvps_login_nonce={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=600'})
+    return send_html(r,page,headers={'Set-Cookie':f'uvps_login_nonce={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=600','Pragma':'no-cache'})
 
 def send(r,obj,status=200,headers=None):
     b=json.dumps(obj).encode(); r.send_response(status)
@@ -1099,6 +1099,8 @@ button{cursor:pointer}
 
 <script>
 const $=s=>document.querySelector(s);
+window.addEventListener("error",e=>{const el=document.getElementById("events");if(el&&e.message)el.innerHTML="<div class='muted'>Panel script error: "+String(e.message).replace(/[&<>"]/g,"")+"</div>"});
+window.addEventListener("unhandledrejection",e=>{const el=document.getElementById("events");if(el)el.innerHTML="<div class='muted'>Panel request error: "+String(e.reason||"unknown").replace(/[&<>"]/g,"")+"</div>"});
 function toast(msg){const t=$("#toast");t.textContent=msg;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),2200)}
 async function copyText(value,button){
   let ok=false;
@@ -1296,6 +1298,7 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
             page=page.replace('__REBOOT__',html.escape(reboot,quote=True))
             page=page.replace('__PANEL_URL__',html.escape(f'http://{public_host()}:{PORT}/',quote=True))
             page=page.replace('__DOMAIN__',html.escape(public_host()))
+            page=page.replace('__BUILD__',PANEL_BUILD)
             page=page.replace('__IP__',html.escape(public_ip()))
             os_name=os.uname().sysname+' '+os.uname().release
             try:
