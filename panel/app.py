@@ -1060,7 +1060,8 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                         enable=action=='enable'
                         if row['protocol'] in XRAY_TAGS:
                             if enable:
-                                dcfg=load_xray()
+                                with XRAY_LOCK:
+                                    dcfg=load_xray()
                                 for tag in XRAY_TAGS[row['protocol']]:
                                     ib=next((i for i in dcfg.get('inbounds',[]) if i.get('tag')==tag),None)
                                     if ib:
@@ -1110,7 +1111,8 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                     enable=action=='enable'
                     if enable:
                         if row['protocol'] in XRAY_TAGS:
-                            dcfg=load_xray()
+                            with XRAY_LOCK:
+                                dcfg=load_xray()
                             for tag in XRAY_TAGS[row['protocol']]:
                                 ib=next((i for i in dcfg.get('inbounds',[]) if i.get('tag')==tag),None)
                                 if ib:
