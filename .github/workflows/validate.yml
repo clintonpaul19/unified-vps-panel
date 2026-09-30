@@ -13,6 +13,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate Python panel
         run: python3 -m py_compile panel/app.py
+      - name: Validate configuration files
+        run: |
+          python3 -m json.tool config/xray.json >/dev/null
       - name: Validate shell scripts
         run: |
           bash -n install.sh
@@ -23,4 +26,9 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq systemd >/dev/null
-          systemd-analyze verify systemd/unified-vps-watchdog.service systemd/unified-vps-watchdog.timer systemd/unified-vps-backup.service systemd/unified-vps-backup.timer
+          systemd-analyze verify systemd/unified-vps-watchdog.service systemd/unified-vps-watchdog.timer systemd/unified-vps-backup.service systemd/unified-vps-backup.timer systemd/unified-vps-ws-payload-ssh.service systemd/unified-vps-wstunnel-ssh.service
+      - name: Validate HAProxy configuration
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq haproxy >/dev/null
+          haproxy -c -f config/haproxy.cfg
