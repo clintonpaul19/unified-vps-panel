@@ -44,9 +44,9 @@ select_account_id(){
     rm -f "$list"
     return 1
   fi
-  echo
-  echo "Select account to $action_name:"
-  awk -F'|' '{printf "[%d] %s (%s)\n",NR,$2,$3}' "$list"
+  echo >/dev/tty
+  echo "Select account to $action_name:" >/dev/tty
+  awk -F'|' '{printf "[%d] %s (%s)\n",NR,$2,$3}' "$list" >/dev/tty
   while true; do
     read -r -p "Account >>> " choice
     if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= count )); then
@@ -54,7 +54,7 @@ select_account_id(){
       rm -f "$list"
       return 0
     fi
-    echo "Invalid selection."
+    echo "Invalid selection." >/dev/tty
   done
 }
 
@@ -133,6 +133,8 @@ for x in rows:
  exp="Unlimited" if not x["expiry"] else datetime.fromtimestamp(x["expiry"]).strftime("%Y-%m-%d")
  print("ID: {} | User: {} | Protocol: {} | Enabled: {}".format(x["id"],x["username"],x["protocol"],enabled))
  print("Data today: {} | All time: {} | Quota: {} | Expiry: {}".format(daily,used,quota,exp))
+ if x["protocol"]=="SSH":
+  print("NOTE: SSH per-user byte metering is unavailable; server totals below are interface-level.")
  print("Secret/Password: {}".format(x["secret"]))
  if x["protocol"]=="SSH":
   print("Host: {}".format(x["host"]))
