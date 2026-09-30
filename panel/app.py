@@ -132,6 +132,9 @@ def send_html(r,body_html,status=200,headers=None):
     r.send_response(status)
     r.send_header('Content-Type','text/html; charset=utf-8')
     r.send_header('Cache-Control','no-store')
+    r.send_header('X-Content-Type-Options','nosniff')
+    r.send_header('X-Frame-Options','DENY')
+    r.send_header('Referrer-Policy','no-referrer')
     if headers:
         for k,v in headers.items(): r.send_header(k,v)
     r.send_header('Content-Length',str(len(b)))
@@ -151,6 +154,7 @@ def send(r,obj,status=200,headers=None):
     b=json.dumps(obj).encode(); r.send_response(status)
     r.send_header('Content-Type','application/json')
     r.send_header('Cache-Control','no-store')
+    r.send_header('X-Content-Type-Options','nosniff')
     if headers:
         for k,v in headers.items(): r.send_header(k,v)
     r.send_header('Content-Length',str(len(b)))
@@ -1005,7 +1009,8 @@ async function refreshExpiry(){
   try{
     const r=await fetch("/api/users",{cache:"no-store"});if(!r.ok)return;const rows=await r.json(), box=document.getElementById("expiryList");if(!box)return;
     const soon=rows.filter(x=>x.days_remaining!==null&&x.days_remaining<=7);
-    box.innerHTML=soon.length?soon.map(x=>"<div class='service-card'><span>"+x.username+" • "+x.protocol+"</span><strong class='"+(x.days_remaining<=1?"dangertext":"warn")+"'>"+(x.days_remaining===0?"Expires today":x.days_remaining+" days")+"</strong></div>").join(""):"<div class='muted'>No accounts expire within seven days.</div>";
+    const esc=v=>String(v??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch]));
+    box.innerHTML=soon.length?soon.map(x=>"<div class='service-card'><span>"+esc(x.username)+" • "+esc(x.protocol)+"</span><strong class='"+(x.days_remaining<=1?"dangertext":"warn")+"'>"+(x.days_remaining===0?"Expires today":esc(x.days_remaining)+" days")+"</strong></div>").join(""):"<div class='muted'>No accounts expire within seven days.</div>";
   }catch(_){}
 }
 refreshExpiry();setInterval(refreshExpiry,30000);
@@ -1060,7 +1065,8 @@ async function refreshSessions(){
     const body=document.getElementById("sessionsBody"); if(!body)return;
     const rows=j.sessions||[];
     document.getElementById("sessionCount").textContent=String(rows.length);
-    body.innerHTML=rows.length?rows.map(x=>"<tr><td>"+(x.process||"—")+"</td><td>"+(x.user||"—")+"</td><td>"+(x.local||"—")+"</td><td>"+(x.remote||"—")+"</td><td>"+(x.pid||"—")+"</td></tr>").join(""):"<tr><td colspan='5' class='muted'>No established TCP sessions.</td></tr>";
+    const esc=v=>String(v??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch]));
+    body.innerHTML=rows.length?rows.map(x=>"<tr><td>"+esc(x.process||"—")+"</td><td>"+esc(x.user||"—")+"</td><td>"+esc(x.local||"—")+"</td><td>"+esc(x.remote||"—")+"</td><td>"+esc(x.pid||"—")+"</td></tr>").join(""):"<tr><td colspan='5' class='muted'>No established TCP sessions.</td></tr>";
   }catch(_){}
 }
 async function refreshSecurity(){
@@ -1085,7 +1091,8 @@ async function refreshEvents(){
   try{
     const r=await fetch("/api/events",{cache:"no-store"}); if(!r.ok)return; const j=await r.json();
     const e=document.getElementById("events"); if(!e)return;
-    e.innerHTML=(j.events||[]).slice(0,30).map(x=>"<div class='event'><strong>"+x.action+(x.username?" • "+x.username:"")+"</strong><small>"+new Date(x.created_at*1000).toLocaleString()+" "+(x.details||"")+"</small></div>").join("")||"<div class='muted'>No activity yet.</div>";
+    const esc=v=>String(v??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch]));
+    e.innerHTML=(j.events||[]).slice(0,30).map(x=>"<div class='event'><strong>"+esc(x.action)+(x.username?" • "+esc(x.username):"")+"</strong><small>"+new Date(x.created_at*1000).toLocaleString()+" "+esc(x.details||"")+"</small></div>").join("")||"<div class='muted'>No activity yet.</div>";
   }catch(_){}
 }
 function drawUsageChart(data){
@@ -1175,6 +1182,8 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                 state[0]+=1; LOGIN_FAILURES[client_ip]=state
             return send(self,{'error':'invalid credentials'},401)
         if self.path=='/hysteria-auth':
+            if self.client_address[0] not in ('127.0.0.1','::1'):
+                return send(self,{'ok':False},403)
             try: d=body(self)
             except Exception: return send(self,{'ok':False},400)
             secret=str(d.get('auth','')); c=conn()
