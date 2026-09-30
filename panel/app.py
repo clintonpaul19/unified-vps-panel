@@ -58,7 +58,7 @@ def conn():
     c.commit(); return c
 
 def admin_configured():
-    return bool(ADMIN and PASSWORD) and ADMIN.lower()!='spiderman'
+    return bool(ADMIN and PASSWORD)
 
 def _session_cookie(username):
     issued=str(int(time.time()))
