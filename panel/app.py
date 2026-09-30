@@ -14,7 +14,9 @@ PASSWORD=os.environ.get('ADMIN_PASSWORD','spiderman')
 HY2_STATS_SECRET=os.environ.get('HY2_STATS_SECRET','')
 PUBLIC_IP_CACHE=None
 XRAY_TAGS={'VLESS':['vless443'],'VMess':['vmess443'],'Trojan':['trojan443']}
-SSH_PORTS=[80,443,143,8080,8443]
+SSH_PORTS=[80,443,143,8080,8443,8880]
+XRAY_LOCK=threading.RLock()
+MAX_REQUEST_BODY=64*1024
 
 def conn():
     c=sqlite3.connect(DB); c.row_factory=sqlite3.Row
@@ -58,7 +60,14 @@ def send(r,obj,status=200):
     r.send_header('Content-Type','application/json'); r.send_header('Content-Length',str(len(b)))
     r.end_headers(); r.wfile.write(b)
 
-def body(r): return json.loads(r.rfile.read(int(r.headers.get('Content-Length','0')) or 2))
+def body(r):
+    try:
+        length=int(r.headers.get('Content-Length','0') or 0)
+    except (TypeError,ValueError):
+        raise ValueError('invalid content length')
+    if length<0 or length>MAX_REQUEST_BODY:
+        raise ValueError('request body too large')
+    return json.loads(r.rfile.read(length or 2))
 
 def public_host():
     return DOMAIN or public_ip()
