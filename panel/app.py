@@ -228,7 +228,7 @@ def del_ssh(u):
 def _xray_usage():
     try:
         p=subprocess.run(['xray','api','statsquery','--server=127.0.0.1:10085'],capture_output=True,text=True,timeout=10)
-        if p.returncode != 0: return {}
+        if p.returncode != 0: return None
         data=json.loads(p.stdout)
         out={}
         for item in data.get('stat',[]):
@@ -239,16 +239,27 @@ def _xray_usage():
                 out[parts[1]] += int(item.get('value',0))
         return out
     except Exception:
-        return {}
+        return None
+
+def _hysteria_request(path,method='GET',payload=None):
+    if not HY2_STATS_SECRET: return None
+    try:
+        data=json.dumps(payload).encode() if payload is not None else None
+        headers={'Authorization':HY2_STATS_SECRET}
+        if data is not None: headers['Content-Type']='application/json'
+        req=Request(f'http://127.0.0.1:9999{path}',data=data,headers=headers,method=method)
+        with urlopen(req,timeout=5) as r: return json.loads(r.read())
+    except Exception:
+        return None
+
+def kick_hysteria(username):
+    return _hysteria_request('/kick','POST',[str(username)]) is not None
 
 def _hysteria_usage():
-    if not HY2_STATS_SECRET: return {}
-    try:
-        req=Request('http://127.0.0.1:9999/traffic',headers={'Authorization':HY2_STATS_SECRET})
-        with urlopen(req,timeout=5) as r: data=json.loads(r.read())
-        return {str(k): int(v.get('tx',0))+int(v.get('rx',0)) for k,v in data.items()}
-    except Exception:
-        return {}
+    data=_hysteria_request('/traffic')
+    if data is None: return None
+    if not isinstance(data,dict): return {}
+    return {str(k): int(v.get('tx',0))+int(v.get('rx',0)) for k,v in data.items() if isinstance(v,dict)}
 
 def _primary_interface():
     try:
