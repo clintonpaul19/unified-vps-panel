@@ -509,16 +509,31 @@ if [ -z "$PANEL_HOME" ]; then
   echo "ERROR: panel HTTP smoke test returned no response."
   exit 1
 fi
-PANEL_SETUP_TEST="$(curl -sS --max-time 5 -X POST   -H 'Content-Type: application/x-www-form-urlencoded'   --data 'username=uvps-smoke&password=x&confirm=x'   http://127.0.0.1:6080/setup 2>/dev/null || true)"
+SETUP_COOKIE="$(mktemp)"
+PANEL_SETUP_PAGE="$(curl -sS --max-time 5 -c "$SETUP_COOKIE" http://127.0.0.1:6080/setup 2>/dev/null || true)"
+if echo "$PANEL_SETUP_PAGE" | grep -q 'name="setup_token"'; then
+  SETUP_TOKEN="$(printf '%s' "$PANEL_SETUP_PAGE" | sed -n 's/.*name="setup_token" value="\([^"]*\)".*/\1/p' | head -n1)"
+  if [ -z "$SETUP_TOKEN" ]; then
+    echo "ERROR: panel setup page did not expose a setup nonce."
+    rm -f "$SETUP_COOKIE"
+    exit 1
+  fi
+  PANEL_SETUP_TEST="$(curl -sS --max-time 5 -b "$SETUP_COOKIE" -X POST -H 'Content-Type: application/x-www-form-urlencoded' --data "setup_token=$SETUP_TOKEN&username=uvps-smoke&password=x&confirm=x" http://127.0.0.1:6080/setup 2>/dev/null || true)"
+else
+  PANEL_SETUP_TEST="$PANEL_SETUP_PAGE"
+fi
+rm -f "$SETUP_COOKIE"
 if echo "$PANEL_SETUP_TEST" | grep -qiE 'MAX_REQUEST_BODY|NameError|Traceback'; then
   echo "ERROR: panel first-run setup smoke test exposed a runtime exception:"
   echo "$PANEL_SETUP_TEST"
   exit 1
 fi
-if ! echo "$PANEL_SETUP_TEST" | grep -qiE 'Password must|already configured|Setup failed'; then
-  echo "ERROR: panel first-run setup smoke test returned an unexpected response:"
-  echo "$PANEL_SETUP_TEST"
-  exit 1
+if echo "$PANEL_SETUP_PAGE" | grep -q 'name="setup_token"'; then
+  if ! echo "$PANEL_SETUP_TEST" | grep -qiE 'Password must|invalid setup request|already configured'; then
+    echo "ERROR: panel first-run setup smoke test returned an unexpected response:"
+    echo "$PANEL_SETUP_TEST"
+    exit 1
+  fi
 fi
 
 systemctl start xray
