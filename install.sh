@@ -239,12 +239,12 @@ chmod 755 /usr/local/sbin/unified-vps-cert-reload
 rm -rf "$HOME/.acme.sh/${DOMAIN}_ecc" "$HOME/.acme.sh/${DOMAIN}"
 ACME_OK=0
 echo "Attempting Let's Encrypt HTTP-01 validation on TCP/80..."
-if "$HOME/.acme.sh/acme.sh" --issue --standalone -d "$DOMAIN"; then
+if "$HOME/.acme.sh/acme.sh" --issue --standalone -d "$DOMAIN"     --pre-hook "systemctl stop haproxy"     --post-hook "systemctl start haproxy"; then
   ACME_OK=1
 else
   echo "HTTP-01 failed; attempting TLS-ALPN-01 validation on TCP/443..."
   rm -rf "$HOME/.acme.sh/${DOMAIN}_ecc" "$HOME/.acme.sh/${DOMAIN}"
-  if "$HOME/.acme.sh/acme.sh" --issue --alpn -d "$DOMAIN"; then
+  if "$HOME/.acme.sh/acme.sh" --issue --alpn -d "$DOMAIN"       --pre-hook "systemctl stop haproxy"       --post-hook "systemctl start haproxy"; then
     ACME_OK=1
   fi
 fi
