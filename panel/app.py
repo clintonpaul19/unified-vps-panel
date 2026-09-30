@@ -1202,7 +1202,8 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                     if not row: results.append({'id':uid,'ok':False,'error':'not found'}); continue
                     if action=='delete':
                         if row['protocol']=='SSH': del_ssh(row['username'])
-                        elif row['protocol']!='Hysteria': del_xray(row['protocol'],row['username'])
+                        elif row['protocol']=='Hysteria': kick_hysteria(row['username'])
+                        else: del_xray(row['protocol'],row['username'])
                         c=conn(); c.execute('delete from users where id=?',(uid,)); c.commit(); c.close()
                     elif action in ('enable','disable'):
                         enable=action=='enable'
@@ -1218,11 +1219,24 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                                             cl['id' if row['protocol'] in ('VMess','VLESS') else 'password']=row['secret']; clients.append(cl)
                                 save_xray(dcfg)
                             else: del_xray(row['protocol'],row['username'])
-                        elif row['protocol']=='SSH': subprocess.run(['usermod','-U' if enable else '-L',row['username']],capture_output=True)
+                        elif row['protocol']=='Hysteria' and not enable: kick_hysteria(row['username'])
+                        elif row['protocol']=='SSH': set_ssh_enabled(row['username'],enable,row['expiry'])
                         c=conn(); c.execute('update users set enabled=? where id=?',(1 if enable else 0,uid)); c.commit(); c.close()
                     else:
-                        days=int(d.get('days',0)); exp=int(time.time())+days*86400
-                        c=conn(); c.execute('update users set expiry=?,enabled=1,used_bytes=0,raw_bytes=0,daily_used_bytes=0,usage_day=? where id=?',(exp,time.strftime('%Y-%m-%d'),uid)); c.commit(); c.close()
+                        days=int(d.get('days',0))
+                        if days <= 0 or days > 36500: raise ValueError('renewal duration must be between 1 and 36500 days')
+                        exp=int(time.time())+days*86400
+                        baseline=int(row['raw_bytes'] or 0)
+                        if row['protocol'] in XRAY_TAGS:
+                            stats=_xray_usage()
+                            if isinstance(stats,dict): baseline=int(stats.get(row['username'],baseline if row['enabled'] else 0))
+                            ensure_xray_client(row['protocol'],row['username'],row['secret'])
+                        elif row['protocol']=='Hysteria':
+                            stats=_hysteria_usage()
+                            if isinstance(stats,dict): baseline=int(stats.get(row['username'],baseline))
+                        elif row['protocol']=='SSH':
+                            set_ssh_enabled(row['username'],True,exp)
+                        c=conn(); c.execute('update users set expiry=?,enabled=1,used_bytes=0,raw_bytes=?,daily_used_bytes=0,usage_day=? where id=?',(exp,baseline,time.strftime('%Y-%m-%d'),uid)); c.commit(); c.close()
                     log_event('bulk_'+action,row['protocol'],row['username'])
                     results.append({'id':uid,'ok':True})
                 except Exception as e:
@@ -1238,37 +1252,33 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                     days=int(d.get('days',0) or 0)
                     if days <= 0: raise ValueError('renewal days must be greater than 0')
                     exp=int(time.time())+days*86400
-                    c.execute('update users set expiry=?,enabled=1,used_bytes=0,raw_bytes=0 where id=?',(exp,row['id']))
+                    baseline=int(row['raw_bytes'] or 0)
                     if row['protocol'] in XRAY_TAGS:
-                        try: del_xray(row['protocol'],row['username'])
-                        except Exception: pass
-                        add_xray(row['protocol'],row['username'],row['secret'])
+                        stats=_xray_usage()
+                        if isinstance(stats,dict): baseline=int(stats.get(row['username'],baseline if row['enabled'] else 0))
+                        ensure_xray_client(row['protocol'],row['username'],row['secret'])
+                    elif row['protocol']=='Hysteria':
+                        stats=_hysteria_usage()
+                        if isinstance(stats,dict): baseline=int(stats.get(row['username'],baseline))
                     elif row['protocol']=='SSH':
-                        subprocess.run(['usermod','-U',row['username']],capture_output=True)
+                        set_ssh_enabled(row['username'],True,exp)
+                    c.execute('update users set expiry=?,enabled=1,used_bytes=0,raw_bytes=?,daily_used_bytes=0,usage_day=? where id=?',(exp,baseline,time.strftime('%Y-%m-%d'),row['id']))
                     c.commit()
                     log_event('account_renewed',f'{days} days',row['username'])
                     return send(self,{'ok':True,'action':'renew','id':row['id']})
                 if action in ('enable','disable'):
                     enable=action=='enable'
                     if enable:
-                        if row['protocol'] in XRAY_TAGS:
-                            dcfg=load_xray()
-                            for tag in XRAY_TAGS[row['protocol']]:
-                                ib=next((i for i in dcfg.get('inbounds',[]) if i.get('tag')==tag),None)
-                                if ib:
-                                    clients=ib.setdefault('settings',{}).setdefault('clients',[])
-                                    if not any(x.get('email')==row['username'] for x in clients):
-                                        client={'email':row['username'],'level':0}
-                                        client['id' if row['protocol'] in ('VMess','VLESS') else 'password']=row['secret']
-                                        clients.append(client)
-                            save_xray(dcfg)
+                        if row['protocol'] in XRAY_TAGS: ensure_xray_client(row['protocol'],row['username'],row['secret'])
                         elif row['protocol']=='SSH':
-                            subprocess.run(['usermod','-U',row['username']],capture_output=True)
+                            set_ssh_enabled(row['username'],True,row['expiry'])
                     else:
                         if row['protocol'] in XRAY_TAGS:
                             del_xray(row['protocol'],row['username'])
+                        elif row['protocol']=='Hysteria':
+                            kick_hysteria(row['username'])
                         elif row['protocol']=='SSH':
-                            subprocess.run(['usermod','-L',row['username']],capture_output=True)
+                            set_ssh_enabled(row['username'],False)
                     c.execute('update users set enabled=? where id=?',(1 if enable else 0,row['id']))
                     c.commit()
                     log_event('account_'+action,row['protocol'],row['username'])
@@ -1283,7 +1293,8 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
             if not row: c.close(); return send(self,{'error':'not found'},404)
             try:
                 if row['protocol']=='SSH': del_ssh(row['username'])
-                elif row['protocol']!='Hysteria': del_xray(row['protocol'],row['username'])
+                elif row['protocol']=='Hysteria': kick_hysteria(row['username'])
+                else: del_xray(row['protocol'],row['username'])
                 c.execute('delete from users where id=?',(row['id'],)); c.commit()
                 log_event('account_deleted',row['protocol'],row['username'])
                 return send(self,{'ok':True})
