@@ -43,11 +43,7 @@ vps-status
 menu
 ```
 
-View the generated panel credentials:
-
-```bash
-cat /etc/unified-vps/panel.env
-```
+The panel administrator credentials are created on the first visit. They are stored locally in `/etc/unified-vps/panel.env` with restricted permissions.
 
 The web panel listens on TCP **6080**. Public panel access is `http://YOUR-DOMAIN:6080/`. TLS transport ports 443/8443 are handled by HAProxy/Xray.
 
@@ -210,17 +206,23 @@ Hysteria 2 uses the current `hysteria2://` URI format documented by the Hysteria
 
 The panel generates valid UUIDs for VLESS and VMess accounts. Port 80 URIs use plain WebSocket; port 443 URIs use WebSocket over TLS with the supplied domain as SNI. The generated Xray URIs use the Let's Encrypt certificate installed for the supplied domain, so normal certificate verification can remain enabled.
 
-## Panel credentials
+## First-run panel setup
 
-For a fresh installation, the installer sets:
+A fresh installation does not contain a default administrator username or password. Visit:
 
 ```text
-Username: spiderman
-Password: spiderman
-Panel: http://YOUR-DOMAIN:6080/
+http://YOUR-DOMAIN:6080/
 ```
 
-This is intentionally fixed as requested. **Change these credentials before exposing the panel to an untrusted network.**
+On the first visit the panel displays a setup form:
+
+```text
+Enter username
+Enter password
+Reenter password
+```
+
+After the passwords match, the panel saves the credentials locally on the VPS and logs the browser in automatically. The credentials remain available for subsequent panel logins. The former `spiderman/spiderman` placeholder is removed and is no longer accepted as the administrator account.
 
 ## Ookla Speedtest
 
@@ -241,7 +243,7 @@ The web panel runs the test and displays the returned Ookla result.
 
 ## Installation completion
 
-At the end of an interactive installation, the installer displays the panel URL, panel username/password, Xray ports and Hysteria port. It then asks:
+At the end of an interactive installation, the installer displays the panel URL and transport details. Administrator credentials are created on the first panel visit. It then asks:
 
 ```text
 Reboot now? [y/N]:
@@ -251,7 +253,7 @@ Answer `y` to reboot immediately or `N` to leave the VPS running.
 
 ## Important security note
 
-The requested `spiderman/spiderman` panel credentials are weak. They are included for convenience/testing, not as a secure production credential. Change them before production use.
+A fresh installation requires the administrator to create their own credentials before the panel can be used.
 ## Maintenance
 
 The installer and CLI menu configure one automatic VPS reboot per day at **04:00 server local time**. The web panel also displays the reboot schedule.
