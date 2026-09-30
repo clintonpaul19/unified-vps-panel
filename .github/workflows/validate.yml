@@ -11,8 +11,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validate Python panel
-        run: python3 -m py_compile panel/app.py
+      - name: Validate Python files
+        run: |
+          python3 -m py_compile panel/app.py scripts/ws-payload-ssh.py
+          python3 - <<'PY'
+          import ast
+          for p in ('panel/app.py','scripts/ws-payload-ssh.py'):
+              ast.parse(open(p, encoding='utf-8').read(), filename=p)
+          PY
       - name: Validate configuration files
         run: |
           python3 -m json.tool config/xray.json >/dev/null
