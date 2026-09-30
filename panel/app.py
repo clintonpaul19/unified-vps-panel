@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import base64,hashlib,hmac,html,json,os,secrets,sqlite3,subprocess,time,re,threading,uuid
+import base64,hashlib,hmac,html,json,math,os,secrets,sqlite3,subprocess,time,re,threading,uuid
 from urllib.request import Request,urlopen
 from urllib.parse import quote
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
@@ -135,7 +135,11 @@ def send(r,obj,status=200,headers=None):
     r.send_header('Content-Length',str(len(b)))
     r.end_headers(); r.wfile.write(b)
 
-def body(r): return json.loads(r.rfile.read(int(r.headers.get('Content-Length','0')) or 2))
+def body(r):
+    try: length=int(r.headers.get('Content-Length','0') or 0)
+    except (TypeError,ValueError): raise ValueError('invalid content length')
+    if length<0 or length>MAX_REQUEST_BODY: raise ValueError('request body too large')
+    return json.loads(r.rfile.read(length) or b'{}')
 
 def public_host():
     return DOMAIN or public_ip()
@@ -153,16 +157,27 @@ def load_xray():
     with open(CFG) as f: return json.load(f)
 
 def save_xray(d):
-    tmp=CFG+'.tmp.json'
-    with open(tmp,'w') as f: json.dump(d,f,indent=2)
-    test=subprocess.run(['xray','-test','-config',tmp],capture_output=True,text=True)
-    if test.returncode:
-        try: os.unlink(tmp)
-        except OSError: pass
-        raise RuntimeError('Xray configuration test failed: '+(test.stderr or test.stdout).strip())
-    os.replace(tmp,CFG)
-    rr=subprocess.run(['systemctl','restart','xray'],capture_output=True,text=True)
-    if rr.returncode: raise RuntimeError('Xray restart failed: '+(rr.stderr or rr.stdout).strip())
+    with XRAY_LOCK:
+        tmp=CFG+'.tmp.json'; rollback=CFG+'.rollback.tmp'
+        try:
+            with open(CFG,'rb') as f: previous=f.read()
+        except OSError: previous=None
+        with open(tmp,'w') as f: json.dump(d,f,indent=2)
+        test=subprocess.run(['xray','-test','-config',tmp],capture_output=True,text=True)
+        if test.returncode:
+            try: os.unlink(tmp)
+            except OSError: pass
+            raise RuntimeError('Xray configuration test failed: '+(test.stderr or test.stdout).strip())
+        os.replace(tmp,CFG)
+        rr=subprocess.run(['systemctl','restart','xray'],capture_output=True,text=True)
+        if rr.returncode:
+            if previous is not None:
+                try:
+                    with open(rollback,'wb') as f: f.write(previous)
+                    os.replace(rollback,CFG)
+                    subprocess.run(['systemctl','restart','xray'],capture_output=True,text=True)
+                except Exception: pass
+            raise RuntimeError('Xray restart failed: '+(rr.stderr or rr.stdout).strip())
 
 def add_xray(protocol,u,secret):
     d=load_xray()
