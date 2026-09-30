@@ -168,6 +168,9 @@ iptables-save >/etc/iptables/rules.v4
 systemctl enable --now netfilter-persistent.service >/dev/null 2>&1 || true
 
 if ! command -v hysteria >/dev/null 2>&1; then curl -fsSL https://get.hy2.sh/ | bash; fi
+if ! getent passwd hysteria >/dev/null 2>&1; then
+  useradd --system --no-create-home --shell /usr/sbin/nologin hysteria
+fi
 # Xray's upstream installer starts the service immediately after installation.
 # Seed a valid empty configuration first so a fresh install does not emit a
 # misleading "Failed to enable and start the Xray service" warning.
