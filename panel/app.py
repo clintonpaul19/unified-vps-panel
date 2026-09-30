@@ -76,14 +76,15 @@ def _session_valid(cookie):
     except Exception:
         return False
 
-def auth(h):
+def auth(h,basic_allowed=False):
     if not admin_configured(): return False
-    v=h.get('Authorization','')
-    if v.startswith('Basic '):
-        try:
-            u,p=base64.b64decode(v[6:]).decode().split(':',1)
-            if hmac.compare_digest(u,ADMIN) and hmac.compare_digest(p,PASSWORD): return True
-        except Exception: pass
+    if basic_allowed:
+        v=h.get('Authorization','')
+        if v.startswith('Basic '):
+            try:
+                u,p=base64.b64decode(v[6:]).decode().split(':',1)
+                if hmac.compare_digest(u,ADMIN) and hmac.compare_digest(p,PASSWORD): return True
+            except Exception: pass
     for item in h.get('Cookie','').split(';'):
         item=item.strip()
         if item.startswith(SESSION_COOKIE+'=') and _session_valid(item.split('=',1)[1]): return True
@@ -632,7 +633,7 @@ class H(BaseHTTPRequestHandler):
         if not admin_configured():
             if self.path in ('/','/setup'): return _setup_page(self)
             return send(self,{'error':'panel setup required'},503)
-        if self.path=='/login' and not auth(self.headers): return _login_page(self)
+        if self.path=='/login' and not auth(self.headers,self.client_address[0] in ('127.0.0.1','::1')): return _login_page(self)
         if not auth(self.headers):
             if self.path.startswith('/api/'):
                 return send(self,{'error':'authentication required'},401)
