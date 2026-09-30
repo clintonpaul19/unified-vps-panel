@@ -1,0 +1,14 @@
+[Unit]
+Description=Unified VPS SSH over WebSocket
+After=network-online.target ssh.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/wstunnel server --restrict-to 127.0.0.1:22 ws://127.0.0.1:18446
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
