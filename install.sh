@@ -433,7 +433,7 @@ RestartSec=3
 WantedBy=multi-user.target
 EOF
 
-printf 'ADMIN_USER=spiderman\nADMIN_PASSWORD=spiderman\nPANEL_PORT=6080\nSERVER_DOMAIN=%s\nACME_EMAIL=%s\nHY2_STATS_SECRET=%s\nSSH_WS_PATH=ssh\nSSH_WS_PORT=443\n' "$DOMAIN" "$ACME_EMAIL" "$HY2_STATS_SECRET" > /etc/unified-vps/panel.env
+printf 'ADMIN_USER=\nADMIN_PASSWORD=\nPANEL_PORT=6080\nSERVER_DOMAIN=%s\nACME_EMAIL=%s\nHY2_STATS_SECRET=%s\nSSH_WS_PATH=ssh\nSSH_WS_PORT=443\n' "$DOMAIN" "$ACME_EMAIL" "$HY2_STATS_SECRET" > /etc/unified-vps/panel.env
 chmod 600 /etc/unified-vps/panel.env
 
 curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/panel/app.py" -o /opt/unified-vps/panel.py
@@ -511,8 +511,7 @@ echo "=============================================="
 echo "Domain: $DOMAIN"
 echo "Panel: http://$DOMAIN:6080/"
 echo "Panel backend: 127.0.0.1:6080"
-echo "Panel username: spiderman"
-echo "Panel password: spiderman"
+echo "Panel credentials: create them on first visit"
 echo "Generated ACME email: $ACME_EMAIL"
 echo "VLESS: TLS/WS on TCP 80 and 443"
 echo "VMess: TLS/WS on TCP 80 and 443"
