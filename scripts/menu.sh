@@ -317,7 +317,10 @@ server_settings(){
       1)
         read -r -s -p "New panel password: " newpass; echo
         read -r -s -p "Confirm password: " confirm; echo
-        [[ -n "$newpass" && "$newpass" == "$confirm" && "$newpass" != *        printf '%s' "$newpass" | python3 -c 'import sys, shlex; from pathlib import Path
+        if [[ -z "$newpass" || "$newpass" != "$confirm" || "$newpass" == *$'\n'* || "$newpass" == *$'\r'* ]]; then
+          echo "Passwords do not match or contain an invalid newline."; pause; continue
+        fi
+        printf '%s' "$newpass" | python3 -c 'import sys, shlex; from pathlib import Path
 p=Path("/etc/unified-vps/panel.env")
 new=sys.stdin.read()
 lines=p.read_text().splitlines()
