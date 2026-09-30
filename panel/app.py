@@ -24,6 +24,7 @@ HY2_STATS_SECRET=os.environ.get('HY2_STATS_SECRET','')
 PUBLIC_IP_CACHE=None
 XRAY_TAGS={'VLESS':['vless443'],'VMess':['vmess443'],'Trojan':['trojan443']}
 SSH_PORTS=[80,443,143,8080,8443,8880]
+MAX_REQUEST_BODY=64*1024
 
 def _load_admin_credentials():
     global ADMIN,PASSWORD
@@ -1217,7 +1218,7 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                 confirm=str(d.get('confirm',''))
                 if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{2,31}',u):
                     return send(self,{'error':'Username must be 3-32 characters using letters, numbers, dot, underscore or hyphen.'},400)
-                if len(p)<8 or len(p)>128 or '\\n' in p or '\\r' in p:
+                if len(p)<8 or len(p)>128 or '\n' in p or '\r' in p:
                     return send(self,{'error':'Password must be 8-128 characters and cannot contain newlines.'},400)
                 if p!=confirm: return send(self,{'error':'Passwords do not match.'},400)
                 try:
