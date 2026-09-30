@@ -226,10 +226,19 @@ def public_ip():
     global PUBLIC_IP_CACHE
     if PUBLIC_IP_CACHE: return PUBLIC_IP_CACHE
     try:
-        PUBLIC_IP_CACHE=subprocess.check_output(['curl','-4fsS','--max-time','3','https://api.ipify.org'],text=True).strip()
+        value=subprocess.check_output(['curl','-4fsS','--max-time','3','https://api.ipify.org'],text=True).strip()
+        if re.fullmatch(r'\d{1,3}(?:\.\d{1,3}){3}',value):
+            PUBLIC_IP_CACHE=value
     except Exception:
-        PUBLIC_IP_CACHE='SERVER_IP'
-    return PUBLIC_IP_CACHE
+        pass
+    if not PUBLIC_IP_CACHE:
+        try:
+            value=subprocess.check_output(['hostname','-I'],text=True).split()[0]
+            if re.fullmatch(r'\d{1,3}(?:\.\d{1,3}){3}',value):
+                PUBLIC_IP_CACHE=value
+        except Exception:
+            pass
+    return PUBLIC_IP_CACHE or '127.0.0.1'
 
 def load_xray():
     with open(CFG) as f: return json.load(f)
