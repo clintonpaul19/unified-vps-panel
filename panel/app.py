@@ -596,6 +596,7 @@ def create_user(d):
         q=0
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{2,31}',u): raise ValueError('invalid username')
     secret=str(d.get('secret') or (str(uuid.uuid4()) if p in ('VLESS','VMess') else secrets.token_urlsafe(18)))
+    if p=='SSH' and not secret: raise ValueError('SSH password cannot be empty')
     if len(secret)>256 or '\n' in secret or '\r' in secret or '\x00' in secret: raise ValueError('secret/password contains invalid characters or is too long')
     if p in ('VLESS','VMess'):
         try:
