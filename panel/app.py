@@ -15,6 +15,10 @@ PANEL_ENV=f'{BASE}/panel.env'
 SESSION_COOKIE='uvps_session'
 SESSION_TTL=12*60*60
 SETUP_LOCK=threading.Lock()
+LOGIN_LOCK=threading.Lock()
+LOGIN_FAILURES={}
+LOGIN_WINDOW=600
+LOGIN_MAX_FAILURES=8
 HY2_STATS_SECRET=os.environ.get('HY2_STATS_SECRET','')
 PUBLIC_IP_CACHE=None
 XRAY_TAGS={'VLESS':['vless443'],'VMess':['vmess443'],'Trojan':['trojan443']}
@@ -101,7 +105,7 @@ def _save_admin_credentials(username,password):
     if not user_done: out.append('ADMIN_USER='+q(username))
     if not pass_done: out.append('ADMIN_PASSWORD='+q(password))
     tmp=PANEL_ENV+'.tmp'
-    with open(tmp,'w',encoding='utf-8') as f: f.write('\\n'.join(out)+'\\n')
+    with open(tmp,'w',encoding='utf-8') as f: f.write('\n'.join(out)+'\n')
     os.chmod(tmp,0o600)
     os.replace(tmp,PANEL_ENV)
     ADMIN=username; PASSWORD=password
@@ -118,13 +122,13 @@ def send_html(r,body_html,status=200,headers=None):
 
 def _setup_page(r):
     return send_html(r,'''<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Unified VPS Setup</title>
-<style>body{font:15px system-ui;background:#06110b;color:#ecfff2;display:grid;place-items:center;min-height:100vh;margin:0}.card{width:min(420px,90%);padding:28px;border:1px solid #173524;border-radius:16px;background:#0b1811}input,button{width:100%;box-sizing:border-box;padding:12px;margin:7px 0;border-radius:9px;border:1px solid #173524;background:#06100a;color:#ecfff2}button{background:#42f58d;color:#03200f;font-weight:800;cursor:pointer}.msg{color:#ff6b78;min-height:20px}</style>
-<div class="card"><h2>Unified VPS</h2><p>Create your administrator credentials.</p><form id="f"><input name="username" placeholder="Enter username" maxlength="32" autocomplete="username" required><input name="password" type="password" placeholder="Enter password" minlength="8" maxlength="128" autocomplete="new-password" required><input name="confirm" type="password" placeholder="Reenter password" minlength="8" maxlength="128" autocomplete="new-password" required><button>Save and login</button><div class="msg" id="m"></div></form><script>f.onsubmit=async e=>{e.preventDefault();m.textContent='';let d=Object.fromEntries(new FormData(f));if(d.password!==d.confirm){m.textContent='Passwords do not match';return}let r=await fetch('/setup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});let j=await r.json();if(!r.ok){m.textContent=j.error||'Setup failed';return}location='/'};</script></div>''')
+<style>body{font:15px system-ui;background:#06110b;color:#ecfff2;display:grid;place-items:center;min-height:100vh;margin:0}.card{width:min(420px,90%);padding:28px;border:1px solid #173524;border-radius:16px;background:#0b1811}.card h2{margin-top:0}input,button{width:100%;box-sizing:border-box;padding:12px;margin:7px 0;border-radius:9px;border:1px solid #173524;background:#06100a;color:#ecfff2}button{background:#42f58d;color:#03200f;font-weight:800;cursor:pointer}.msg{color:#ff6b78;min-height:20px}</style>
+<div class="card"><h2>Unified VPS</h2><p>Create the administrator credentials for this VPS.</p><form id="setupForm"><input name="username" placeholder="Enter username" maxlength="32" autocomplete="username" required><input name="password" type="password" placeholder="Enter password" minlength="8" maxlength="128" autocomplete="new-password" required><input name="confirm" type="password" placeholder="Reenter password" minlength="8" maxlength="128" autocomplete="new-password" required><button type="submit">Save and login</button><div class="msg" id="setupMsg"></div></form></div><script>const form=document.getElementById('setupForm'),msg=document.getElementById('setupMsg');form.addEventListener('submit',async e=>{e.preventDefault();msg.textContent='';const d=Object.fromEntries(new FormData(form));if(d.password!==d.confirm){msg.textContent='Passwords do not match.';return}try{const r=await fetch('/setup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d),cache:'no-store'});const j=await r.json();if(!r.ok){msg.textContent=j.error||'Setup failed.';return}window.location.replace('/');}catch(_){msg.textContent='Unable to reach the panel. Try again.'}});</script>''')
 
 def _login_page(r):
     return send_html(r,'''<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Unified VPS Login</title>
-<style>body{font:15px system-ui;background:#06110b;color:#ecfff2;display:grid;place-items:center;min-height:100vh;margin:0}.card{width:min(420px,90%);padding:28px;border:1px solid #173524;border-radius:16px;background:#0b1811}input,button{width:100%;box-sizing:border-box;padding:12px;margin:7px 0;border-radius:9px;border:1px solid #173524;background:#06100a;color:#ecfff2}button{background:#42f58d;color:#03200f;font-weight:800;cursor:pointer}.msg{color:#ff6b78;min-height:20px}</style>
-<div class="card"><h2>Unified VPS</h2><form id="f"><input name="username" placeholder="Username" autocomplete="username" required><input name="password" type="password" placeholder="Password" autocomplete="current-password" required><button>Login</button><div class="msg" id="m"></div></form><script>f.onsubmit=async e=>{e.preventDefault();let d=Object.fromEntries(new FormData(f)),r=await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)}),j=await r.json();if(!r.ok){m.textContent=j.error||'Login failed';return}location='/'};</script></div>''')
+<style>body{font:15px system-ui;background:#06110b;color:#ecfff2;display:grid;place-items:center;min-height:100vh;margin:0}.card{width:min(420px,90%);padding:28px;border:1px solid #173524;border-radius:16px;background:#0b1811}.card h2{margin-top:0}input,button{width:100%;box-sizing:border-box;padding:12px;margin:7px 0;border-radius:9px;border:1px solid #173524;background:#06100a;color:#ecfff2}button{background:#42f58d;color:#03200f;font-weight:800;cursor:pointer}.msg{color:#ff6b78;min-height:20px}</style>
+<div class="card"><h2>Unified VPS</h2><form id="loginForm"><input name="username" placeholder="Username" autocomplete="username" required><input name="password" type="password" placeholder="Password" autocomplete="current-password" required><button type="submit">Login</button><div class="msg" id="loginMsg"></div></form></div><script>const form=document.getElementById('loginForm'),msg=document.getElementById('loginMsg');form.addEventListener('submit',async e=>{e.preventDefault();msg.textContent='';try{const d=Object.fromEntries(new FormData(form)),r=await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d),cache:'no-store'}),j=await r.json();if(!r.ok){msg.textContent=j.error||'Login failed.';return}window.location.replace('/');}catch(_){msg.textContent='Unable to reach the panel. Try again.'}});</script></div>''')
 
 def send(r,obj,status=200,headers=None):
     b=json.dumps(obj).encode(); r.send_response(status)
