@@ -240,7 +240,8 @@ ACME_OK=0
 CERT_REUSE=0
 if [ -s /etc/unified-vps/xray.crt ] && [ -s /etc/unified-vps/xray.key ] &&
    openssl x509 -in /etc/unified-vps/xray.crt -noout >/dev/null 2>&1 &&
-   openssl x509 -in /etc/unified-vps/xray.crt -checkend 2592000 -noout >/dev/null 2>&1; then
+   openssl x509 -in /etc/unified-vps/xray.crt -checkend 2592000 -noout >/dev/null 2>&1 &&
+   openssl x509 -in /etc/unified-vps/xray.crt -noout -checkhost "$DOMAIN" >/dev/null 2>&1; then
   CERT_REUSE=1
   echo "Existing certificate is valid for at least 30 more days; reusing it."
 fi
@@ -251,7 +252,6 @@ if "$HOME/.acme.sh/acme.sh" --issue --standalone -d "$DOMAIN"     --pre-hook "sy
   ACME_OK=1
 else
   echo "HTTP-01 failed; attempting TLS-ALPN-01 validation on TCP/443..."
-  rm -rf "$HOME/.acme.sh/${DOMAIN}_ecc" "$HOME/.acme.sh/${DOMAIN}"
   if "$HOME/.acme.sh/acme.sh" --issue --alpn -d "$DOMAIN"       --pre-hook "systemctl stop haproxy"       --post-hook "systemctl start haproxy"; then
     ACME_OK=1
   fi
@@ -271,9 +271,11 @@ if [ "$ACME_OK" -ne 1 ]; then
   exit 1
 fi
 
-if [ ! -s "$HOME/.acme.sh/${DOMAIN}_ecc/fullchain.cer" ] && [ ! -s "$HOME/.acme.sh/${DOMAIN}/fullchain.cer" ]; then
-  echo "ERROR: ACME succeeded but no fullchain certificate was produced."
-  exit 1
+if [ "$CERT_REUSE" -ne 1 ]; then
+  if [ ! -s "$HOME/.acme.sh/${DOMAIN}_ecc/fullchain.cer" ] && [ ! -s "$HOME/.acme.sh/${DOMAIN}/fullchain.cer" ]; then
+    echo "ERROR: ACME succeeded but no fullchain certificate was produced."
+    exit 1
+  fi
 fi
 
 if [ "$CERT_REUSE" -ne 1 ]; then
