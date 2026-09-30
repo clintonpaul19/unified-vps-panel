@@ -316,21 +316,15 @@ server_settings(){
         read -r -s -p "New panel password: " newpass; echo
         read -r -s -p "Confirm password: " confirm; echo
         [[ -n "$newpass" && "$newpass" == "$confirm" ]] || { echo "Passwords do not match."; pause; continue; }
-        python3 -c 'import sys, json; from pathlib import Path
-new=sys.stdin.read()
+        printf '%s' "$newpass" | python3 -c 'import sys, json; from pathlib import Path
 p=Path("/etc/unified-vps/panel.env")
+new=sys.stdin.read()
 lines=p.read_text().splitlines()
 out=[]
 for line in lines:
     if line.startswith("ADMIN_PASSWORD="): out.append("ADMIN_PASSWORD="+json.dumps(new))
     else: out.append(line)
-p.write_text("\\n".join(out)+"\\n")
-' <<<"$newpass"
-: <<'PY-REMOVED'
-import sys
-from pathlib import Path
-p=Path("/etc/unified-vps/panel.env")
-PY-REMOVED
+p.write_text("\n".join(out)+"\n")'
         chmod 600 /etc/unified-vps/panel.env
         systemctl restart unified-vps-panel
         echo "Panel password changed."
