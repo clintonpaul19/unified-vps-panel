@@ -192,12 +192,14 @@ protocol_menu(){
         fi
         read -r -p "Duration (days, 0 = unlimited): " days
         days=${days:-0}
+        [[ "$days" =~ ^[0-9]+$ ]] || { echo "Invalid duration."; pause; continue; }
         if [[ "$p" == "SSH" ]]; then
           quota=0
           echo "SSH quota: unlimited (SSH per-user quota is not supported)."
         else
           read -r -p "Quota (GB, 0 = unlimited): " quota
           quota=${quota:-0}
+          [[ "$quota" =~ ^([0-9]+([.][0-9]+)?|[.][0-9]+)$ ]] || { echo "Invalid quota."; pause; continue; }
         fi
         if [[ "$p" == "SSH" ]]; then
           json="$(jq -n --arg u "$id" --arg p "$p" --arg s "$secret" --argjson d "$days" --argjson q "$quota" '{username:$u,protocol:$p,secret:$s,days:$d,quota_gb:$q}')"
