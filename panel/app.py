@@ -654,6 +654,7 @@ def create_user(d):
     q=int(quota_gb*(1024**3))
     try: days=int(d.get('days',0) or 0)
     except (TypeError,ValueError): raise ValueError('days must be a whole number')
+    if days < 0 or days > 36500: raise ValueError('duration must be between 0 and 36500 days')
     if p not in XRAY_TAGS and p not in ('Hysteria','SSH'): raise ValueError('invalid protocol')
     # SSH quota accounting is not currently supported, but accept the field
     # from CLI clients for compatibility and keep the stored quota at zero.
