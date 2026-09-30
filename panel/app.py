@@ -36,6 +36,8 @@ def _load_admin_credentials():
         if user == 'spiderman' and password == 'spiderman':
             try: os.unlink(ADMIN_FILE)
             except OSError: pass
+            ADMIN=''
+            PASSWORD=''
             return
         if user and password:
             ADMIN=user
