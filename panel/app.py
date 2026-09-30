@@ -1010,7 +1010,7 @@ button{cursor:pointer}
   <div class="sidefoot"><span class="label">DAILY REBOOT</span><strong>__REBOOT__</strong><span class="label">Panel access: __PANEL_URL__</span></div>
 </aside>
 <main class="main">
-  <header class="topbar"><div><h2>Command Center</h2><p>__DOMAIN__</p></div><div class="top-actions"><span class="badge">IPv4 __IP__</span><span class="badge">__OS__</span></div></header>
+  <header class="topbar"><div><h2>Command Center</h2><p>__DOMAIN__</p><p class="muted">Build __BUILD__</p></div><div class="top-actions"><span class="badge">IPv4 __IP__</span><span class="badge">__OS__</span></div></header>
   <section class="content" id="dashboard">
     <div class="hero"><div><h3>Server overview</h3><p>Live account inventory, services and transport endpoints.</p><span id="usageStamp" class="muted" style="margin-top:6px">Usage updating…</span></div><button class="primary" id="openCreate" type="button" onclick="document.getElementById('modal').classList.add('open')">+ Create account</button></div>
     <div class="stats">
