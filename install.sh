@@ -477,7 +477,7 @@ WantedBy=multi-user.target
 EOF
 
 curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/menu.sh" -o /usr/local/bin/menu
-curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/vps-status.sh" -o /usr/local/bin/vps-status 2>/dev/null || true
+curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/vps-status.sh" -o /usr/local/bin/vps-status
 chmod 755 /usr/local/bin/menu /usr/local/bin/vps-status
 
 systemctl daemon-reload
