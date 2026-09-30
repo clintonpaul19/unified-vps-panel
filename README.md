@@ -43,7 +43,7 @@ vps-status
 menu
 ```
 
-The panel administrator credentials are created on the first visit. They are stored locally in `/etc/unified-vps/panel.env` with restricted permissions.
+Open the panel at `http://YOUR-DOMAIN:6080/`. On the first visit it prompts for **Enter username**, **Enter password** and **Reenter password**. After saving, the browser is logged in automatically. The administrator credentials are stored locally in `/etc/unified-vps/panel.env` with restricted permissions.
 
 The web panel listens on TCP **6080**. Public panel access is `http://YOUR-DOMAIN:6080/`. TLS transport ports 443/8443 are handled by HAProxy/Xray.
 
@@ -222,7 +222,7 @@ Enter password
 Reenter password
 ```
 
-After the passwords match, the panel saves the credentials locally on the VPS and logs the browser in automatically. The credentials remain available for subsequent panel logins. The former `spiderman/spiderman` placeholder is removed and is no longer accepted as the administrator account.
+After the passwords match, the panel saves the credentials locally on the VPS and logs the browser in automatically. The credentials remain available for subsequent panel logins. There is no default administrator account.
 
 ## Ookla Speedtest
 
