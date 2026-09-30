@@ -35,7 +35,10 @@ api_usage(){ curl -fsS "${AUTH[@]}" "$API/api/usage"; }
 
 select_account_id(){
   local p="$1" action_name="$2" data choice list count
-  data="$(api_get)"
+  if ! data="$(api_get 2>/dev/null)"; then
+    echo "Panel API unavailable."
+    return 1
+  fi
   list="$(mktemp)"
   printf '%s\n' "$data" | python3 -c 'import json,sys; p=sys.argv[1]; [print(str(x["id"])+"|"+x["username"]+"|"+("enabled" if x["enabled"] else "disabled")) for x in json.load(sys.stdin) if x["protocol"]==p]' "$p" >"$list"
   count="$(wc -l <"$list")"
@@ -131,8 +134,12 @@ draw_header(){
 }
 
 print_protocol_accounts(){
-  local p="$1"
-  api_get | python3 -c '
+  local p="$1" data
+  if ! data="$(api_get 2>/dev/null)"; then
+    echo "Panel API unavailable."
+    return
+  fi
+  printf '%s\\n' "$data" | python3 -c '
 import json,sys
 p=sys.argv[1]
 rows=[x for x in json.load(sys.stdin) if x["protocol"]==p]
@@ -237,7 +244,13 @@ protocol_menu(){
 
 all_accounts(){
   clear
-  api_get | python3 -m json.tool
+  local data
+  if ! data="$(api_get 2>/dev/null)"; then
+    echo "Panel API unavailable."
+    pause
+    return
+  fi
+  printf '%s\\n' "$data" | python3 -m json.tool
   echo
   show_usage_summary
   pause
