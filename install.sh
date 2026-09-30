@@ -154,6 +154,7 @@ insert_firewall_rule iptables INPUT -m conntrack --ctstate ESTABLISHED,RELATED
 # IPv6 is disabled for this deployment; do not configure IPv6 firewall rules.
 
 iptables-save >/etc/iptables/rules.v4
+systemctl enable --now netfilter-persistent.service >/dev/null 2>&1 || true
 
 if ! command -v hysteria >/dev/null 2>&1; then curl -fsSL https://get.hy2.sh/ | bash; fi
 # Xray's upstream installer starts the service immediately after installation.
