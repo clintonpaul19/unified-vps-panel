@@ -477,8 +477,11 @@ class H(BaseHTTPRequestHandler):
                 p=subprocess.run(['tar','-xzf',files[0],'-C','/'],capture_output=True,text=True,timeout=120)
                 if p.returncode: return send(self,{'error':(p.stderr or 'restore failed').strip()},500)
                 log_event('backup_restored',os.path.basename(files[0]),'')
-                subprocess.run(['systemctl','restart','unified-vps-panel','xray','hysteria-server','haproxy'],capture_output=True)
-                return send(self,{'ok':True,'path':files[0]})
+                result=send(self,{'ok':True,'path':files[0],'message':'Restore applied; services will restart shortly.'})
+                def restart_restored_services():
+                    subprocess.run(['systemctl','restart','xray','hysteria-server','haproxy','unified-vps-panel'],capture_output=True)
+                threading.Timer(2.0,restart_restored_services).start()
+                return result
             return send(self,{'error':'unsupported backup action'},400)
 
         if self.path=='/api/certificate/renew':
