@@ -598,6 +598,214 @@ update_script(){
   if ! bash -n "$tmp_menu" || ! bash -n "$tmp_cert_hook" || ! bash -n "$tmp_status" || ! bash -n "$tmp_watch" || ! bash -n "$tmp_backup" || ! python3 -m py_compile "$tmp_app" "$tmp_payload" || ! haproxy -c -f "$tmp_haproxy" || ! systemd-analyze verify "$tmp_wstunnel_unit" "$tmp_hysteria_unit" "$tmp_watch_unit" "$tmp_timer" "$tmp_backup_unit" "$tmp_backup_timer"; then
     echo "Validation failed. Nothing was installed."; rm -f "$tmp_menu" "$tmp_app" "$tmp_haproxy" "$tmp_payload" "$tmp_wstunnel_unit" "$tmp_hysteria_unit" "$tmp_cert_hook" "$tmp_watch" "$tmp_watch_unit" "$tmp_timer" "$tmp_backup" "$tmp_backup_unit" "$tmp_backup_timer" "$tmp_f2b"; pause; return
   fi
+  if [ -f /etc/unified-vps/panel.env ] && grep -Eq '^ADMIN_USER="?spiderman"?  install -m 0644 "$tmp_app" /opt/unified-vps/panel.py
+  install -m 0644 "$tmp_haproxy" /etc/haproxy/haproxy.cfg
+  install -m 0755 "$tmp_payload" /opt/unified-vps/ws-payload-ssh.py
+  install -m 0644 "$tmp_wstunnel_unit" /etc/systemd/system/unified-vps-wstunnel-ssh.service
+  install -m 0644 "$tmp_hysteria_unit" /etc/systemd/system/hysteria-server.service
+  install -m 0755 "$tmp_cert_hook" /usr/local/sbin/unified-vps-cert-reload
+  install -m 0755 "$tmp_status" /usr/local/bin/vps-status
+  install -m 0755 "$tmp_watch" /usr/local/sbin/unified-vps-watchdog
+  install -m 0644 "$tmp_watch_unit" /etc/systemd/system/unified-vps-watchdog.service
+  install -m 0644 "$tmp_timer" /etc/systemd/system/unified-vps-watchdog.timer
+  install -m 0755 "$tmp_backup" /usr/local/sbin/unified-vps-backup
+  install -m 0644 "$tmp_backup_unit" /etc/systemd/system/unified-vps-backup.service
+  install -m 0644 "$tmp_backup_timer" /etc/systemd/system/unified-vps-backup.timer
+  mkdir -p /etc/fail2ban/jail.d
+  install -m 0644 "$tmp_f2b" /etc/fail2ban/jail.d/unified-vps.local
+  rm -f "$tmp_menu" "$tmp_app" "$tmp_haproxy" "$tmp_payload" "$tmp_wstunnel_unit" "$tmp_hysteria_unit" "$tmp_cert_hook" "$tmp_watch" "$tmp_watch_unit" "$tmp_timer" "$tmp_backup" "$tmp_backup_unit" "$tmp_backup_timer" "$tmp_f2b"
+  systemctl daemon-reload
+  systemctl unmask hysteria-server.service 2>/dev/null || true
+  systemctl enable fail2ban unified-vps-watchdog.timer unified-vps-backup.timer unified-vps-wstunnel-ssh unified-vps-ws-payload-ssh hysteria-server haproxy xray unified-vps-panel >/dev/null 2>&1 || true
+  systemctl enable --now fail2ban unified-vps-watchdog.timer unified-vps-backup.timer
+  systemctl restart unified-vps-panel unified-vps-wstunnel-ssh unified-vps-ws-payload-ssh hysteria-server haproxy xray
+  ensure_daily_reboot
+  echo "Update complete. Watchdog, backups and Fail2Ban are active."
+  pause
+}
+
+server_info(){
+  draw_header
+  echo
+  echo "IP       : $(server_ip)"
+  echo "Hostname : $(hostname -f 2>/dev/null || hostname)"
+  echo "Domain   : ${SERVER_DOMAIN:-not configured}"
+  echo "ISP      : $(isp_info)"
+  echo "Location : $(location_info)"
+  echo "Kernel   : $(uname -r)"
+  echo "Arch     : $(uname -m)"
+  echo "Disk     : $(df -h / | awk 'NR==2 {print $3" / "$2" ("$5")"}')"
+  echo "Memory   : $(free -h | awk '/Mem:/ {print $3" / "$2}')"
+  echo "Uptime   : $(uptime -p)"
+  echo "Daily reboot: 04:00 local"
+  pause
+}
+
+ensure_daily_reboot
+
+while true; do
+  draw_header
+  echo
+  echo "============================ MAIN MENU ============================"
+  echo "[01] SSH accounts"
+  echo "[02] VLESS accounts"
+  echo "[03] VMess accounts"
+  echo "[04] Trojan accounts"
+  echo "[05] Hysteria accounts"
+  echo "[06] All accounts"
+  echo "[07] Install extra tools"
+  echo "[08] Server information"
+  echo "[09] Backup / restore"
+  echo "[10] Server settings"
+  echo "[11] Tools & utilities"
+  echo "[12] Monitoring"
+  echo "[13] Domain & network"
+  echo "[14] Logs & reports"
+  echo "[15] Restart all services"
+  echo "[16] Ookla speedtest"
+  echo "[17] Active connections"
+  echo "[18] System resources"
+  echo "[19] Security audit"
+  echo "[20] Update panel / proxy files"
+  echo "[21] Exit"
+  echo
+  echo "Version = $PANEL_VERSION | Daily reboot = 04:00 local"
+  if [[ -z "${ADMIN_USER:-}" || -z "${ADMIN_PASSWORD:-}" ]]; then
+    echo "Panel setup: http://${SERVER_DOMAIN:-SERVER_IP}:${PANEL_PORT:-6080}/"
+  fi
+  echo
+  read -r -p "Select an option [1-21] >>> " n
+  case "$n" in
+    1) protocol_menu SSH ;;
+    2) protocol_menu VLESS ;;
+    3) protocol_menu VMess ;;
+    4) protocol_menu Trojan ;;
+    5) protocol_menu Hysteria ;;
+    6) all_accounts ;;
+    7) install_extra ;;
+    8) server_info ;;
+    9) backup_restore ;;
+    10) server_settings ;;
+    11) tools_menu ;;
+    12) monitoring_menu ;;
+    13) domain_network ;;
+    14) logs_reports ;;
+    15) restart_services ;;
+    16) speedtest_menu ;;
+    17) view_connections ;;
+    18) system_resource ;;
+    19) security_menu ;;
+    20) update_script ;;
+    21) exit 0 ;;
+    *) echo "Invalid option."; sleep 1 ;;
+  esac
+done
+ /etc/unified-vps/panel.env && grep -Eq '^ADMIN_PASSWORD="?spiderman"?  install -m 0644 "$tmp_app" /opt/unified-vps/panel.py
+  install -m 0644 "$tmp_haproxy" /etc/haproxy/haproxy.cfg
+  install -m 0755 "$tmp_payload" /opt/unified-vps/ws-payload-ssh.py
+  install -m 0644 "$tmp_wstunnel_unit" /etc/systemd/system/unified-vps-wstunnel-ssh.service
+  install -m 0644 "$tmp_hysteria_unit" /etc/systemd/system/hysteria-server.service
+  install -m 0755 "$tmp_cert_hook" /usr/local/sbin/unified-vps-cert-reload
+  install -m 0755 "$tmp_status" /usr/local/bin/vps-status
+  install -m 0755 "$tmp_watch" /usr/local/sbin/unified-vps-watchdog
+  install -m 0644 "$tmp_watch_unit" /etc/systemd/system/unified-vps-watchdog.service
+  install -m 0644 "$tmp_timer" /etc/systemd/system/unified-vps-watchdog.timer
+  install -m 0755 "$tmp_backup" /usr/local/sbin/unified-vps-backup
+  install -m 0644 "$tmp_backup_unit" /etc/systemd/system/unified-vps-backup.service
+  install -m 0644 "$tmp_backup_timer" /etc/systemd/system/unified-vps-backup.timer
+  mkdir -p /etc/fail2ban/jail.d
+  install -m 0644 "$tmp_f2b" /etc/fail2ban/jail.d/unified-vps.local
+  rm -f "$tmp_menu" "$tmp_app" "$tmp_haproxy" "$tmp_payload" "$tmp_wstunnel_unit" "$tmp_hysteria_unit" "$tmp_cert_hook" "$tmp_watch" "$tmp_watch_unit" "$tmp_timer" "$tmp_backup" "$tmp_backup_unit" "$tmp_backup_timer" "$tmp_f2b"
+  systemctl daemon-reload
+  systemctl unmask hysteria-server.service 2>/dev/null || true
+  systemctl enable fail2ban unified-vps-watchdog.timer unified-vps-backup.timer unified-vps-wstunnel-ssh unified-vps-ws-payload-ssh hysteria-server haproxy xray unified-vps-panel >/dev/null 2>&1 || true
+  systemctl enable --now fail2ban unified-vps-watchdog.timer unified-vps-backup.timer
+  systemctl restart unified-vps-panel unified-vps-wstunnel-ssh unified-vps-ws-payload-ssh hysteria-server haproxy xray
+  ensure_daily_reboot
+  echo "Update complete. Watchdog, backups and Fail2Ban are active."
+  pause
+}
+
+server_info(){
+  draw_header
+  echo
+  echo "IP       : $(server_ip)"
+  echo "Hostname : $(hostname -f 2>/dev/null || hostname)"
+  echo "Domain   : ${SERVER_DOMAIN:-not configured}"
+  echo "ISP      : $(isp_info)"
+  echo "Location : $(location_info)"
+  echo "Kernel   : $(uname -r)"
+  echo "Arch     : $(uname -m)"
+  echo "Disk     : $(df -h / | awk 'NR==2 {print $3" / "$2" ("$5")"}')"
+  echo "Memory   : $(free -h | awk '/Mem:/ {print $3" / "$2}')"
+  echo "Uptime   : $(uptime -p)"
+  echo "Daily reboot: 04:00 local"
+  pause
+}
+
+ensure_daily_reboot
+
+while true; do
+  draw_header
+  echo
+  echo "============================ MAIN MENU ============================"
+  echo "[01] SSH accounts"
+  echo "[02] VLESS accounts"
+  echo "[03] VMess accounts"
+  echo "[04] Trojan accounts"
+  echo "[05] Hysteria accounts"
+  echo "[06] All accounts"
+  echo "[07] Install extra tools"
+  echo "[08] Server information"
+  echo "[09] Backup / restore"
+  echo "[10] Server settings"
+  echo "[11] Tools & utilities"
+  echo "[12] Monitoring"
+  echo "[13] Domain & network"
+  echo "[14] Logs & reports"
+  echo "[15] Restart all services"
+  echo "[16] Ookla speedtest"
+  echo "[17] Active connections"
+  echo "[18] System resources"
+  echo "[19] Security audit"
+  echo "[20] Update panel / proxy files"
+  echo "[21] Exit"
+  echo
+  echo "Version = $PANEL_VERSION | Daily reboot = 04:00 local"
+  if [[ -z "${ADMIN_USER:-}" || -z "${ADMIN_PASSWORD:-}" ]]; then
+    echo "Panel setup: http://${SERVER_DOMAIN:-SERVER_IP}:${PANEL_PORT:-6080}/"
+  fi
+  echo
+  read -r -p "Select an option [1-21] >>> " n
+  case "$n" in
+    1) protocol_menu SSH ;;
+    2) protocol_menu VLESS ;;
+    3) protocol_menu VMess ;;
+    4) protocol_menu Trojan ;;
+    5) protocol_menu Hysteria ;;
+    6) all_accounts ;;
+    7) install_extra ;;
+    8) server_info ;;
+    9) backup_restore ;;
+    10) server_settings ;;
+    11) tools_menu ;;
+    12) monitoring_menu ;;
+    13) domain_network ;;
+    14) logs_reports ;;
+    15) restart_services ;;
+    16) speedtest_menu ;;
+    17) view_connections ;;
+    18) system_resource ;;
+    19) security_menu ;;
+    20) update_script ;;
+    21) exit 0 ;;
+    *) echo "Invalid option."; sleep 1 ;;
+  esac
+done
+ /etc/unified-vps/panel.env; then
+    sed -i -E '/^ADMIN_USER=/d;/^ADMIN_PASSWORD=/d' /etc/unified-vps/panel.env
+    echo "Legacy spiderman panel credentials removed; the panel will require first-visit setup."
+  fi
   install -m 0755 "$tmp_menu" /usr/local/bin/menu
   install -m 0644 "$tmp_app" /opt/unified-vps/panel.py
   install -m 0644 "$tmp_haproxy" /etc/haproxy/haproxy.cfg
