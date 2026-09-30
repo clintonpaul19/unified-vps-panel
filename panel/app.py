@@ -102,7 +102,7 @@ def _save_admin_credentials(username,password):
     except OSError:
         lines=[]
     def env_quote(value):
-        return json.dumps(value).replace(chr(36),chr(92)+chr(36)).replace(chr(96),chr(92)+chr(96))
+        return json.dumps(value,ensure_ascii=False).replace(chr(36),chr(92)+chr(36)).replace(chr(96),chr(92)+chr(96))
     out=[]; user_done=False; pass_done=False
     for line in lines:
         if line.startswith('ADMIN_USER='):
