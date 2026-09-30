@@ -24,7 +24,7 @@ LEGACY_ADMIN_PASSWORD='spiderman'
 HY2_STATS_SECRET=os.environ.get('HY2_STATS_SECRET','')
 PUBLIC_IP_CACHE=None
 XRAY_TAGS={'VLESS':['vless443'],'VMess':['vmess443'],'Trojan':['trojan443']}
-SSH_PORTS=[80,443,143,8080,8443]
+SSH_PORTS=[80,443,143,8080,8443,8880]
 
 def conn():
     c=sqlite3.connect(DB); c.row_factory=sqlite3.Row
@@ -1130,8 +1130,6 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                 confirm=str(d.get('confirm',''))
                 if not re.fullmatch(r'[A-Za-z0-9._-]{3,32}',u):
                     return send(self,{'error':'Username must be 3-32 characters using letters, numbers, dot, underscore or hyphen.'},400)
-                if u.lower()=='spiderman':
-                    return send(self,{'error':'That username is unavailable.'},400)
                 if len(p)<8 or len(p)>128 or '\n' in p or '\r' in p:
                     return send(self,{'error':'Password must be 8-128 characters and cannot contain newlines.'},400)
                 if p!=confirm: return send(self,{'error':'Passwords do not match.'},400)
