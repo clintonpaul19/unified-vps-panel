@@ -374,7 +374,8 @@ def sync_usage():
 
             xrows=[r for r in disable if r['protocol'] in XRAY_TAGS]
             if xrows:
-                d=load_xray(); changed=False
+                with XRAY_LOCK:
+                    d=load_xray(); changed=False
                 for row in xrows:
                     for tag in XRAY_TAGS[row['protocol']]:
                         ib=next((i for i in d.get('inbounds',[]) if i.get('tag')==tag),None)
