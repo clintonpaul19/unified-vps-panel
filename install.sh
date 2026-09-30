@@ -504,6 +504,26 @@ if ! systemctl start unified-vps-panel; then
   exit 1
 fi
 sleep 1
+
+# Runtime smoke test for the first-run panel path. Syntax checks alone cannot
+# catch missing runtime globals such as MAX_REQUEST_BODY.
+PANEL_HOME="$(curl -fsS --max-time 5 http://127.0.0.1:6080/ 2>/dev/null || true)"
+if [ -z "$PANEL_HOME" ]; then
+  echo "ERROR: panel HTTP smoke test returned no response."
+  exit 1
+fi
+PANEL_SETUP_TEST="$(curl -sS --max-time 5 -X POST   -H 'Content-Type: application/x-www-form-urlencoded'   --data 'username=uvps-smoke&password=x&confirm=x'   http://127.0.0.1:6080/setup 2>/dev/null || true)"
+if echo "$PANEL_SETUP_TEST" | grep -qiE 'MAX_REQUEST_BODY|NameError|Traceback'; then
+  echo "ERROR: panel first-run setup smoke test exposed a runtime exception:"
+  echo "$PANEL_SETUP_TEST"
+  exit 1
+fi
+if ! echo "$PANEL_SETUP_TEST" | grep -qiE 'Password must|already configured|Setup failed'; then
+  echo "ERROR: panel first-run setup smoke test returned an unexpected response:"
+  echo "$PANEL_SETUP_TEST"
+  exit 1
+fi
+
 systemctl start xray
 
 # Check immediately before starting Hysteria so any late listener is identified.
