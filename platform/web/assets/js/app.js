@@ -101,7 +101,7 @@ function setAuthAnonymous() {
   if (current.auth === "anonymous") return;
   store.update({
     auth: "anonymous",
-    authError: current.authError || "",
+    authError: "",
     me: null,
     organizations: [],
     activeOrgId: "",
