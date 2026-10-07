@@ -79,16 +79,18 @@ def set_page_headers(response: Response, limit: int, next_cursor: str | None) ->
         response.headers["X-Next-Cursor"] = next_cursor
 
 
-def effective_server_status(server: Server, now: datetime) -> str:
-    if server.status == "provisioning":
+def effective_status_value(status: str, last_seen_at: datetime | None, now: datetime) -> str:
+    if status == "provisioning":
         return "provisioning"
-    if server.status == "offline":
+    if status == "offline":
         return "offline"
-    if not server.last_seen_at:
+    if not last_seen_at or last_seen_at < now - timedelta(seconds=settings.heartbeat_offline_seconds):
         return "offline"
-    if server.last_seen_at < now - timedelta(seconds=settings.heartbeat_offline_seconds):
-        return "offline"
-    return server.status
+    return status
+
+
+def effective_server_status(server: Server, now: datetime) -> str:
+    return effective_status_value(server.status, server.last_seen_at, now)
 
 
 def server_output(server: Server, now: datetime, include_metrics: bool = True) -> ServerOut:
@@ -395,9 +397,7 @@ async def list_servers(
                 public_ipv4=row.public_ipv4,
                 public_ipv6=row.public_ipv6,
                 agent_version=row.agent_version,
-                status=effective_server_status(
-                    Server(status=row.status, last_seen_at=row.last_seen_at), now
-                ),
+                status=effective_status_value(row.status, row.last_seen_at, now),
                 metrics={},
                 last_seen_at=row.last_seen_at,
             )
