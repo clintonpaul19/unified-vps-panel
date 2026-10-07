@@ -5,4 +5,5 @@ sqlalchemy==2.0.54
 asyncpg==0.32.0
 argon2-cffi>=25,<26
 itsdangerous>=2.2,<3
+email-validator>=2.2,<3
 uvicorn==0.53.0
