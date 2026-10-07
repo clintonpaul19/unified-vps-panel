@@ -11,7 +11,7 @@ from urllib.parse import parse_qs,urlsplit
 from http.server import BaseHTTPRequestHandler
 
 from .accounts import apply_user_action,create_user,record
-from .auth import _session_cookie,admin_configured,auth,verify_admin_credentials
+from .auth import _save_admin_credentials,_session_cookie,admin_configured,auth,verify_admin_credentials
 from .config import MAINT_LOCK,PANEL_BUILD,PORT,SETUP_LOCK,SPEEDTEST_LOCK
 from .db import conn,log_event
 from .hysteria import _hysteria_online,kick_hysteria
