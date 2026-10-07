@@ -110,6 +110,7 @@ class CommandCreate(BaseModel):
 
 
 class CommandResult(BaseModel):
+    lease_token: str = Field(min_length=16, max_length=128)
     status: str = Field(pattern=r"^(running|succeeded|failed)$")
     result: dict[str, Any] | None = None
     error: str | None = Field(default=None, max_length=2000)
@@ -134,6 +135,10 @@ class CommandOut(BaseModel):
     attempt_count: int
     error: str | None
     result: dict | None
+
+
+class AgentCommandOut(CommandOut):
+    lease_token: str
 
 
 class HeartbeatIn(BaseModel):
