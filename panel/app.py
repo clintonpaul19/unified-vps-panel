@@ -1652,5 +1652,6 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
 
 if __name__=='__main__':
     init_db()
-    threading.Thread(target=sync_usage,daemon=True).start()
+    if os.environ.get('PANEL_PREFLIGHT') != '1':
+        threading.Thread(target=sync_usage,daemon=True).start()
     ThreadingHTTPServer((os.environ.get('PANEL_BIND','0.0.0.0'),PORT),H).serve_forever()

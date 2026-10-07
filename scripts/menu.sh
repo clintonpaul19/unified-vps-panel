@@ -642,51 +642,76 @@ speedtest_menu(){
 
 update_script(){
   local tmp_menu tmp_app tmp_panel_unit tmp_manage tmp_haproxy tmp_payload tmp_wstunnel_unit tmp_hysteria_unit tmp_cert_hook tmp_status tmp_watch tmp_watch_unit tmp_watch_timer tmp_backup tmp_backup_unit tmp_backup_timer tmp_f2b
-  local tmpdir
+  local tmpdir snapshot_sha rollback_dir rollback_app rollback_unit build preflight_log preflight_rc
   tmpdir="$(mktemp -d)"
+  rollback_dir="$(mktemp -d /run/unified-vps-update.XXXXXX)"
   tmp_menu="$tmpdir/menu"; tmp_app="$tmpdir/app.py"; tmp_panel_unit="$tmpdir/panel.service"; tmp_manage="$tmpdir/manage-user.sh"
   tmp_haproxy="$tmpdir/haproxy.cfg"; tmp_payload="$tmpdir/ws-payload-ssh.py"; tmp_wstunnel_unit="$tmpdir/wstunnel.service"; tmp_hysteria_unit="$tmpdir/hysteria.service"
   tmp_cert_hook="$tmpdir/cert-reload"; tmp_status="$tmpdir/vps-status"; tmp_watch="$tmpdir/watchdog"; tmp_watch_unit="$tmpdir/watchdog.service"; tmp_watch_timer="$tmpdir/watchdog.timer"
   tmp_backup="$tmpdir/backup"; tmp_backup_unit="$tmpdir/backup.service"; tmp_backup_timer="$tmpdir/backup.timer"; tmp_f2b="$tmpdir/fail2ban.local"
+  rollback_app="$rollback_dir/panel.py"; rollback_unit="$rollback_dir/unified-vps-panel.service"
+
+  cleanup_update(){ rm -rf "$tmpdir" "$rollback_dir"; }
+  trap cleanup_update RETURN
 
   echo "Updating Unified VPS components..."
   apt-get update -qq
   apt-get install -y -qq fail2ban sqlite3 jq >/dev/null
 
-  if ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/menu.sh?$(date +%s)" -o "$tmp_menu" ||
-     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/panel/app.py?$(date +%s)" -o "$tmp_app" ||
-     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/systemd/unified-vps-panel.service?$(date +%s)" -o "$tmp_panel_unit" ||
-     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/manage-user.sh?$(date +%s)" -o "$tmp_manage" ||
-     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/config/haproxy.cfg?$(date +%s)" -o "$tmp_haproxy" ||
-     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/ws-payload-ssh.py?$(date +%s)" -o "$tmp_payload" ||
-     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/systemd/unified-vps-wstunnel-ssh.service?$(date +%s)" -o "$tmp_wstunnel_unit" ||
-     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/systemd/hysteria-server.service?$(date +%s)" -o "$tmp_hysteria_unit" ||
-     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/unified-vps-cert-reload?$(date +%s)" -o "$tmp_cert_hook" ||
-     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/vps-status.sh?$(date +%s)" -o "$tmp_status" ||
-     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/unified-vps-watchdog.sh?$(date +%s)" -o "$tmp_watch" ||
-     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/systemd/unified-vps-watchdog.service?$(date +%s)" -o "$tmp_watch_unit" ||
-     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/systemd/unified-vps-watchdog.timer?$(date +%s)" -o "$tmp_watch_timer" ||
-     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/unified-vps-backup.sh?$(date +%s)" -o "$tmp_backup" ||
-     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/systemd/unified-vps-backup.service?$(date +%s)" -o "$tmp_backup_unit" ||
-     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/systemd/unified-vps-backup.timer?$(date +%s)" -o "$tmp_backup_timer" ||
-     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/config/fail2ban-unified-vps.local?$(date +%s)" -o "$tmp_f2b"; then
-    echo "Update download failed."
-    rm -rf "$tmpdir"
+  # Resolve one immutable Git commit first. Every downloaded component must come
+  # from exactly that snapshot; mixing files from moving main branches can create
+  # impossible-to-debug version skew during an update.
+  snapshot_sha="$(curl -fsSL --max-time 10 'https://api.github.com/repos/clintonpaul19/unified-vps-panel/commits/main' | jq -r '.sha // empty')" || snapshot_sha=""
+  if [[ ! "$snapshot_sha" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "Update download failed: could not resolve a valid main commit."
+    pause
+    return 1
+  fi
+  echo "Update snapshot: ${snapshot_sha:0:12}"
+
+  if ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/$snapshot_sha/scripts/menu.sh" -o "$tmp_menu" ||
+     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/$snapshot_sha/panel/app.py" -o "$tmp_app" ||
+     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/$snapshot_sha/systemd/unified-vps-panel.service" -o "$tmp_panel_unit" ||
+     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/$snapshot_sha/scripts/manage-user.sh" -o "$tmp_manage" ||
+     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/$snapshot_sha/config/haproxy.cfg" -o "$tmp_haproxy" ||
+     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/$snapshot_sha/scripts/ws-payload-ssh.py" -o "$tmp_payload" ||
+     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/$snapshot_sha/systemd/unified-vps-wstunnel-ssh.service" -o "$tmp_wstunnel_unit" ||
+     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/$snapshot_sha/systemd/hysteria-server.service" -o "$tmp_hysteria_unit" ||
+     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/$snapshot_sha/scripts/unified-vps-cert-reload" -o "$tmp_cert_hook" ||
+     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/$snapshot_sha/scripts/vps-status.sh" -o "$tmp_status" ||
+     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/$snapshot_sha/scripts/unified-vps-watchdog.sh" -o "$tmp_watch" ||
+     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/$snapshot_sha/systemd/unified-vps-watchdog.service" -o "$tmp_watch_unit" ||
+     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/$snapshot_sha/systemd/unified-vps-watchdog.timer" -o "$tmp_watch_timer" ||
+     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/$snapshot_sha/scripts/unified-vps-backup.sh" -o "$tmp_backup" ||
+     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/$snapshot_sha/systemd/unified-vps-backup.service" -o "$tmp_backup_unit" ||
+     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/$snapshot_sha/systemd/unified-vps-backup.timer" -o "$tmp_backup_timer" ||
+     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/$snapshot_sha/config/fail2ban-unified-vps.local" -o "$tmp_f2b"; then
+    echo "Update download failed. Nothing was installed."
     pause
     return 1
   fi
 
-  if ! (bash -n "$tmp_menu" && bash -n "$tmp_cert_hook" && bash -n "$tmp_status" && bash -n "$tmp_watch" && bash -n "$tmp_backup") ||
+  if ! (bash -n "$tmp_menu" && bash -n "$tmp_manage" && bash -n "$tmp_cert_hook" && bash -n "$tmp_status" && bash -n "$tmp_watch" && bash -n "$tmp_backup") ||
      ! python3 -m py_compile "$tmp_app" "$tmp_payload" ||
      ! haproxy -c -f "$tmp_haproxy" ||
      ! systemd-analyze verify "$tmp_panel_unit" "$tmp_wstunnel_unit" "$tmp_hysteria_unit" "$tmp_watch_unit" "$tmp_watch_timer" "$tmp_backup_unit" "$tmp_backup_timer"; then
     echo "Validation failed. Nothing was installed."
-    rm -rf "$tmpdir"
     pause
     return 1
   fi
 
-  install -m 0755 "$tmp_menu" /usr/local/bin/menu
+  expected_build="$(python3 -c 'import re,sys; s=open(sys.argv[1],encoding="utf-8").read(); m=re.search(r"^PANEL_BUILD[[:space:]]*=[[:space:]]*[\x27\"]([^\x27\"]+)[\x27\"]",s,re.M); print(m.group(1) if m else "")' "$tmp_app")"
+  if [[ -z "$expected_build" ]]; then
+    echo "Validation failed: downloaded panel build marker is missing."
+    pause
+    return 1
+  fi
+
+  # Preserve the previous panel before touching the live service. Keep the menu
+  # replacement until the very end so a failure cannot leave the admin command broken.
+  cp -f /opt/unified-vps/panel.py "$rollback_app" 2>/dev/null || true
+  cp -f /etc/systemd/system/unified-vps-panel.service "$rollback_unit" 2>/dev/null || true
+
   install -m 0644 "$tmp_app" /opt/unified-vps/panel.py
   install -m 0644 "$tmp_panel_unit" /etc/systemd/system/unified-vps-panel.service
   install -m 0755 "$tmp_manage" /usr/local/sbin/manage-user
@@ -703,29 +728,23 @@ update_script(){
   install -m 0644 "$tmp_backup_unit" /etc/systemd/system/unified-vps-backup.service
   install -m 0644 "$tmp_backup_timer" /etc/systemd/system/unified-vps-backup.timer
   install -m 0644 "$tmp_f2b" /etc/fail2ban/jail.d/unified-vps.local
-  expected_build="$(grep "^PANEL_BUILD=" "$tmp_app" | head -n1 | cut -d"\047" -f2)"
-
-  # Preserve the previous working panel so a bad runtime update can be rolled back.
-  rollback_dir="$(mktemp -d /run/unified-vps-update.XXXXXX)"
-  rollback_app="$rollback_dir/panel.py"
-  rollback_unit="$rollback_dir/unified-vps-panel.service"
-  cp -f /opt/unified-vps/panel.py "$rollback_app" 2>/dev/null || true
-  cp -f /etc/systemd/system/unified-vps-panel.service "$rollback_unit" 2>/dev/null || true
-  rm -rf "$tmpdir"
 
   systemctl daemon-reload
   systemctl enable --now fail2ban unified-vps-watchdog.timer unified-vps-backup.timer
 
-  # Run the new panel on an ephemeral localhost port before touching the live panel.
+  # Importing panel.py must have no production side effects during validation.
   preflight_log="$rollback_dir/preflight.log"
   set +e
-  timeout 4s env PANEL_BIND=127.0.0.1 PANEL_PORT=0 python3 /opt/unified-vps/panel.py >"$preflight_log" 2>&1
+  timeout 4s env PANEL_PREFLIGHT=1 PANEL_BIND=127.0.0.1 PANEL_PORT=0 python3 /opt/unified-vps/panel.py >"$preflight_log" 2>&1
   preflight_rc=$?
   set -e
   if [[ "$preflight_rc" -ne 124 ]]; then
     echo "Update failed: panel preflight failed (code $preflight_rc)."
     tail -n 30 "$preflight_log" 2>/dev/null || true
-    rm -rf "$rollback_dir"
+    if [[ -s "$rollback_app" ]]; then install -m 0644 "$rollback_app" /opt/unified-vps/panel.py; fi
+    if [[ -s "$rollback_unit" ]]; then install -m 0644 "$rollback_unit" /etc/systemd/system/unified-vps-panel.service; fi
+    systemctl daemon-reload
+    systemctl restart unified-vps-panel || true
     pause
     return 1
   fi
@@ -746,7 +765,6 @@ update_script(){
     systemctl daemon-reload
     systemctl restart unified-vps-panel || true
     rollback_build="$(curl -fsS --max-time 5 -D - -o /dev/null "http://127.0.0.1:${PANEL_PORT}/health" 2>/dev/null | sed -n 's/^X-UVPS-Build:[[:space:]]*//Ip' | tr -d '\r' || true)"
-    rm -rf "$rollback_dir"
     echo "Panel rollback completed. Active panel build: ${rollback_build:-unavailable}."
     pause
     return 1
@@ -762,11 +780,14 @@ update_script(){
     ss -lntup || true
   fi
   ensure_daily_reboot
-  rm -rf "$rollback_dir"
+
+  # Install the already-validated menu last. The running shell keeps executing
+  # its parsed function body; future invocations use this validated snapshot.
+  install -m 0755 "$tmp_menu" /usr/local/bin/menu
   echo "Update complete. Active panel build: $build"
+  echo "Installed snapshot: ${snapshot_sha}"
   pause
 }
-
 server_info(){
   draw_header
   echo
