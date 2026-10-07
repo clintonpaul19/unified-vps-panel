@@ -41,7 +41,8 @@ jobs:
           python3 - <<'PY'
           import re
           from pathlib import Path
-          src=Path("panel/app.py").read_text(encoding="utf-8")
+          sources=[Path("panel/uvps_panel/views.py").read_text(encoding="utf-8")]
+          src="\\n".join(sources)
           blocks=re.findall(r"<script[^>]*>(.*?)</script>", src, flags=re.S)
           if not blocks:
               raise SystemExit("No embedded JavaScript blocks found")
