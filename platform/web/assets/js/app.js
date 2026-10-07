@@ -101,6 +101,7 @@ function setAuthAnonymous() {
   if (current.auth === "anonymous") return;
   store.update({
     auth: "anonymous",
+    authError: current.authError || "",
     me: null,
     organizations: [],
     activeOrgId: "",
@@ -206,7 +207,6 @@ function render() {
     }),
   );
 
-  document.getElementById("main-content")?.focus({ preventScroll: true });
 }
 
 async function bootstrapSession() {
@@ -231,7 +231,11 @@ async function bootstrapSession() {
     if (error.status === 401) {
       setAuthAnonymous();
     } else {
-      store.update({ auth: "authenticated", authError: error.message });
+      store.update({
+        auth: "authenticated",
+        authError: error.message,
+      });
+      startRefresh();
       queueRender();
     }
   }
@@ -254,6 +258,7 @@ async function handleLogin(event) {
     const activeOrgId = organizations.some((org) => org.id === savedOrg) ? savedOrg : organizations[0].id;
     store.update({ auth: "authenticated", me, organizations, activeOrgId, authError: "" });
     safeStorageSet(ORG_KEY, activeOrgId);
+    startRefresh();
     history.replaceState(null, "", location.pathname + location.search + "#/overview");
     store.update({ route: { name: "overview" } });
     await loadCurrentRoute();
@@ -661,9 +666,6 @@ window.addEventListener("online", showConnectionBanner);
 window.addEventListener("offline", showConnectionBanner);
 
 setUnauthorizedHandler(setAuthAnonymous);
-store.subscribe(() => {
-  if (store.get().auth === "authenticated") startRefresh();
-});
 render();
 showConnectionBanner();
 bootstrapSession();
