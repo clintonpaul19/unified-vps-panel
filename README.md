@@ -285,24 +285,34 @@ The current panel and CLI include:
 
 ## Scalable control-plane MVP
 
-The repository now also contains a separate `platform/` control plane designed for multi-tenant operation. The production architecture is documented in `docs/ARCHITECTURE.md` and the HTTP contract in `docs/API.md`.
+The repository also contains a separate multi-tenant control plane under platform/.
 
-The first vertical slice includes:
+The control plane is stateless at the HTTP tier and uses PostgreSQL as its transactional source of truth. Nodes connect outbound through a narrow agent protocol; the API never accepts arbitrary shell commands.
 
-- FastAPI + PostgreSQL control plane
-- organization, user, membership, server, command and audit models
-- Argon2id password hashing and signed HTTP-only sessions
-- one-time node token issuance and hashed token storage
-- outbound node heartbeat and typed command polling
-- minimal browser dashboard for authentication and server registration
-- Docker Compose for local control-plane development
+Current production-oriented controls include:
+- organization-scoped authorization
+- Argon2id password hashing
+- hashed node credentials with rotation
+- one-time bootstrap serialization
+- typed commands with idempotency keys
+- leased command delivery with bounded retries and expiry
+- cursor pagination for servers, commands and audit events
+- stale-heartbeat detection
+- request correlation IDs and safe security headers
+- bounded JSON payloads
+- non-root API container
+- indexed PostgreSQL hot paths
 
-The scalable boundary is intentional: the web/API layer stays stateless, PostgreSQL remains the source of truth, workers/Redis can be introduced for high-volume asynchronous delivery, and VPS nodes connect outbound through a narrow agent protocol. The existing `panel/` application remains the node-local management surface rather than becoming a global multi-tenant database.
+Local development:
 
-See:
-- `docs/ARCHITECTURE.md`
-- `docs/API.md`
-- `platform/README.md`
+```bash
+export SESSION_SECRET="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')"
+export BOOTSTRAP_ADMIN_PASSWORD='change-this-before-starting'
+docker compose -f platform/docker-compose.yml up --build
+```
+
+The minimal architecture is documented in docs/PRODUCTION_ARCHITECTURE.md. Redis, distributed rate limiting, dedicated command workers, mTLS and high-volume telemetry are deliberate scale-stage additions rather than MVP dependencies.
+
 
 ## Architecture review and refactoring
 
