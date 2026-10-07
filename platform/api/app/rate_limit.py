@@ -3,6 +3,8 @@ from __future__ import annotations
 import threading
 import time
 
+from .config import settings
+
 
 class SlidingWindowLimiter:
     """Small bounded fixed-window limiter for single-process protection.
@@ -44,9 +46,16 @@ class SlidingWindowLimiter:
             self._state.pop(key, None)
         if len(self._state) <= self.max_keys:
             return
-        oldest = sorted(self._state.items(), key=lambda item: item[1][1])[: max(1, len(self._state) - self.max_keys)]
+        oldest = sorted(
+            self._state.items(),
+            key=lambda item: item[1][1],
+        )[: max(1, len(self._state) - self.max_keys)]
         for key, _value in oldest:
             self._state.pop(key, None)
 
 
-from .config import settings\n\nlogin_limiter = SlidingWindowLimiter(\n    max_attempts=settings.login_rate_limit_attempts,\n    window_seconds=settings.login_rate_limit_window_seconds,\n    max_keys=10000,\n)
+login_limiter = SlidingWindowLimiter(
+    max_attempts=settings.login_rate_limit_attempts,
+    window_seconds=settings.login_rate_limit_window_seconds,
+    max_keys=10000,
+)
