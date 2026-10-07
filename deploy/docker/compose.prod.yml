@@ -1,6 +1,6 @@
 services:
   api:
-    image: ghcr.io/clintonpaul19/unified-vps-panel:CHANGE_ME
+    image: ${UVPS_IMAGE:?set UVPS_IMAGE}
     restart: unless-stopped
     init: true
     read_only: true
