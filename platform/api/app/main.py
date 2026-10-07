@@ -1,10 +1,11 @@
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 import hashlib
+import hmac
 import json
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from sqlalchemy import and_, desc, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
@@ -13,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .config import settings
 from .db import Base, SessionLocal, engine
 from .models import AuditEvent, Command, Membership, Organization, Server, ServerToken, User
-from .schemas import BootstrapRequest, CommandCreate, CommandOut, HeartbeatIn, LoginRequest, OrganizationOut, ServerCreate, ServerOut, UserOut
+from .schemas import BootstrapRequest, CommandCreate, CommandResult, CommandOut, HeartbeatIn, LoginRequest, OrganizationOut, ServerCreate, ServerOut, UserOut
 from .security import hash_password, make_session, new_node_token, read_session, token_hash, verify_password
 
 SESSION_COOKIE = "uvps_session"
@@ -81,8 +82,6 @@ async def bootstrap(db: AsyncSession, organization_name: str) -> User:
     password = settings.bootstrap_admin_password
     if not email or not password:
         raise HTTPException(status_code=503, detail="bootstrap credentials are not configured")
-    if settings.bootstrap_token:
-        raise HTTPException(status_code=403, detail="bootstrap endpoint is protected")
     if await db.scalar(select(func.count()).select_from(User)):
         raise HTTPException(status_code=409, detail="control plane is already bootstrapped")
     slug_base = "".join(c if c.isalnum() else "-" for c in organization_name.lower()).strip("-")[:70] or "unified-vps"
@@ -108,7 +107,15 @@ async def healthz():
         raise HTTPException(status_code=503, detail="database unavailable")
 
 @app.post("/v1/auth/bootstrap")
-async def bootstrap_route(body: BootstrapRequest, db: AsyncSession = Depends(get_db)) -> dict:
+async def bootstrap_route(
+    body: BootstrapRequest,
+    db: AsyncSession = Depends(get_db),
+    x_bootstrap_token: str | None = Header(default=None, alias="X-Bootstrap-Token"),
+) -> dict:
+    if settings.bootstrap_token and not (
+        x_bootstrap_token and hmac.compare_digest(x_bootstrap_token, settings.bootstrap_token)
+    ):
+        raise HTTPException(status_code=403, detail="bootstrap token required")
     user = await bootstrap(db, body.organization_name)
     return {"created_for": user.email}
 
@@ -230,9 +237,7 @@ async def command_result(server_id: UUID, command_id: UUID, request: Request, re
     cmd = await db.get(Command, command_id)
     if not cmd or cmd.server_id != server.id:
         raise HTTPException(status_code=404, detail="command not found")
-    status_value = result_payload.get("status")
-    if status_value not in {"running","succeeded","failed"}:
-        raise HTTPException(status_code=400, detail="invalid command result status")
+    status_value = result_payload.status
     if cmd.status in {"succeeded","failed","cancelled"}:
         return cmd
     now = datetime.now(timezone.utc)
@@ -243,12 +248,10 @@ async def command_result(server_id: UUID, command_id: UUID, request: Request, re
         cmd.finished_at = now
         cmd.lease_until = None
     cmd.status = status_value
-    if isinstance(result_payload.get("result"), dict):
-        raw_result = json.dumps(result_payload["result"], separators=(",", ":")).encode()
-        if len(raw_result) <= settings.max_command_payload_bytes:
-            cmd.result = result_payload["result"]
+    if result_payload.result is not None:
+        cmd.result = result_payload.result
     if status_value == "failed":
-        cmd.error = str(result_payload.get("error", "command failed"))[:2000]
+        cmd.error = str(result_payload.error or "command failed")[:2000]
     await db.commit()
     await db.refresh(cmd)
     return cmd
