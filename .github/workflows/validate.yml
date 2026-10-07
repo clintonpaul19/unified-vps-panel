@@ -72,6 +72,9 @@ jobs:
           assert "hashlib.sha256" in auth
           assert "manage-user" in install
           assert "manage-user" in menu
+          assert Path("platform/api/requirements.txt").exists()
+          assert Path("platform/Dockerfile").exists()
+          assert Path("docs/PRODUCTION_ARCHITECTURE.md").exists()
           assert "spiderman" not in install.lower()
           assert "spiderman" not in app.lower()
           excluded = {'.git', '.github', '__pycache__'}
