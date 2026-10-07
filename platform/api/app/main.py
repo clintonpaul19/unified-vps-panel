@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
+import secrets
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
@@ -20,6 +21,7 @@ from .schemas import (
     BootstrapRequest,
     CommandCreate,
     CommandOut,
+    AgentCommandOut,
     CommandResult,
     HeartbeatIn,
     LoginRequest,
@@ -554,7 +556,7 @@ async def rotate_server_token(
     return {"node_token": raw}
 
 
-@app.get("/v1/servers/{server_id}/commands/next", response_model=CommandOut | None)
+@app.get("/v1/servers/{server_id}/commands/next", response_model=AgentCommandOut | None)
 async def next_command(
     server_id: UUID,
     request: Request,
@@ -623,6 +625,9 @@ async def command_result(
     if not cmd or cmd.server_id != server.id:
         raise HTTPException(status_code=404, detail="command not found")
 
+    if not cmd.lease_token or not hmac.compare_digest(cmd.lease_token, result_payload.lease_token):
+        raise HTTPException(status_code=409, detail="command lease is no longer valid")
+
     status_value = result_payload.status
     if cmd.status in {"succeeded", "failed", "cancelled", "expired"}:
         return cmd
@@ -665,6 +670,7 @@ async def cancel_command(
     cmd.status = "cancelled"
     cmd.finished_at = datetime.now(timezone.utc)
     cmd.lease_until = None
+    cmd.lease_token = None
     await record_event(
         db,
         org.id,
