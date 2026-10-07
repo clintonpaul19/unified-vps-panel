@@ -48,7 +48,10 @@ class Server(Base):
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
-    __table_args__ = (UniqueConstraint("organization_id", "name", name="uq_server_org_name"),)
+    __table_args__ = (
+        UniqueConstraint("organization_id", "name", name="uq_server_org_name"),
+        Index("idx_servers_org_updated", "organization_id", "updated_at"),
+    )
 
 class ServerToken(Base):
     __tablename__ = "server_tokens"
@@ -77,6 +80,8 @@ class Command(Base):
     result: Mapped[dict | None] = mapped_column(JSONB)
     __table_args__ = (
         Index("idx_commands_server_status_created", "server_id", "status", "created_at"),
+        Index("idx_commands_server_ready", "server_id", "status", "lease_until", "created_at"),
+        Index("idx_commands_server_created", "server_id", "created_at"),
         Index("idx_commands_lease", "status", "lease_until"),
         UniqueConstraint("organization_id", "idempotency_key", name="uq_command_org_idempotency"),
     )
@@ -90,3 +95,4 @@ class AuditEvent(Base):
     event_type: Mapped[str] = mapped_column(String(80))
     metadata: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False, index=True)
+    __table_args__ = (Index("idx_audit_org_created", "organization_id", "created_at"),)
