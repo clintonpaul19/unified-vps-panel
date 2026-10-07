@@ -9,7 +9,7 @@ WorkingDirectory=/opt/unified-vps
 ExecStartPre=/usr/bin/python3 -m py_compile /opt/unified-vps/panel.py
 ExecStartPre=/usr/bin/python3 -m compileall -q /opt/unified-vps/uvps_panel
 ExecStart=/usr/bin/python3 /opt/unified-vps/panel.py
-Restart=always
+Restart=on-failure
 RestartSec=2
 NoNewPrivileges=true
 
