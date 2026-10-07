@@ -97,15 +97,7 @@ chmod 755 /opt/unified-vps/ws-payload-ssh.py
 curl -fsSL "https://raw.githubusercontent.com/$REPO/main/systemd/unified-vps-wstunnel-ssh.service" -o /etc/systemd/system/unified-vps-wstunnel-ssh.service
 curl -fsSL "https://raw.githubusercontent.com/$REPO/main/systemd/unified-vps-ws-payload-ssh.service" -o /etc/systemd/system/unified-vps-ws-payload-ssh.service
 
-# TLS certificate.
-if ! command -v acme.sh >/dev/null 2>&1; then
-  curl -fsSL https://get.acme.sh | sh -s email="acme-$(openssl rand -hex 8)@$DOMAIN"
-fi
-ACME="$HOME/.acme.sh/acme.sh"
-[[ -x "$ACME" || -s "$ACME" ]] || { echo "acme.sh installation failed."; exit 1; }
-"$ACME" --issue --standalone -d "$DOMAIN" --pre-hook "systemctl stop haproxy nginx" --post-hook "systemctl start nginx"
-"$ACME" --install-cert -d "$DOMAIN" --fullchain-file "$BASE/xray.crt" --key-file "$BASE/xray.key" --reloadcmd "/usr/local/sbin/unified-vps-cert-reload"
-
+# TLS certificate. Create the reload hook before registering the certificate.
 cat >/usr/local/sbin/unified-vps-cert-reload <<'EOF'
 #!/usr/bin/env bash
 set -u
@@ -118,6 +110,22 @@ install -o hysteria -g hysteria -m 0640 "$BASE/xray.key" /etc/hysteria/server.ke
 systemctl try-restart xray hysteria-server 2>/dev/null || true
 EOF
 chmod 755 /usr/local/sbin/unified-vps-cert-reload
+
+if ! command -v acme.sh >/dev/null 2>&1; then
+  curl -fsSL https://get.acme.sh | sh -s email="acme-$(openssl rand -hex 8)@$DOMAIN"
+fi
+ACME="$HOME/.acme.sh/acme.sh"
+[[ -x "$ACME" || -s "$ACME" ]] || { echo "acme.sh installation failed."; exit 1; }
+
+CERT_REUSE=0
+if [[ -s "$BASE/xray.crt" ]] && openssl x509 -in "$BASE/xray.crt" -noout -checkend 2592000 >/dev/null 2>&1    && openssl x509 -in "$BASE/xray.crt" -noout -checkhost "$DOMAIN" >/dev/null 2>&1; then
+  CERT_REUSE=1
+  echo "Existing TLS certificate is valid for at least 30 days; reusing it."
+fi
+if [[ "$CERT_REUSE" -ne 1 ]]; then
+  "$ACME" --issue --standalone -d "$DOMAIN"     --pre-hook "systemctl stop haproxy nginx"     --post-hook "systemctl start nginx"
+fi
+"$ACME" --install-cert -d "$DOMAIN"   --fullchain-file "$BASE/xray.crt"   --key-file "$BASE/xray.key"   --reloadcmd "/usr/local/sbin/unified-vps-cert-reload"
 /usr/local/sbin/unified-vps-cert-reload
 
 # Local HTTP fallback only.
@@ -145,7 +153,9 @@ haproxy -c -f /etc/haproxy/haproxy.cfg
 curl -fsSL "https://raw.githubusercontent.com/$REPO/main/scripts/tunnel.sh" -o /usr/local/bin/tunnel
 chmod 755 /usr/local/bin/tunnel
 ln -sfn /usr/local/bin/tunnel /usr/local/bin/menu
-printf '%s\n' '{"accounts":[]}' > "$BASE/accounts.json"
+if [[ ! -f "$BASE/accounts.json" ]]; then
+  printf '%s\n' '{"accounts":[]}' > "$BASE/accounts.json"
+fi
 chmod 600 "$BASE/accounts.json"
 
 # Render and start.
