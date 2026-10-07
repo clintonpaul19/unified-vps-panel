@@ -62,31 +62,8 @@ jobs:
             node --check "$f"
           done
           (cd platform/web && node --test tests/ui.test.mjs)
-          python3 - <<'PY
-          from pathlib import Path
+          python3 scripts/validate_frontend.py
 
-          index=Path("platform/web/index.html").read_text(encoding="utf-8")
-          main=Path("platform/api/app/main.py").read_text(encoding="utf-8")
-          required=[
-              Path("platform/web/assets/css/app.css"),
-              Path("platform/web/assets/js/api.js"),
-              Path("platform/web/assets/js/state.js"),
-              Path("platform/web/assets/js/format.js"),
-              Path("platform/web/assets/js/components.js"),
-              Path("platform/web/assets/js/views.js"),
-              Path("platform/web/assets/js/app.js"),
-              Path("docs/FRONTEND_UI_SYSTEM.md"),
-          ]
-          assert all(p.exists() for p in required)
-          assert 'src="/assets/js/app.js"' in index
-          assert 'href="/assets/css/app.css"' in index
-          assert 'app.mount("/assets", StaticFiles' in main
-          assert 'WEB_DIR / "index.html"' in main
-          middleware=Path("platform/api/app/middleware.py").read_text(encoding="utf-8")
-          assert "Content-Security-Policy" in middleware
-          assert "Permissions-Policy" in middleware
-          print("Control-plane frontend invariants passed")
-          PY
       - name: Validate critical runtime invariants
         run: |
           python3 - <<'PY'
