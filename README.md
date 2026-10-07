@@ -1,162 +1,46 @@
 # Unified VPS Panel
 
-All-in-one VPS management panel for Hysteria 2, Xray, SSH and unified CLI/web management.
+Unified VPS Panel is a control panel for managing a Linux VPS from a simple terminal menu and web page.
 
-The web panel is available at `http://SERVER:6080/` after installation. On the first visit, the setup screen requires the administrator to create a username and password; credentials are stored locally in `/etc/unified-vps/admin.json` with root-only permissions. There is no default administrator account.
+It can manage:
 
-For listener diagnostics, open `http://SERVER:6080/health` or run `vps-status`. These report the local service/listener state. If a required port is listening locally but an external port scanner cannot reach it, the remaining control point is the VPS provider/cloud firewall or security-group layer.\n\n## Installation
+- SSH accounts
+- VLESS accounts
+- VMess accounts
+- Trojan accounts
+- Hysteria 2 accounts
+- Backups and restores
+- Server status and resource usage
+- Network and port checks
+- SSL certificate information
+- Security tools such as Fail2Ban
+- Service restarts and updates
 
-### Fresh VPS — recommended
+It is designed to work mainly on Ubuntu and Debian servers.
 
-Run as root. The installer is interactive and reads the domain from your terminal.
+## What you get
 
-Recommended one-line installation:
+After installation, the VPS has:
 
-```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/install.sh)
-```
+- A command-line menu: `menu`
+- A web panel on port `6080`
+- SSH access
+- VLESS, VMess and Trojan support through Xray
+- Hysteria 2 on UDP port `53`
+- Automatic backups
+- A service checker that can restart important services when needed
+- A daily reboot at **04:00 server local time**
 
-Or download and run it:
+## Before installing
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/install.sh -o /tmp/install.sh
-bash /tmp/install.sh
-```
+You need:
 
-The installer will prompt:
+1. A VPS running Ubuntu or Debian
+2. Root access to the VPS
+3. A domain or subdomain pointing to the VPS
+4. An internet connection during installation
 
-```text
-Domain pointing to this VPS:
-```
-
-Enter the domain/subdomain already pointing to the VPS, for example:
-
-```text
-panel.example.com
-```
-
-Do not use the old `curl ... | bash` or `wget ... | bash` form because the installer requires interactive terminal input for the domain.
-
-
-After installation:
-
-```bash
-vps-status
-menu
-```
-
-Open the panel at `http://YOUR-DOMAIN:6080/`. On the first visit it prompts for **Enter username**, **Enter password** and **Reenter password**. After saving, the browser is logged in automatically. The administrator credentials are stored locally in `/etc/unified-vps/admin.json` with root-only permissions.
-
-The panel itself is currently served over plain HTTP on TCP 6080. Until HTTPS is added, credentials entered on the first-run form or login form can be observed by an attacker able to intercept that network traffic.
-
-The web panel listens on TCP **6080**. Public panel access is `http://YOUR-DOMAIN:6080/`. TLS transport ports 443/8443 are handled by HAProxy/Xray.
-
-## HAProxy transport layout
-
-The installer uses HAProxy as the public L4/L7 multiplexer. This replaces SSLH and allows raw SSH, HTTP, WebSocket, and TLS traffic to share the same public ports.
-
-- TCP 80, 8080, 8880: HTTP/WebSocket/SSH/TLS multiplexing. `/vless` and `/vmess` WebSocket traffic is routed to Xray, `/ssh` uses wstunnel, other WebSocket upgrades use the legacy SSH payload bridge, and TLS ClientHello traffic is routed to Xray for TLS-based clients.
-- TCP 443, 8443: TLS is passed through to Xray; non-TLS traffic is sent to SSH.
-- TCP 143: SSH.
-- UDP 53: Hysteria 2.
-
-For SSH-over-WebSocket, the server supports the normal `/ssh` endpoint and legacy payloads such as `GET / HTTP/1.1` or `GET /cdn-cgi/trace HTTP/1.1` with `Upgrade: websocket`. The legacy bridge proxies the resulting connection to SSH on localhost:22. Generated SSH details include WS on 80/8080/8880 and WSS on 443/8443.
-
-HAProxy's WebSocket handling is designed to preserve the HTTP upgrade and then tunnel the upgraded connection, with `timeout tunnel` used for long-lived sessions.
-
-Xray remains the TLS terminator on 443/8443, so existing Trojan/TLS fallback routing remains under Xray. Xray fallbacks can route TLS traffic by HTTP path to separate WebSocket services.
-
-## Xray port layout
-
-- TCP 80/443: public HAProxy → Xray transport paths (including TLS-based Trojan on both ports).
-- TCP 8443: public TLS passthrough to Xray.
-- TCP 18443: loopback-only Xray TLS/fallback inbound.
-- TCP 18444: loopback-only VLESS WebSocket backend.
-- TCP 18445: loopback-only VMess WebSocket backend.
-- TCP 18446: loopback-only SSH wstunnel backend.
-- TCP 18447: loopback-only legacy WebSocket/SSH payload bridge.
-- TCP 10085: loopback-only Xray API.
-
-## Client settings
-
-VLESS:
-
-```text
-Address: YOUR-DOMAIN
-Port: 80
-Network: WebSocket
-Path: /vless
-TLS: Off
-UUID: valid UUID generated by the panel
-
-TLS alternative: port 443, WebSocket `/vless`, TLS On, SNI `YOUR-DOMAIN`.
-```
-
-VMess:
-
-```text
-Address: YOUR-DOMAIN
-Port: 443
-Network: WebSocket
-Path: /vmess
-TLS: On
-SNI: YOUR-DOMAIN
-UUID: valid UUID generated by the panel
-
-Plain alternative: port 80, WebSocket `/vmess`, TLS Off.
-```
-
-Trojan:
-
-```text
-Address: YOUR-DOMAIN
-Ports: 80 or 443
-Network: TCP
-TLS: On
-SNI: YOUR-DOMAIN
-Password: generated by the panel
-```
-
-The installer obtains a trusted Let's Encrypt certificate for the supplied domain and installs it at:
-
-```text
-/etc/unified-vps/xray.crt
-/etc/unified-vps/xray.key
-```
-
-acme.sh renews the certificate automatically and the installer registers a deployment hook that reloads Xray and Hysteria after renewal.
-
-## Validation
-
-Test the Xray configuration:
-
-```bash
-xray -test -config /usr/local/etc/xray/config.json
-```
-
-Check listeners:
-
-```bash
-ss -lntp | grep -E ':(80|443|10085|10086)\\b'
-```
-
-Expected:
-
-- TCP 80/443: HAProxy public multiplexer for SSH, HTTP, WebSocket and TLS/Xray.
-- TCP 18443: loopback-only Xray TLS inbound.
-- TCP 18444: loopback-only VLESS WebSocket backend.
-- TCP 18445: loopback-only VMess WebSocket backend.
-- TCP 10085: loopback-only Xray API.
-
-Xray's statistics system is also enabled for user uplink/downlink/online statistics.
-
-## SSH multiplexing
-
-OpenSSH remains on TCP 22. HAProxy multiplexes SSH with HTTP/WebSocket/TLS services on TCP 80, 443, 8080, 8443 and 8880. TCP 143 is retained as an SSH-only alternate port. The payload bridge listens only on 127.0.0.1:18447.
-
-The installer validates `sshd`, NGINX and Xray configurations and checks all Unified VPS services before reporting installation complete.
-
-## Supported operating systems
+Supported systems:
 
 - Ubuntu 22.04
 - Ubuntu 24.04
@@ -165,60 +49,54 @@ The installer validates `sshd`, NGINX and Xray configurations and checks all Uni
 - Debian 12
 - Debian 13
 
-Supported architectures:
+Supported CPU types:
 
 - amd64
 - arm64
 
-## Default ports
+## Installation
 
-| Service | Port |
-|---|---:|
-| SSH | TCP 80, 443, 143, 8080, 8443, 8880 |
-| VLESS | TCP 80, 443 |
-| VMess | TCP 80, 443 |
-| Trojan + TLS | TCP 80, 443 |
-| Hysteria 2 | UDP 53 |
-| Unified Panel | TCP 6080 |
-| Xray API | TCP 10085 (loopback) |
-| SSH WS backend | TCP 18446 (loopback) |
-| Legacy WS payload bridge | TCP 18447 (loopback) |
+Run this on the VPS as **root**:
 
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/install.sh)
+```
 
-## Important
+The installer will ask for the domain that points to the VPS.
 
-The project is still under development. Test it on a fresh VPS before production use.
+Example:
 
-Do not expose or commit `/etc/unified-vps/admin.json`; it contains the panel administrator credentials. `/etc/unified-vps/panel.env` contains only non-secret panel/runtime settings and blank legacy administrator fields.
+```text
+Domain pointing to this VPS: panel.example.com
+```
 
+Let the installer finish. It installs the required programs, configures the services, gets an SSL certificate for the domain, and checks the installation.
 
-## Account output and copy-ready URIs
+### After installation
 
-When an account is created from the web panel or the VPS `menu`, the result includes the username, password or UUID, server address, port, expiry and a copy-ready connection URI.
+Check the server:
 
-Supported generated formats:
+```bash
+vps-status
+```
 
-- Hysteria 2: `hysteria2://...`
-- VLESS: `vless://...`
-- VMess: `vmess://...`
-- Trojan: `trojan://...`
-- SSH: WebSocket/WSS endpoints plus host/path metadata for compatible SSH clients
+Open the management menu:
 
-The web panel provides copy controls for each available port. The CLI displays the same connection endpoints in its output so they can be copied directly from the VPS terminal.
+```bash
+menu
+```
 
-Hysteria 2 uses the current `hysteria2://` URI format documented by the Hysteria project.
+## First-time web panel setup
 
-The panel generates valid UUIDs for VLESS and VMess accounts. Port 80 URIs use plain WebSocket; port 443 URIs use WebSocket over TLS with the supplied domain as SNI. The generated Xray URIs use the Let's Encrypt certificate installed for the supplied domain, so normal certificate verification can remain enabled.
+There is **no default username or password**.
 
-## First-run panel setup
-
-A fresh installation does not contain a default administrator username or password. Visit:
+Open:
 
 ```text
 http://YOUR-DOMAIN:6080/
 ```
 
-On the first visit the panel displays a setup form:
+The first page asks you to create your own login:
 
 ```text
 Enter username
@@ -226,96 +104,289 @@ Enter password
 Reenter password
 ```
 
-After the passwords match, the panel saves the credentials locally on the VPS and logs the browser in automatically. The credentials remain available for subsequent panel logins. There is no default administrator account.
+After you save it, you can log in normally on future visits.
 
-## Ookla Speedtest
-
-The installer installs the official Ookla Speedtest CLI for Ubuntu/Debian. Ookla documents the Debian/Ubuntu installation through its package repository and supports both x86_64 and arm64 Linux systems.
-
-Run it directly:
-
-```bash
-speedtest
-```
-
-It is also available from:
-
-- VPS `menu` → **Ookla Speedtest**
-- Web panel → **Run Ookla Speedtest**
-
-The web panel runs the test and displays the returned Ookla result.
-
-## Installation completion
-
-At the end of an interactive installation, the installer displays the panel URL and transport details. Administrator credentials are created on the first panel visit. It then asks:
+The login information is saved on the VPS at:
 
 ```text
-Reboot now? [y/N]:
+/etc/unified-vps/admin.json
 ```
 
-Answer `y` to reboot immediately or `N` to leave the VPS running.
+The file is protected so normal users cannot read it.
 
-## Important security note
+### Important security note
 
-A fresh installation requires the administrator to create their own credentials before the panel can be used. There is no default administrator username or password.
-## Maintenance
+The web panel currently uses **HTTP on port 6080**, not HTTPS.
 
-The installer and CLI menu configure one automatic VPS reboot per day at **04:00 server local time**. The web panel also displays the reboot schedule.
+That means you should not treat `http://YOUR-DOMAIN:6080/` as a secure public login page. Use a trusted network or put the panel behind HTTPS before exposing it publicly.
 
-The CLI menu includes functional account management, backups/restores, server settings, tools, monitoring, network diagnostics, logs, security audit, service restart, speedtest, active connections, resource views, and component updates.
+## Main terminal menu
 
-
-## Management features
-
-The current panel and CLI include:
-
-- Live server traffic with daily and all-time accounting.
-- Live CPU, RAM, disk and network telemetry.
-- Active TCP session inspection.
-- Persistent activity/event history.
-- Account expiry warnings and automatic expiry disabling.
-- Bulk account enable/disable/delete/renew operations.
-- Certificate status and manual renewal.
-- Verified configuration backups with seven-backup retention and daily automated backups.
-- Service watchdog checking critical services every minute.
-- Direct SSH brute-force protection through Fail2Ban on TCP 22; proxied WebSocket SSH transports are handled separately by HAProxy/wstunnel/payload routing.
-- Security dashboard covering SSH authentication, firewall rules, bans and certificate state.
-- Logs and maintenance reports.
-
-
-## Scalable control-plane MVP
-
-The repository also contains a separate multi-tenant control plane under platform/.
-
-The control plane is stateless at the HTTP tier and uses PostgreSQL as its transactional source of truth. Nodes connect outbound through a narrow agent protocol; the API never accepts arbitrary shell commands.
-
-Current production-oriented controls include:
-- organization-scoped authorization
-- Argon2id password hashing
-- hashed node credentials with rotation
-- one-time bootstrap serialization
-- typed commands with idempotency keys
-- leased command delivery with bounded retries and expiry
-- cursor pagination for servers, commands and audit events
-- stale-heartbeat detection
-- request correlation IDs and safe security headers
-- bounded JSON payloads
-- non-root API container
-- indexed PostgreSQL hot paths
-
-Local development:
+Run:
 
 ```bash
-export SESSION_SECRET="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')"
-export BOOTSTRAP_ADMIN_PASSWORD='change-this-before-starting'
-docker compose -f platform/docker-compose.yml up --build
+menu
 ```
 
-The minimal architecture is documented in docs/PRODUCTION_ARCHITECTURE.md. Redis, distributed rate limiting, dedicated command workers, mTLS and high-volume telemetry are deliberate scale-stage additions rather than MVP dependencies.
+The menu includes:
 
+| Option | What it does |
+|---|---|
+| SSH accounts | Create and manage SSH users |
+| VLESS accounts | Create and manage VLESS users |
+| VMess accounts | Create and manage VMess users |
+| Trojan accounts | Create and manage Trojan users |
+| Hysteria accounts | Create and manage Hysteria 2 users |
+| All accounts | See accounts from all connection types |
+| Backup / restore | Save or restore server settings |
+| Server information | View basic VPS information |
+| Monitoring | Check services and resource usage |
+| Domain & network | Check DNS, routes and network settings |
+| Logs & reports | View service and security logs |
+| Restart all services | Restart the main VPS services |
+| Speedtest | Run Ookla Speedtest |
+| Active connections | See current network connections |
+| System resources | See CPU, memory, disk and uptime |
+| Security audit | Check firewall, SSH, Fail2Ban and certificate status |
+| Update panel / proxy files | Download the latest supported files from this repository |
 
-## Architecture review and refactoring
+## Connection types
 
-The repository now includes `docs/ARCHITECTURE_REVIEW.md`, which documents the existing node-local architecture, end-to-end data flow, critical bottlenecks, scalability risks and the staged refactoring plan.
+The panel creates connection details for several protocols.
 
-The control plane under `platform/` is the scalable multi-tenant boundary. The existing node-local panel remains the compatibility layer for SSH, Xray, Hysteria 2, transports, account management and VPS maintenance.
+### SSH
+
+Regular SSH uses port 22.
+
+The server also supports SSH through the configured web-based transport ports.
+
+### VLESS
+
+VLESS is supported through Xray.
+
+Typical connection:
+
+```text
+Server: YOUR-DOMAIN
+Port: 80 or 443
+Network: WebSocket
+Path: /vless
+```
+
+The panel generates the UUID and the complete connection link for you.
+
+### VMess
+
+VMess is also handled by Xray.
+
+Typical connection:
+
+```text
+Server: YOUR-DOMAIN
+Port: 80 or 443
+Network: WebSocket
+Path: /vmess
+```
+
+The panel generates the UUID and connection link.
+
+### Trojan
+
+Trojan uses a password and TLS.
+
+Typical ports:
+
+```text
+80
+443
+```
+
+The panel generates the password and connection link.
+
+### Hysteria 2
+
+Hysteria 2 uses UDP port `53`.
+
+The panel creates a connection link in the `hysteria2://` format.
+
+## Main public ports
+
+| Service | Port |
+|---|---|
+| SSH / shared web transport | TCP 80, 443, 143, 8080, 8443, 8880 |
+| VLESS | TCP 80, 443 |
+| VMess | TCP 80, 443 |
+| Trojan | TCP 80, 443 |
+| Hysteria 2 | UDP 53 |
+| Web panel | TCP 6080 |
+
+Some internal services use local-only ports. You normally do not need to change or open those ports.
+
+## SSL certificate
+
+During installation, the panel requests a trusted Let's Encrypt certificate for your domain.
+
+The certificate files are stored on the VPS:
+
+```text
+/etc/unified-vps/xray.crt
+/etc/unified-vps/xray.key
+```
+
+Certificate renewal is handled automatically.
+
+You can also check the certificate from the terminal menu.
+
+## Creating accounts
+
+You can create accounts from either:
+
+- `menu`
+- The web panel
+
+The generated account information can include:
+
+- Username
+- Password or UUID
+- Server address
+- Port
+- Expiry date
+- Connection link
+
+The panel supports copy-ready links for VLESS, VMess, Trojan and Hysteria 2.
+
+## Backups
+
+The panel has built-in backups.
+
+Backups contain important server settings and account information needed to restore the installation.
+
+The system keeps multiple recent backups and also supports scheduled backups.
+
+Do not upload backup files to public websites or GitHub. A backup may contain sensitive information.
+
+## Updating
+
+From the VPS menu:
+
+```text
+menu
+→ Update panel / proxy files
+```
+
+The updater downloads all required files from one specific version of the repository, checks them before installation, and only replaces the running files after the checks succeed.
+
+If the new panel does not start correctly, the updater can restore the previous panel version.
+
+## Basic checks
+
+Check the overall installation:
+
+```bash
+vps-status
+```
+
+Test the Xray configuration:
+
+```bash
+xray -test -config /usr/local/etc/xray/config.json
+```
+
+See listening ports:
+
+```bash
+ss -lntup
+```
+
+See the panel log:
+
+```bash
+journalctl -u unified-vps-panel -n 100 --no-pager
+```
+
+See failed services:
+
+```bash
+systemctl --failed
+```
+
+## If something is not working
+
+Start with:
+
+```bash
+vps-status
+```
+
+Then check:
+
+1. The domain points to the correct VPS IP.
+2. The required port is allowed by the VPS provider's firewall.
+3. The relevant service is running.
+4. The certificate is valid.
+5. The generated account details match the client you are using.
+
+The VPS provider may have its own firewall or security settings in addition to the firewall on the server itself.
+
+## Project layout
+
+You do not need to understand the whole repository to use the panel.
+
+The important parts are:
+
+```text
+install.sh              Main installer
+scripts/menu.sh         VPS command menu
+panel/                  Web panel
+config/                 Service configuration
+systemd/                Service definitions
+scripts/                Maintenance and helper scripts
+platform/               Optional multi-server control panel
+deploy/                 Production deployment files
+docs/                   Project documentation
+```
+
+The `platform/` directory is a separate part of the project for managing multiple VPS machines from one central system. A normal single-VPS installation does not require you to use it.
+
+## Architecture, in simple terms
+
+For a normal installation, the flow is roughly:
+
+```text
+Your phone / computer
+        |
+        v
+     Your domain
+        |
+        v
+      Your VPS
+     /       \
+    v         v
+Web Panel   Connection services
+             |   |   |   |
+            SSH Xray Hysteria 2
+```
+
+The web panel lets you manage the server.
+
+The connection services handle the accounts you create.
+
+## Important security rules
+
+Never:
+
+- Commit VPS passwords, private keys or backup files to GitHub.
+- Share `/etc/unified-vps/admin.json`.
+- Give the panel password to someone you do not trust.
+- Expose the HTTP panel publicly without understanding the security risk.
+- Run the installer on a VPS you cannot afford to rebuild while testing.
+
+## Development status
+
+This project is actively developed.
+
+For production use, test the installation on a fresh VPS first and keep backups before making major changes.
+
+## License
+
+See the repository for the current license information.
