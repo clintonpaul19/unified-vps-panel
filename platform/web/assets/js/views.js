@@ -468,7 +468,7 @@ export function auditView({ events, loading, error, nextCursor, onNext, onRefres
   );
 }
 
-export function registerServerForm({ onSubmit, busy = false }) {
+export function registerServerForm({ onSubmit, onCancel, busy = false }) {
   const name = h("input", { id: "server-name", class: "input", maxlength: "120", required: "", placeholder: "Production edge 01", autocomplete: "off" });
   const hostname = h("input", { id: "server-host", class: "input", maxlength: "255", placeholder: "node.example.com", autocomplete: "off" });
   const ipv4 = h("input", { id: "server-ipv4", class: "input", placeholder: "203.0.113.10", autocomplete: "off" });
@@ -482,7 +482,7 @@ export function registerServerForm({ onSubmit, busy = false }) {
     h("div", { class: "field" }, h("label", { for: "server-ipv4" }, "Public IPv4"), ipv4),
     h("div", { class: "field" }, h("label", { for: "server-ipv6" }, "Public IPv6"), ipv6),
     h("div", { class: "field field-full" }, h("div", { class: "field-hint" }, "The node agent uses the one-time token returned after registration to connect outbound to the control plane.")),
-    h("div", { class: "form-actions field-full" }, button({ label: busy ? "Registering…" : "Register server", variant: "primary", type: "submit", disabled: busy }), button({ label: "Cancel", type: "button", onClick: () => onSubmit.cancel?.() })),
+    h("div", { class: "form-actions field-full" }, button({ label: busy ? "Registering…" : "Register server", variant: "primary", type: "submit", disabled: busy }), button({ label: "Cancel", type: "button", onClick: onCancel })),
   );
 
   return form;
