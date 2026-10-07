@@ -4,6 +4,8 @@ import logging
 import time
 from uuid import uuid4
 
+from .config import settings
+
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
@@ -19,6 +21,21 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         request_id = incoming.strip()[:128] if incoming else ""
         if not request_id or any(ord(ch) < 32 for ch in request_id):
             request_id = str(uuid4())
+
+        if (
+            request.method not in {"GET", "HEAD", "OPTIONS", "TRACE"}
+            and request.url.path.startswith("/v1/")
+            and request.url.path not in {"/v1/auth/login", "/v1/auth/bootstrap"}
+            and request.cookies.get("uvps_session")
+            and not (request.headers.get("Authorization", "").startswith("Bearer "))
+        ):
+            csrf_cookie = request.cookies.get("uvps_csrf", "")
+            csrf_header = request.headers.get("X-CSRF-Token", "")
+            if not csrf_cookie or not csrf_header or len(csrf_cookie) > 256 or len(csrf_header) > 256:
+                return Response('{"detail":"CSRF validation failed"}', status_code=403, media_type="application/json")
+            import hmac
+            if not hmac.compare_digest(csrf_cookie, csrf_header):
+                return Response('{"detail":"CSRF validation failed"}', status_code=403, media_type="application/json")
 
         request.state.request_id = request_id
         started = time.perf_counter()
