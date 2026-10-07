@@ -14,7 +14,7 @@ jobs:
       - name: Validate Python files
         run: |
           python3 -m py_compile panel/app.py panel/uvps_panel/*.py scripts/ws-payload-ssh.py platform/api/app/*.py platform/agent/agent.py
-          python3 platform/api/tests/test_pagination.py
+          PYTHONPATH="$PWD/platform/api" python3 platform/api/tests/test_pagination.py
           PYTHONPATH="$PWD" python3 -c 'from panel.uvps_panel.main import main; from panel.uvps_panel.http import H; print("node panel import smoke test passed")'
           python3 - <<'PY'
           import ast
@@ -22,6 +22,10 @@ jobs:
           for p in (Path('panel/app.py'), *Path('panel/uvps_panel').glob('*.py'), Path('scripts/ws-payload-ssh.py'), *Path('platform/api/app').glob('*.py'), Path('platform/agent/agent.py')):
               ast.parse(open(p, encoding='utf-8').read(), filename=p)
           PY
+      - name: Validate control-plane import
+        run: |
+          python3 -m pip install --disable-pip-version-check -r platform/api/requirements.txt
+          (cd platform/api && python3 -c 'from app.main import app; print(f"control plane import smoke test passed: {app.version}")')
       - name: Validate configuration files
         run: |
           python3 -m json.tool config/xray.json >/dev/null
