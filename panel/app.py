@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-import base64,hashlib,hmac,html,json,math,os,secrets,sqlite3,subprocess,time,re,threading,uuid,zlib,tarfile,pwd
+import base64,hashlib,hmac,html,json,math,os,secrets,sqlite3,subprocess,time,re,threading,uuid,zlib,tarfile,pwd,gzip
+from concurrent.futures import ThreadPoolExecutor
 from urllib.request import Request,urlopen
 from urllib.parse import quote,urlsplit
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
@@ -24,9 +25,16 @@ LOGIN_MAX_FAILURES=8
 HY2_STATS_SECRET=os.environ.get('HY2_STATS_SECRET','')
 PUBLIC_IP_CACHE=None
 PUBLIC_IP_CACHE_AT=0.0
+PRIMARY_INTERFACE=None
+PRIMARY_INTERFACE_AT=0.0
 DB_INIT_LOCK=threading.Lock()
 DB_INITIALIZED=False
 SPEEDTEST_LOCK=threading.Lock()
+CACHE_LOCK=threading.Lock()
+CACHE_VALUES={}
+CACHE_INFLIGHT={}
+EVENT_PRUNE_LOCK=threading.Lock()
+EVENT_PRUNE_COUNTER=0
 XRAY_TAGS={'VLESS':['vless443'],'VMess':['vmess443'],'Trojan':['trojan443']}
 SSH_PORTS=[80,443,143,8080,8443,8880]
 MAX_REQUEST_BODY=64*1024
@@ -184,8 +192,21 @@ def _save_admin_credentials(username,password):
     except OSError:
         pass
     ADMIN=str(username); PASSWORD=str(password)
+def _compress_response(r,b,headers):
+    headers=headers or {}
+    accept=(r.headers.get('Accept-Encoding','') or '').lower()
+    if len(b)>=1024 and 'gzip' in accept:
+        compressed=gzip.compress(b,compresslevel=5)
+        if len(compressed)<len(b):
+            b=compressed
+            headers=dict(headers)
+            headers['Content-Encoding']='gzip'
+            headers['Vary']='Accept-Encoding'
+    return b,headers
+
 def send_html(r,body_html,status=200,headers=None):
     b=body_html.encode()
+    b,headers=_compress_response(r,b,headers)
     r.send_response(status)
     r.send_header('Content-Type','text/html; charset=utf-8')
     r.send_header('Cache-Control','no-store')
@@ -213,7 +234,9 @@ def _login_page(r):
     return send_html(r,page,headers={'Set-Cookie':f'uvps_login_nonce={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=600','Pragma':'no-cache'})
 
 def send(r,obj,status=200,headers=None):
-    b=json.dumps(obj).encode(); r.send_response(status)
+    b=json.dumps(obj,separators=(',',':'),ensure_ascii=False).encode()
+    b,headers=_compress_response(r,b,headers)
+    r.send_response(status)
     r.send_header('Content-Type','application/json')
     r.send_header('Cache-Control','no-store')
     r.send_header('X-Content-Type-Options','nosniff')
@@ -463,6 +486,10 @@ def _hysteria_usage():
     return {str(k): int(v.get('tx',0))+int(v.get('rx',0)) for k,v in data.items() if isinstance(v,dict)}
 
 def _primary_interface():
+    global PRIMARY_INTERFACE,PRIMARY_INTERFACE_AT
+    now=time.monotonic()
+    if PRIMARY_INTERFACE and now-PRIMARY_INTERFACE_AT < 60:
+        return PRIMARY_INTERFACE
     try:
         p=subprocess.run(['ip','route','show','default'],capture_output=True,text=True,timeout=3,check=False)
         for line in p.stdout.splitlines():
@@ -470,10 +497,12 @@ def _primary_interface():
             if 'dev' in parts:
                 i=parts.index('dev')
                 if i+1 < len(parts):
-                    return parts[i+1]
+                    PRIMARY_INTERFACE=parts[i+1]
+                    PRIMARY_INTERFACE_AT=now
+                    return PRIMARY_INTERFACE
     except Exception:
         pass
-    return ''
+    return PRIMARY_INTERFACE or ''
 
 def _server_bytes():
     iface=_primary_interface()
@@ -495,14 +524,51 @@ def _human_bytes(n):
     return '0.00 B'
 
 def log_event(action, details='', username=''):
+    global EVENT_PRUNE_COUNTER
     try:
         c=conn()
         c.execute('insert into events(created_at,action,username,details) values(?,?,?,?)',
                   (int(time.time()),str(action),str(username),str(details)))
-        c.execute('delete from events where id not in (select id from events order by id desc limit 500)')
+        with EVENT_PRUNE_LOCK:
+            EVENT_PRUNE_COUNTER += 1
+            prune = EVENT_PRUNE_COUNTER >= 25
+            if prune:
+                EVENT_PRUNE_COUNTER = 0
+        if prune:
+            c.execute('delete from events where id not in (select id from events order by id desc limit 500)')
         c.commit(); c.close()
     except Exception:
         pass
+
+def cached_value(key,ttl,fn):
+    now=time.monotonic()
+    with CACHE_LOCK:
+        item=CACHE_VALUES.get(key)
+        if item and now-item[0] < ttl:
+            return item[1]
+        event=CACHE_INFLIGHT.get(key)
+        if event is None:
+            event=threading.Event()
+            CACHE_INFLIGHT[key]=event
+            owner=True
+        else:
+            owner=False
+    if not owner:
+        event.wait(timeout=max(ttl,1.0)+5.0)
+        with CACHE_LOCK:
+            item=CACHE_VALUES.get(key)
+            if item and time.monotonic()-item[0] < ttl:
+                return item[1]
+        return fn()
+    try:
+        value=fn()
+        with CACHE_LOCK:
+            CACHE_VALUES[key]=(time.monotonic(),value)
+        return value
+    finally:
+        with CACHE_LOCK:
+            CACHE_INFLIGHT.pop(key,None)
+            event.set()
 
 def _network_rate():
     iface=_primary_interface()
@@ -630,25 +696,28 @@ def sync_usage():
             xusage=_xray_usage()
             husage=_hysteria_usage()
             c=conn()
-            rows=c.execute('select * from users').fetchall()
+            rows=c.execute('select id,username,protocol,raw_bytes,used_bytes,daily_used_bytes,usage_day,expiry,quota_bytes,enabled from users').fetchall()
             now=int(time.time())
             today=time.strftime('%Y-%m-%d',time.localtime(now))
             disable=[]
+            updates=[]
             for row in rows:
                 expired=bool(row['expiry'] and row['expiry']<=now)
                 prev=int(row['raw_bytes'] or 0)
-                if row['protocol'] in XRAY_TAGS:
+                protocol=row['protocol']
+                if protocol in XRAY_TAGS:
                     if xusage is None:
                         if row['enabled'] and expired: disable.append(row)
                         continue
-                    raw=int(xusage[row['username']]) if row['username'] in xusage else prev
-                elif row['protocol']=='Hysteria':
+                    raw=int(xusage.get(row['username'],prev))
+                elif protocol=='Hysteria':
                     if husage is None:
                         if row['enabled'] and expired: disable.append(row)
                         continue
-                    raw=int(husage[row['username']]) if row['username'] in husage else prev
+                    raw=int(husage.get(row['username'],prev))
                 else:
-                    raw=0
+                    if row['enabled'] and expired: disable.append(row)
+                    continue
                 delta=raw-prev if raw >= prev else raw
                 used=int(row['used_bytes'] or 0)+delta
                 daily=int(row['daily_used_bytes'] or 0)
@@ -659,11 +728,13 @@ def sync_usage():
                 quota_hit=bool(row['quota_bytes'] and used>=row['quota_bytes'])
                 if row['enabled'] and (expired or quota_hit):
                     disable.append(row)
-                c.execute('update users set used_bytes=?,raw_bytes=?,daily_used_bytes=?,usage_day=? where id=?',
-                          (used,raw,daily,today,row['id']))
+                if raw != prev or usage_day != today or delta:
+                    updates.append((used,raw,daily,today,row['id']))
+            if updates:
+                c.executemany('update users set used_bytes=?,raw_bytes=?,daily_used_bytes=?,usage_day=? where id=?',updates)
 
             rx,tx=_server_bytes()
-            srv=c.execute('select * from server_usage where id=1').fetchone()
+            srv=c.execute('select raw_rx,raw_tx,all_time_bytes,daily_bytes,usage_day from server_usage where id=1').fetchone()
             if srv:
                 raw_rx=int(srv['raw_rx'] or 0); raw_tx=int(srv['raw_tx'] or 0)
                 server_delta=(rx-raw_rx if rx >= raw_rx else rx)+(tx-raw_tx if tx >= raw_tx else tx)
@@ -676,7 +747,8 @@ def sync_usage():
                           (rx,tx,server_all,server_daily,today))
                 c.execute('insert into usage_daily(day,bytes) values(?,?) on conflict(day) do update set bytes=excluded.bytes',
                           (today,server_daily))
-            c.commit(); c.close()
+            c.commit()
+            c.close()
 
             xrows=[r for r in disable if r['protocol'] in XRAY_TAGS]
             if xrows:
@@ -691,16 +763,19 @@ def sync_usage():
                                 changed |= before != len(ib['settings']['clients'])
                     if changed: save_xray(d)
 
-            c=conn()
-            for row in disable:
-                log_event('account_auto_disabled','expired or quota reached',row['username'])
-                if row['protocol']=='Hysteria':
-                    kick_hysteria(row['username'])
-                if row['protocol']=='SSH':
-                    try: set_ssh_enabled(row['username'],False)
-                    except Exception: pass
-                c.execute('update users set enabled=0 where id=?',(row['id'],))
-            c.commit(); c.close()
+            if disable:
+                c=conn()
+                event_rows=[]
+                for row in disable:
+                    event_rows.append((now,'account_auto_disabled',row['username'],'expired or quota reached'))
+                    if row['protocol']=='Hysteria':
+                        kick_hysteria(row['username'])
+                    if row['protocol']=='SSH':
+                        try: set_ssh_enabled(row['username'],False)
+                        except Exception: pass
+                c.executemany('insert into events(created_at,action,username,details) values(?,?,?,?)',event_rows)
+                c.executemany('update users set enabled=0 where id=?',[(row['id'],) for row in disable])
+                c.commit(); c.close()
         except Exception:
             pass
         time.sleep(15)
@@ -926,7 +1001,7 @@ class H(BaseHTTPRequestHandler):
 
         if self.path=='/api/usage':
             c=conn()
-            rows=c.execute('select id,username,protocol,used_bytes,daily_used_bytes,quota_bytes,usage_day from users order by id desc').fetchall()
+            rows=c.execute('select id,username,protocol,used_bytes,daily_used_bytes,quota_bytes,usage_day,expiry from users order by id desc').fetchall()
             srv=c.execute('select * from server_usage where id=1').fetchone()
             c.close()
             data={
@@ -944,22 +1019,26 @@ class H(BaseHTTPRequestHandler):
                         'daily_bytes':int(r['daily_used_bytes'] or 0),
                         'all_time_bytes':int(r['used_bytes'] or 0),
                         'quota_bytes':int(r['quota_bytes'] or 0),
-                        'usage_day':r['usage_day'] or ''
+                        'usage_day':r['usage_day'] or '',
+                        'days_remaining':None if not r['expiry'] else max(int((r['expiry']-int(time.time()))/86400),0),
+                        'expiry_warning':bool(r['expiry'] and r['expiry']<=int(time.time())+7*86400)
                     } for r in rows
                 ]
             }
             return send(self,data)
         if self.path=='/api/metrics':
-            return send(self,_system_metrics())
+            return send(self,cached_value('metrics',2.0,_system_metrics))
 
         if self.path=='/api/sessions':
-            return send(self,{'updated_at':int(time.time()),'sessions':_active_sessions()})
+            return send(self,{'updated_at':int(time.time()),'sessions':cached_value('sessions',2.0,_active_sessions)})
 
         if self.path=='/api/security':
-            return send(self,_security_info())
+            info=cached_value('security',30.0,_security_info)
+            info=dict(info); info['certificate']=cached_value('certificate',60.0,_certificate_info)
+            return send(self,info)
 
         if self.path=='/api/certificate':
-            return send(self,_certificate_info())
+            return send(self,cached_value('certificate',60.0,_certificate_info))
 
         if self.path=='/api/events':
             c=conn()
@@ -968,12 +1047,14 @@ class H(BaseHTTPRequestHandler):
             return send(self,{'events':[dict(x) for x in rows]})
 
         if self.path=='/api/backup':
-            files=[]
-            for path in sorted(__import__('glob').glob('/opt/unified-vps/backups/unified-vps-*.tar.gz'),reverse=True)[:10]:
-                try:
-                    files.append({'name':os.path.basename(path),'size':os.path.getsize(path),'created_at':int(os.path.getmtime(path))})
-                except OSError: pass
-            return send(self,{'backups':files})
+            def list_backups():
+                files=[]
+                for path in sorted(__import__('glob').glob('/opt/unified-vps/backups/unified-vps-*.tar.gz'),reverse=True)[:10]:
+                    try:
+                        files.append({'name':os.path.basename(path),'size':os.path.getsize(path),'created_at':int(os.path.getmtime(path))})
+                    except OSError: pass
+                return {'backups':files}
+            return send(self,cached_value('backups',10.0,list_backups))
 
         if self.path=='/api/speedtest':
             if not SPEEDTEST_LOCK.acquire(blocking=False):
@@ -1653,5 +1734,28 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
 if __name__=='__main__':
     init_db()
     if os.environ.get('PANEL_PREFLIGHT') != '1':
-        threading.Thread(target=sync_usage,daemon=True).start()
-    ThreadingHTTPServer((os.environ.get('PANEL_BIND','0.0.0.0'),PORT),H).serve_forever()
+        threading.Thread(target=sync_usage,name='usage-sync',daemon=True).start()
+    workers=max(4,min(int(os.environ.get('PANEL_MAX_WORKERS','32')),128))
+    class BoundedHTTPServer(ThreadingHTTPServer):
+        daemon_threads=True
+        request_queue_size=128
+        def __init__(self,*args,**kwargs):
+            super().__init__(*args,**kwargs)
+            self._executor=ThreadPoolExecutor(max_workers=workers,thread_name_prefix='panel')
+            self._slots=threading.BoundedSemaphore(workers+64)
+        def process_request(self,request,client_address):
+            if not self._slots.acquire(blocking=False):
+                try: request.close()
+                except OSError: pass
+                return
+            try:
+                future=self._executor.submit(self.process_request_thread,request,client_address)
+                future.add_done_callback(lambda _f:self._slots.release())
+            except Exception:
+                self._slots.release()
+                try: request.close()
+                except OSError: pass
+        def server_close(self):
+            try: self._executor.shutdown(wait=False,cancel_futures=True)
+            finally: super().server_close()
+    BoundedHTTPServer((os.environ.get('PANEL_BIND','0.0.0.0'),PORT),H).serve_forever()
