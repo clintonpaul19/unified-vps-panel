@@ -66,13 +66,13 @@ class H(BaseHTTPRequestHandler):
                 udp53=False
             return send(self,{'ok':True,'services':services,'listeners':{'tcp':tcp,'udp53':udp53}})
         if not admin_configured():
-            if self.path in ('/','/setup'): return _setup_page(self)
+            if self.path in ('/','/setup'): return setup_page(self)
             return send(self,{'error':'panel setup required'},503)
-        if self.path=='/login' and not auth(self.headers,self.client_address[0] in ('127.0.0.1','::1')): return _login_page(self)
+        if self.path=='/login' and not auth(self.headers,self.client_address[0] in ('127.0.0.1','::1')): return login_page(self)
         if not auth(self.headers,self.client_address[0] in ('127.0.0.1','::1')):
             if self.path.startswith('/api/'):
                 return send(self,{'error':'authentication required'},401)
-            return _login_page(self)
+            return login_page(self)
             self.send_response(401); self.send_header('WWW-Authenticate','Basic realm="Unified VPS"'); self.end_headers(); return
 
         if self.path=='/api/users/secret':
