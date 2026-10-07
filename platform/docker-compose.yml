@@ -5,7 +5,7 @@ services:
     environment:
       POSTGRES_DB: unified_vps
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./db/schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
@@ -25,14 +25,16 @@ services:
         condition: service_healthy
     environment:
       ENVIRONMENT: development
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/unified_vps
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL}
       SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET}
       COOKIE_SECURE: "false"
       AUTO_CREATE_SCHEMA: "false"
       BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-admin@example.com}
       BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:?set BOOTSTRAP_ADMIN_PASSWORD}
+      BOOTSTRAP_TOKEN: ${BOOTSTRAP_TOKEN:?set BOOTSTRAP_TOKEN}
+      API_DOCS_ENABLED: "false"
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
 
 volumes:
   pgdata:
