@@ -50,18 +50,31 @@ def _hash_password(password: str) -> str:
     return "scrypt$1$32768$8$3$" + _b64(salt) + "$" + _b64(digest)
 
 
+def _parse_hash(encoded: str):
+    algorithm, version, n, r, p, salt_text, digest_text = encoded.split("$", 6)
+    if algorithm != "scrypt" or version != "1":
+        raise ValueError("unsupported password hash")
+    n_i, r_i, p_i = int(n), int(r), int(p)
+    if (n_i, r_i, p_i) != (_SCRYPT_N, _SCRYPT_R, _SCRYPT_P):
+        raise ValueError("unsupported scrypt parameters")
+    salt = _unb64(salt_text)
+    expected = _unb64(digest_text)
+    if len(salt) < 16 or len(salt) > 64 or len(expected) != _SCRYPT_DKLEN:
+        raise ValueError("invalid password hash")
+    return n_i, r_i, p_i, salt, expected
+
+
+def _valid_password_hash(encoded: str) -> bool:
+    try:
+        _parse_hash(encoded)
+        return True
+    except (ValueError, TypeError, UnicodeError):
+        return False
+
+
 def _verify_password(password: str, encoded: str) -> bool:
     try:
-        algorithm, version, n, r, p, salt_text, digest_text = encoded.split("$", 6)
-        if algorithm != "scrypt" or version != "1":
-            return False
-        n_i, r_i, p_i = int(n), int(r), int(p)
-        if (n_i, r_i, p_i) != (_SCRYPT_N, _SCRYPT_R, _SCRYPT_P):
-            return False
-        salt = _unb64(salt_text)
-        expected = _unb64(digest_text)
-        if len(expected) != _SCRYPT_DKLEN:
-            return False
+        n_i, r_i, p_i, salt, expected = _parse_hash(encoded)
         actual = hashlib.scrypt(
             password.encode("utf-8"),
             salt=salt,
@@ -115,26 +128,17 @@ def _load_admin_credentials():
 
         user = str(data.get("username", "")).strip()
         encoded = str(data.get("password_hash", ""))
-        if _valid_username(user) and encoded.startswith("scrypt$1$") and _verify_password("invalid", encoded) is False:
-            try:
-                # Keep the already-hardened hash format, but do not needlessly
-                # rehash it during startup. The negative check only validates shape.
-                algorithm, version, n, r, p, salt_text, digest_text = encoded.split("$", 6)
-                _unb64(salt_text)
-                digest = _unb64(digest_text)
-                valid = algorithm == "scrypt" and version == "1" and (int(n), int(r), int(p)) == (_SCRYPT_N, _SCRYPT_R, _SCRYPT_P) and len(digest) == _SCRYPT_DKLEN
-            except (ValueError, TypeError, UnicodeError):
-                valid = False
-            if valid:
-                ADMIN, PASSWORD_HASH = user, encoded
-                _blank_legacy_environment()
-                return
+        if _valid_username(user) and _valid_password_hash(encoded):
+            ADMIN, PASSWORD_HASH = user, encoded
+            _blank_legacy_environment()
+            return
 
         legacy_password = str(data.get("password", ""))
         if (
             _valid_username(user)
             and _valid_password(legacy_password)
-            and hashlib.sha256(f"{user}:{legacy_password}".encode("utf-8")).hexdigest() != _RETIRED_CREDENTIAL_DIGEST
+            and hashlib.sha256(f"{user}:{legacy_password}".encode("utf-8")).hexdigest()
+            != _RETIRED_CREDENTIAL_DIGEST
         ):
             encoded = _hash_password(legacy_password)
             _write_credentials(user, encoded)
@@ -149,7 +153,6 @@ def _load_admin_credentials():
         _blank_legacy_environment()
     except Exception:
         pass
-
 
 _load_admin_credentials()
 
