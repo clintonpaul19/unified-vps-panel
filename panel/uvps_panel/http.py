@@ -1,4 +1,5 @@
 import html
+import hmac
 import json
 import os
 import re
@@ -10,7 +11,7 @@ from urllib.parse import urlsplit
 from http.server import BaseHTTPRequestHandler
 
 from .accounts import apply_user_action,create_user
-from .auth import _session_cookie,admin_configured,auth
+from .auth import _session_cookie,admin_configured,auth,verify_admin_credentials
 from .config import MAINT_LOCK,PANEL_BUILD,PORT,SETUP_LOCK,SPEEDTEST_LOCK
 from .db import conn,log_event
 from .hysteria import _hysteria_online,kick_hysteria
@@ -208,7 +209,7 @@ class H(BaseHTTPRequestHandler):
                     retry=max(1,int(LOGIN_WINDOW-(now-state[1])))
                     return send(self,{'error':'too many login attempts; try again later'},429,{'Retry-After':str(retry)})
             u=str(d.get('username','')); p=str(d.get('password',''))
-            if hmac.compare_digest(u,ADMIN) and hmac.compare_digest(p,PASSWORD):
+            if verify_admin_credentials(u,p):
                 with LOGIN_LOCK: LOGIN_FAILURES.pop(client_ip,None)
                 return send(self,{'ok':True},200,{'Set-Cookie':f'{SESSION_COOKIE}={_session_cookie(u)}; Path=/; HttpOnly; SameSite=Strict; Max-Age={SESSION_TTL}'})
             with LOGIN_LOCK:
