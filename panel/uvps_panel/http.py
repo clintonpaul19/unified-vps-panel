@@ -203,7 +203,12 @@ class H(BaseHTTPRequestHandler):
                     log_event('panel_setup',details='Initial administrator account created')
                 except Exception as e:
                     return send(self,{'error':'Could not save administrator credentials: '+str(e)},500)
-                return send(self,{'ok':True},200,{'Set-Cookie':f'{SESSION_COOKIE}={_session_cookie(u)}; Path=/; HttpOnly; SameSite=Strict; Max-Age={SESSION_TTL}'})
+                self.send_response(303)
+                self.send_header('Location','/')
+                self.send_header('Set-Cookie',f'{SESSION_COOKIE}={_session_cookie(u)}; Path=/; HttpOnly; SameSite=Strict; Max-Age={SESSION_TTL}')
+                self.send_header('Content-Length','0')
+                self.end_headers()
+                return
         if self.path=='/login':
             try: d=body(self)
             except Exception: return send(self,{'error':'invalid JSON'},400)
@@ -220,7 +225,12 @@ class H(BaseHTTPRequestHandler):
             u=str(d.get('username','')); p=str(d.get('password',''))
             if verify_admin_credentials(u,p):
                 with LOGIN_LOCK: LOGIN_FAILURES.pop(client_ip,None)
-                return send(self,{'ok':True},200,{'Set-Cookie':f'{SESSION_COOKIE}={_session_cookie(u)}; Path=/; HttpOnly; SameSite=Strict; Max-Age={SESSION_TTL}'})
+                self.send_response(303)
+                self.send_header('Location','/')
+                self.send_header('Set-Cookie',f'{SESSION_COOKIE}={_session_cookie(u)}; Path=/; HttpOnly; SameSite=Strict; Max-Age={SESSION_TTL}')
+                self.send_header('Content-Length','0')
+                self.end_headers()
+                return
             with LOGIN_LOCK:
                 stale=[ip for ip,state in LOGIN_FAILURES.items() if now-state[1] > LOGIN_WINDOW]
                 for ip in stale: LOGIN_FAILURES.pop(ip,None)
