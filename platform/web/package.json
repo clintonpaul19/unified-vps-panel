@@ -1,0 +1,8 @@
+{
+  "name": "unified-vps-control-plane-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/ui.test.mjs"
+  }
+}
