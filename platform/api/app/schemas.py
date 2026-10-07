@@ -1,4 +1,5 @@
 from datetime import datetime
+from ipaddress import IPv4Address, IPv6Address
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
@@ -25,6 +26,28 @@ class ServerCreate(BaseModel):
     public_ipv4: str | None = None
     public_ipv6: str | None = None
 
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("server name is required")
+        return value
+
+    @field_validator("public_ipv4")
+    @classmethod
+    def validate_ipv4(cls, value: str | None) -> str | None:
+        if value is not None:
+            IPv4Address(value)
+        return value
+
+    @field_validator("public_ipv6")
+    @classmethod
+    def validate_ipv6(cls, value: str | None) -> str | None:
+        if value is not None:
+            IPv6Address(value)
+        return value
+
 class ServerOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
@@ -50,6 +73,20 @@ class CommandCreate(BaseModel):
             raise ValueError("command payload is too large")
         return value
 
+class CommandResult(BaseModel):
+    status: str = Field(pattern=r"^(running|succeeded|failed)$")
+    result: dict | None = None
+    error: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("result")
+    @classmethod
+    def validate_result(cls, value: dict | None) -> dict | None:
+        import json
+        if value is not None and len(json.dumps(value, separators=(",", ":")).encode()) > 16 * 1024:
+            raise ValueError("command result is too large")
+        return value
+
+
 class CommandOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
@@ -72,6 +109,14 @@ class HeartbeatIn(BaseModel):
     public_ipv6: str | None = None
     status: str = Field(default="online", pattern=r"^(online|degraded)$")
     metrics: dict = Field(default_factory=dict)
+
+    @field_validator("metrics")
+    @classmethod
+    def validate_metrics(cls, value: dict) -> dict:
+        import json
+        if len(json.dumps(value, separators=(",", ":")).encode()) > 16 * 1024:
+            raise ValueError("heartbeat metrics are too large")
+        return value
 
 class BootstrapRequest(BaseModel):
     organization_name: str = Field(default="Unified VPS", min_length=1, max_length=120)
