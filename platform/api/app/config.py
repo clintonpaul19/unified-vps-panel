@@ -47,8 +47,8 @@ class Settings(BaseSettings):
             raise ValueError("AUTO_CREATE_SCHEMA must be false in production")
         if env == "production" and self.api_docs_enabled:
             raise ValueError("API_DOCS_ENABLED must be false in production")
-        if self.database_url == "postgresql+asyncpg://postgres:postgres@db:5432/unified_vps":
-            raise ValueError("DATABASE_URL must be explicitly configured")
+        if env == "production" and self.database_url == "postgresql+asyncpg://postgres:postgres@db:5432/unified_vps":
+            raise ValueError("DATABASE_URL must be explicitly configured in production")
         if self.database_pool_size < 1 or self.database_max_overflow < 0 or self.database_pool_timeout_seconds <= 0:
             raise ValueError("database pool settings are invalid")
         if self.session_ttl_seconds < 300:
