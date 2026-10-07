@@ -42,21 +42,47 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq shellcheck >/dev/null
           shellcheck --severity=error install.sh scripts/menu.sh scripts/unified-vps-watchdog.sh scripts/unified-vps-backup.sh scripts/unified-vps-cert-reload scripts/manage-user.sh
-      - name: Validate embedded browser JavaScript
+      - name: Validate embedded node-panel JavaScript
         run: |
           python3 - <<'PY'
           import re
           from pathlib import Path
-          sources=[Path("panel/uvps_panel/views.py").read_text(encoding="utf-8")]
-          src="\\n".join(sources)
-          blocks=re.findall(r"<script[^>]*>(.*?)</script>", src, flags=re.S)
+          source=Path("panel/uvps_panel/views.py").read_text(encoding="utf-8")
+          blocks=re.findall(r"<script[^>]*>(.*?)</script>", source, flags=re.S)
           if not blocks:
-              raise SystemExit("No embedded JavaScript blocks found")
+              raise SystemExit("No embedded node-panel JavaScript blocks found")
           for i,block in enumerate(blocks,1):
               Path(f"/tmp/panel-script-{i}.js").write_text(block, encoding="utf-8")
-          print(f"Validated {len(blocks)} JavaScript blocks")
+          print(f"Validated {len(blocks)} node-panel JavaScript blocks")
           PY
           for f in /tmp/panel-script-*.js; do node --check "$f"; done
+      - name: Validate control-plane frontend
+        run: |
+          for f in platform/web/assets/js/*.js; do
+            node --check "$f"
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+
+          index=Path("platform/web/index.html").read_text(encoding="utf-8")
+          main=Path("platform/api/app/main.py").read_text(encoding="utf-8")
+          required=[
+              Path("platform/web/assets/css/app.css"),
+              Path("platform/web/assets/js/api.js"),
+              Path("platform/web/assets/js/state.js"),
+              Path("platform/web/assets/js/format.js"),
+              Path("platform/web/assets/js/components.js"),
+              Path("platform/web/assets/js/views.js"),
+              Path("platform/web/assets/js/app.js"),
+              Path("docs/FRONTEND_UI_SYSTEM.md"),
+          ]
+          assert all(p.exists() for p in required)
+          assert 'src="/assets/js/app.js"' in index
+          assert 'href="/assets/css/app.css"' in index
+          assert 'app.mount("/assets", StaticFiles' in main
+          assert 'WEB_DIR / "index.html"' in main
+          print("Control-plane frontend invariants passed")
+          PY
       - name: Validate critical runtime invariants
         run: |
           python3 - <<'PY'
