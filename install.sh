@@ -498,6 +498,11 @@ printf '%s\n%s\nPANEL_PORT=6080\nSERVER_DOMAIN=%s\nACME_EMAIL=%s\nHY2_STATS_SECR
 chmod 600 /etc/unified-vps/panel.env
 
 curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/panel/app.py" -o /opt/unified-vps/panel.py
+mkdir -p /opt/unified-vps/uvps_panel
+PANEL_MODULES="__init__.py config.py db.py cache.py auth.py http_utils.py xray.py ssh.py hysteria.py system.py accounts.py telemetry.py views.py http.py main.py"
+for module in $PANEL_MODULES; do
+  curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/panel/uvps_panel/$module" -o "/opt/unified-vps/uvps_panel/$module"
+done
 curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/systemd/unified-vps-panel.service" -o /etc/systemd/system/unified-vps-panel.service
 curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/menu.sh" -o /usr/local/bin/menu
 curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/vps-status.sh" -o /usr/local/bin/vps-status
@@ -529,7 +534,7 @@ if [ -z "$PANEL_HOME" ]; then
   echo "ERROR: panel HTTP smoke test returned no response."
   exit 1
 fi
-EXPECTED_PANEL_BUILD="$(grep -E "^PANEL_BUILD=['\"][^'\"]+['\"]" /opt/unified-vps/panel.py | sed -E "s/.*PANEL_BUILD=['\"]([^'\"]+)['\"].*/\1/" | head -n1)"
+EXPECTED_PANEL_BUILD="$(grep -E "^PANEL_BUILD=['\"][^'\"]+['\"]" /opt/unified-vps/uvps_panel/config.py | sed -E "s/.*PANEL_BUILD=['\"]([^'\"]+)['\"].*/\1/" | head -n1)"
 ACTIVE_PANEL_BUILD="$(curl -fsS --max-time 5 -D - -o /dev/null http://127.0.0.1:6080/health | sed -n 's/^X-UVPS-Build:[[:space:]]*//Ip' | tr -d '\r' || true)"
 if [ -z "$EXPECTED_PANEL_BUILD" ] || [ "$ACTIVE_PANEL_BUILD" != "$EXPECTED_PANEL_BUILD" ]; then
   echo "ERROR: panel build verification failed. Expected '$EXPECTED_PANEL_BUILD', active '$ACTIVE_PANEL_BUILD'."
