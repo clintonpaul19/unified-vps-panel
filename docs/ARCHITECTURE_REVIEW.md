@@ -39,26 +39,22 @@ The important limitation is transactional: Linux/Xray/Hysteria and SQLite are se
 
 ## Critical problem areas
 
-### Privileged monolith
-`panel/app.py` is roughly 1,600 lines and crosses presentation, persistence and privileged system operations.
+### Node-panel modularity
+The node-local implementation is no longer a single privileged monolith. `panel/app.py` is a compatibility launcher and the implementation is split under `panel/uvps_panel/` into configuration, persistence, authentication, HTTP primitives, protocol adapters, system telemetry, account use-cases, background usage synchronization, views and process bootstrap.
+
+The dependency direction is intentional: HTTP orchestration depends on application services; application services depend on infrastructure adapters; presentation does not own Linux/Xray/Hysteria side effects.
 
 ### SQLite contention
-Opening SQLite and running schema migrations from every connection created unnecessary lock and latency overhead. The node panel now initializes schema once, enables WAL and sets a busy timeout.
+Opening SQLite and running schema migrations from every connection created unnecessary lock and latency overhead. The node panel initializes schema once, enables WAL and sets a busy timeout.
 
 ### Duplicate lifecycle logic
 Enable, disable, renew and delete existed in both single-account and bulk paths. The node panel now routes these actions through `apply_user_action()`.
 
 ### Process-spawn amplification
-Dashboard requests previously launched many separate `systemctl`, `ss` and `ps` processes. Service status is now batched and process ownership is read from `/proc`.
+Dashboard requests previously launched many separate `systemctl`, `ss` and `ps` processes. Service status is now batched and process ownership is read from `/proc`. Expensive telemetry responses use short-lived single-flight caching.
 
 ### Blocking maintenance requests
-Backups, restores, certificate renewal and Speedtest can occupy HTTP threads for long periods. These should become local asynchronous jobs.
-
-### External-side-effect consistency
-An Xray restart or `useradd` can succeed while a database transaction fails. The current code compensates where practical; the longer-term answer is reconciliation from a desired-state model.
-
-### Unbounded retention
-Audit events and telemetry need explicit retention/partitioning policies before high-volume deployments.
+Backups, restores, certificate renewal and Speedtest can occupy HTTP threads for long periods. The current bounded HTTP server prevents unbounded thread growth, but these operations should still become local asynchronous jobs.
 
 ### Polling scale
 One agent heartbeat/poll loop per VPS does not scale linearly to a very large fleet. The agent now uses jitter and exponential backoff on failures. Production should move command delivery to Redis/NATS/SQS-style infrastructure or long polling.
