@@ -538,9 +538,10 @@ function openRegisterDialog() {
     }
   };
 
-  const form = registerServerForm({ onSubmit: submit });
-  submit.cancel = () => dialog.close();
-  form.querySelector("button[type=button]")?.addEventListener("click", () => dialog.close());
+  const form = registerServerForm({
+    onSubmit: submit,
+    onCancel: () => dialog.close(),
+  });
   content.appendChild(form);
   dialog.open();
 }
