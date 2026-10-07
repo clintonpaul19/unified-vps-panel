@@ -2,11 +2,13 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
+from pathlib import Path
 import secrets
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import and_, desc, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,6 +38,8 @@ from .security import hash_password, make_session, new_node_token, read_session,
 SESSION_COOKIE = "uvps_session"
 ROLE_WRITE = {"owner", "admin", "operator"}
 BOOTSTRAP_LOCK_KEY = 193847201
+WEB_DIR = Path(__file__).resolve().parents[2] / "web"
+STATIC_DIR = WEB_DIR / "assets"
 
 
 @asynccontextmanager
@@ -56,6 +60,7 @@ app = FastAPI(
 )
 app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=5)
 app.add_middleware(RequestContextMiddleware)
+app.mount("/assets", StaticFiles(directory=STATIC_DIR, check_dir=True), name="web-assets")
 
 
 def cursor_secret() -> str:
@@ -198,8 +203,6 @@ async def record_event(
 
 
 async def bootstrap(db: AsyncSession, organization_name: str) -> User:
-    # Serialize first-run initialization across API replicas. PostgreSQL
-    # advisory locks are transaction-scoped and require no extra table.
     await db.execute(text(f"SELECT pg_advisory_xact_lock({BOOTSTRAP_LOCK_KEY})"))
 
     email = settings.bootstrap_admin_email.strip().lower()
@@ -767,7 +770,7 @@ async def list_commands(
                 and_(
                     Command.created_at == parsed.timestamp,
                     Command.id < cursor_id,
-                ),
+                )
             )
         )
     statement = statement.order_by(
@@ -814,7 +817,7 @@ async def events(
                 and_(
                     AuditEvent.created_at == parsed.timestamp,
                     AuditEvent.id < cursor_id,
-                ),
+                )
             )
         )
 
@@ -849,7 +852,7 @@ async def events(
 
 @app.get("/")
 async def index():
-    return FileResponse("/app/web/index.html")
+    return FileResponse(WEB_DIR / "index.html")
 
 
 @app.get("/readyz")
