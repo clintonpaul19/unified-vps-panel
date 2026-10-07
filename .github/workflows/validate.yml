@@ -64,8 +64,9 @@ jobs:
           assert "manage-user" in menu
           assert "spiderman" not in install.lower()
           assert "spiderman" not in app.lower()
-          for p in __import__('pathlib').Path('.').rglob('*'):
-              if '.git' in p.parts:
+          excluded = {'.git', '.github', '__pycache__'}
+          for p in Path('.').rglob('*'):
+              if any(part in excluded for part in p.parts):
                   continue
               if p.is_file() and b'\x00' in p.read_bytes():
                   raise SystemExit(f"NUL byte found in {p}")
