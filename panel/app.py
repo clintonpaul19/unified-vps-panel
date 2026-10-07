@@ -970,7 +970,32 @@ class H(BaseHTTPRequestHandler):
             try:
                 out=subprocess.run(['ss','-lntH'],capture_output=True,text=True,timeout=3,check=False)
                 for line in out.stdout.splitlines():
-                    m=re.search(r':(\d+)\\s+.*        if not admin_configured():
+                    parts=line.split()
+                    if len(parts)>=4:
+                        try:
+                            port=int(parts[3].rsplit(':',1)[1])
+                            if port in wanted:
+                                tcp[str(port)]=True
+                        except (ValueError,IndexError):
+                            pass
+            except Exception:
+                pass
+            try:
+                out=subprocess.run(['ss','-lunH'],capture_output=True,text=True,timeout=3,check=False)
+                udp53=False
+                for line in out.stdout.splitlines():
+                    parts=line.split()
+                    if len(parts)>=4:
+                        try:
+                            if int(parts[3].rsplit(':',1)[1])==53:
+                                udp53=True
+                                break
+                        except (ValueError,IndexError):
+                            pass
+            except Exception:
+                udp53=False
+            return send(self,{'ok':True,'services':services,'listeners':{'tcp':tcp,'udp53':udp53}})
+        if not admin_configured():
             if self.path in ('/','/setup'): return _setup_page(self)
             return send(self,{'error':'panel setup required'},503)
         if self.path=='/login' and not auth(self.headers,self.client_address[0] in ('127.0.0.1','::1')): return _login_page(self)
