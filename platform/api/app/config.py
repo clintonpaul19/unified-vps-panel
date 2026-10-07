@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     database_pool_size: int = 10
     database_max_overflow: int = 20
     database_pool_recycle_seconds: int = 1800
+    database_pool_timeout_seconds: float = 5.0
     auto_create_schema: bool = False
     command_lease_seconds: int = 15 * 60
     max_command_payload_bytes: int = 16 * 1024
@@ -22,7 +23,7 @@ class Settings(BaseSettings):
     def model_post_init(self, __context) -> None:
         if self.environment.lower() == "production" and not self.session_secret:
             raise ValueError("SESSION_SECRET must be configured in production")
-        if self.database_pool_size < 1 or self.database_max_overflow < 0:
+        if self.database_pool_size < 1 or self.database_max_overflow < 0 or self.database_pool_timeout_seconds <= 0:
             raise ValueError("database pool settings are invalid")
         if self.session_ttl_seconds < 300:
             raise ValueError("SESSION_TTL_SECONDS is too small")
