@@ -15,7 +15,7 @@ from .auth import _request_token,_save_admin_credentials,_session_cookie,_valid_
 from .config import MAINT_LOCK,PANEL_BUILD,PORT,SETUP_LOCK,SPEEDTEST_LOCK
 from .db import conn,log_event
 from .hysteria import _hysteria_online,kick_hysteria
-from .http_utils import body,send,send_html
+from .http_utils import body,redirect,send,send_html
 from .system import _active_sessions,_certificate_info,_security_info,_system_metrics,public_host,service_states
 from .views import dashboard_page,login_page,setup_page
 from .cache import cached_value
@@ -203,12 +203,7 @@ class H(BaseHTTPRequestHandler):
                     log_event('panel_setup',details='Initial administrator account created')
                 except Exception as e:
                     return send(self,{'error':'Could not save administrator credentials: '+str(e)},500)
-                self.send_response(303)
-                self.send_header('Location','/')
-                self.send_header('Set-Cookie',f'{SESSION_COOKIE}={_session_cookie(u)}; Path=/; HttpOnly; SameSite=Strict; Max-Age={SESSION_TTL}')
-                self.send_header('Content-Length','0')
-                self.end_headers()
-                return
+                return redirect(self,'/',303,{'Set-Cookie':f'{SESSION_COOKIE}={_session_cookie(u)}; Path=/; HttpOnly; SameSite=Strict; Max-Age={SESSION_TTL}'})
         if self.path=='/login':
             try: d=body(self)
             except Exception: return send(self,{'error':'invalid JSON'},400)
@@ -225,12 +220,7 @@ class H(BaseHTTPRequestHandler):
             u=str(d.get('username','')); p=str(d.get('password',''))
             if verify_admin_credentials(u,p):
                 with LOGIN_LOCK: LOGIN_FAILURES.pop(client_ip,None)
-                self.send_response(303)
-                self.send_header('Location','/')
-                self.send_header('Set-Cookie',f'{SESSION_COOKIE}={_session_cookie(u)}; Path=/; HttpOnly; SameSite=Strict; Max-Age={SESSION_TTL}')
-                self.send_header('Content-Length','0')
-                self.end_headers()
-                return
+                return redirect(self,'/',303,{'Set-Cookie':f'{SESSION_COOKIE}={_session_cookie(u)}; Path=/; HttpOnly; SameSite=Strict; Max-Age={SESSION_TTL}'})
             with LOGIN_LOCK:
                 stale=[ip for ip,state in LOGIN_FAILURES.items() if now-state[1] > LOGIN_WINDOW]
                 for ip in stale: LOGIN_FAILURES.pop(ip,None)
