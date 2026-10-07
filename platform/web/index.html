@@ -12,7 +12,7 @@ main{width:min(1100px,94vw);margin:40px auto}.top{display:flex;justify-content:s
 <div id="app" class="hidden">
 <div class="top"><div><h1>Unified VPS</h1><div class="sub" id="me"></div></div><button id="logout">Sign out</button></div>
 <div class="grid"><div class="card"><div class="sub">Servers</div><div class="stat" id="serverCount">0</div></div><div class="card"><div class="sub">Online</div><div class="stat" id="onlineCount">0</div></div></div>
-<div class="card" style="margin-top:14px"><h2>Servers</h2><div id="servers"></div></div>
+<div class="card" style="margin-top:14px"><h2>Register server</h2><form id="serverForm"><input id="serverName" placeholder="Server name" maxlength="120" required><input id="serverHost" placeholder="Hostname"><input id="serverIp" placeholder="Public IPv4"><button>Register</button><div id="serverMsg" class="sub"></div></form></div><div class="card" style="margin-top:14px"><h2>Servers</h2><div id="servers"></div></div>
 <div class="card" style="margin-top:14px"><h2>Recent events</h2><div id="events"></div></div>
 </div></main>
 <script>
@@ -30,6 +30,7 @@ async function load(){
 }
 $('loginForm').onsubmit=async e=>{e.preventDefault();$('loginMsg').textContent='';try{await api('/v1/auth/login',{method:'POST',body:JSON.stringify({email:$('email').value,password:$('password').value})});await load()}catch(err){$('loginMsg').textContent=err.message}};
 $('logout').onclick=async()=>{await api('/v1/auth/logout',{method:'POST'});showLogin()};
+$('serverForm').onsubmit=async e=>{e.preventDefault();$('serverMsg').textContent='';try{const r=await api('/v1/servers',{method:'POST',body:JSON.stringify({name:$('serverName').value,hostname:$('serverHost').value||null,public_ipv4:$('serverIp').value||null})});$('serverMsg').textContent='Registered. Save this node token now: '+r.node_token;$('serverForm').reset();await load()}catch(err){$('serverMsg').textContent=err.message}};
 function esc(v){return String(v).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 load();
 </script></body></html>

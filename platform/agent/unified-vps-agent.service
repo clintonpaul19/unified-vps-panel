@@ -1,0 +1,19 @@
+[Unit]
+Description=Unified VPS Control Plane Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/unified-vps/agent.env
+ExecStart=/usr/bin/python3 /opt/unified-vps/agent.py
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log/unified-vps
+
+[Install]
+WantedBy=multi-user.target
