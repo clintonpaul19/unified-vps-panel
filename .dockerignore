@@ -1,0 +1,16 @@
+.git
+.github
+.gitignore
+**/__pycache__
+**/*.pyc
+.env
+.env.*
+*.env
+*.key
+*.pem
+*.crt
+*.sqlite
+*.db
+backups/
+node_modules/
+platform/web/node_modules/
