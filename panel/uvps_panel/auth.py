@@ -90,6 +90,7 @@ def _verify_password(password: str, encoded: str) -> bool:
 
 
 def _write_credentials(username: str, password_hash: str) -> None:
+    import json
     os.makedirs(BASE, exist_ok=True, mode=0o700)
     os.chmod(BASE, 0o700)
     tmp = ADMIN_FILE + ".tmp"
