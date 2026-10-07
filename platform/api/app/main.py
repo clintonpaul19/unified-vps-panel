@@ -5,7 +5,7 @@ import hmac
 import json
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
 from starlette.middleware.gzip import GZipMiddleware
 from sqlalchemy import and_, desc, func, or_, select, update
@@ -166,9 +166,37 @@ async def scoped_write_server(db: AsyncSession, user: User, server_id: UUID, req
     return org, server
 
 @app.get("/v1/servers", response_model=list[ServerOut])
-async def list_servers(request: Request, user: User = Depends(current_user), db: AsyncSession = Depends(get_db)):
+async def list_servers(
+    request: Request,
+    include_metrics: bool = Query(default=True),
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_db),
+):
     org = await current_org(request, db, user)
-    return (await db.execute(select(Server).where(Server.organization_id == org.id).order_by(desc(Server.updated_at)))).scalars().all()
+    if include_metrics:
+        return (await db.execute(
+            select(Server).where(Server.organization_id == org.id).order_by(desc(Server.updated_at))
+        )).scalars().all()
+    rows = (await db.execute(
+        select(
+            Server.id, Server.name, Server.hostname, Server.public_ipv4, Server.public_ipv6,
+            Server.agent_version, Server.status, Server.last_seen_at,
+        ).where(Server.organization_id == org.id).order_by(desc(Server.updated_at))
+    )).all()
+    return [
+        ServerOut(
+            id=row.id,
+            name=row.name,
+            hostname=row.hostname,
+            public_ipv4=row.public_ipv4,
+            public_ipv6=row.public_ipv6,
+            agent_version=row.agent_version,
+            status=row.status,
+            metrics={},
+            last_seen_at=row.last_seen_at,
+        )
+        for row in rows
+    ]
 
 @app.get("/v1/servers/{server_id}", response_model=ServerOut)
 async def get_server(server_id: UUID, request: Request, user: User = Depends(current_user), db: AsyncSession = Depends(get_db)):
