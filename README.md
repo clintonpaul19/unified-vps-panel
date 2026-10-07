@@ -1,10 +1,10 @@
 # Unified VPS Tunnels
 
-A simple terminal-based VPS tunnel manager for Ubuntu and Debian.
+A terminal-only VPS tunnel manager for Ubuntu and Debian.
 
-There is no web panel, web login, admin account, or browser interface.
+There is no web panel, browser login, administrator web account, or TCP 6080 service.
 
-## What it provides
+## What it installs
 
 - SSH
 - VLESS over WebSocket
@@ -12,24 +12,26 @@ There is no web panel, web login, admin account, or browser interface.
 - Trojan over TLS
 - Hysteria 2 on UDP 53
 - SSH over WebSocket/WSS
-- HAProxy for public transport multiplexing
-- NGINX as a local HTTP fallback
+- HAProxy transport multiplexing
+- Local NGINX fallback
 - Let's Encrypt TLS certificates
-- Fail2Ban for SSH protection
+- Fail2Ban for SSH
 
-UDP forwarding through BadVPN/UDPGW is not included.
+BadVPN/UDPGW is not included.
 
 ## Install
 
-Run as `root` on the VPS:
+Run as `root`:
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/install.sh)
 ```
 
-The installer asks for the domain pointing to the VPS, installs the tunnel services, obtains a TLS certificate, and checks the required listeners.
+Enter the domain or subdomain that points to the VPS.
 
-## Configure everything from the menu
+The installer removes the old web-panel files and state from previous Unified VPS installations, then installs only the tunnel stack.
+
+## Configure with `menu`
 
 After installation:
 
@@ -37,74 +39,67 @@ After installation:
 menu
 ```
 
-The menu is terminal-only.
+The menu is terminal-only and is the only account-management interface.
 
-Main functions:
+```text
+[1] Configure domain
+[2] Create account
+[3] List accounts
+[4] Show connection details
+[5] Enable account
+[6] Disable account
+[7] Renew account
+[8] Delete account
+[9] Tunnel/service status
+[10] Restart tunnel services
+[11] Data usage
+[12] Exit
+```
 
-| Option | Purpose |
-|---|---|
-| Configure domain | Set or change the tunnel domain |
-| Create account | Create SSH, VLESS, VMess, Trojan, or Hysteria 2 users |
-| List accounts | Show all tunnel accounts |
-| Show connection details | Print passwords, UUIDs, and connection URIs |
-| Enable / Disable | Turn an account on or off |
-| Renew | Change account expiry |
-| Delete | Remove an account |
-| Tunnel status | Check services and listeners |
-| Restart services | Rebuild configurations and restart tunnels |
-| Data usage | Show server RX/TX totals |
+Supported account types: SSH, VLESS, VMess, Trojan, and Hysteria 2.
 
-## Connection endpoints
+## Endpoints
 
-- SSH: TCP 22
-- SSH WebSocket: TCP 80, 8080, 8880
-- SSH WSS: TCP 443, 8443
-- VLESS: TCP 80/443, WebSocket path `/vless`
-- VMess: TCP 80/443, WebSocket path `/vmess`
-- Trojan: TLS on TCP 443/8443
-- Hysteria 2: UDP 53
-
-Hysteria 2 supports `userpass` authentication with username/password pairs.
+```text
+SSH             TCP 22
+SSH WS          TCP 80, 8080, 8880
+SSH WSS         TCP 443, 8443
+VLESS           TCP 80 / 443, path /vless
+VMess           TCP 80 / 443, path /vmess
+Trojan          TCP 443
+Hysteria 2      UDP 53
+```
 
 ## Account storage
 
-Tunnel account data is stored locally at:
+Account data is stored locally on the VPS:
 
 ```text
 /etc/unified-vps/accounts.json
 ```
 
-The directory is root-only. Passwords and protocol credentials are never written to the GitHub repository.
+The file is root-only. Protocol credentials are not stored in GitHub.
 
 ## TLS
 
-The installer uses Let's Encrypt for the supplied domain.
-
-Certificate files:
+Let's Encrypt certificates are installed at:
 
 ```text
 /etc/unified-vps/xray.crt
 /etc/unified-vps/xray.key
 ```
 
-Xray receives service-local copies under `/usr/local/etc/xray/certs/`.
-
-Certificate renewal is handled by `acme.sh`.
+Xray and Hysteria use restricted service-local copies. Renewal is handled by `acme.sh`.
 
 ## Useful commands
 
 ```bash
 menu
 vps-status
+xray -test -config /usr/local/etc/xray/config.json
 systemctl status xray
 systemctl status hysteria-server
 ss -lntup
-```
-
-Test Xray:
-
-```bash
-xray -test -config /usr/local/etc/xray/config.json
 ```
 
 ## Repository layout
@@ -119,7 +114,6 @@ config/
   haproxy.cfg
 
 scripts/
-  tunnel.sh
   menu.sh
   vps-status.sh
   unified-vps-cert-reload
@@ -133,7 +127,7 @@ systemd/
 
 ## Security
 
-Keep the VPS firewall restricted to the ports you actually use. Keep the TLS private key and `/etc/unified-vps/accounts.json` private.
+Keep the VPS firewall restricted to the ports you use. Keep the TLS private key and `/etc/unified-vps/accounts.json` private.
 
 ## License
 
