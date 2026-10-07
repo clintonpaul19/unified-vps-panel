@@ -52,27 +52,32 @@ async def current_user(request: Request, db: AsyncSession = Depends(get_db)) -> 
 async def user_memberships(db: AsyncSession, user_id: UUID):
     return (await db.execute(select(Organization, Membership.role).join(Membership, Membership.organization_id == Organization.id).where(Membership.user_id == user_id).order_by(Organization.name))).all()
 
-async def current_org(request: Request, db: AsyncSession, user: User) -> Organization:
+async def current_membership(request: Request, db: AsyncSession, user: User) -> tuple[Organization, str]:
     requested = request.headers.get("X-Organization-ID")
-    memberships = await user_memberships(db, user.id)
-    if not memberships:
-        raise HTTPException(status_code=403, detail="organization membership required")
+    stmt = (
+        select(Organization, Membership.role)
+        .join(Membership, Membership.organization_id == Organization.id)
+        .where(Membership.user_id == user.id)
+    )
     if requested:
         try:
-            wanted = UUID(requested)
+            stmt = stmt.where(Organization.id == UUID(requested))
         except ValueError:
             raise HTTPException(status_code=400, detail="invalid organization id")
-        for org, _role in memberships:
-            if org.id == wanted:
-                return org
-        raise HTTPException(status_code=404, detail="organization not found")
-    if len(memberships) != 1:
+        row = (await db.execute(stmt.limit(1))).first()
+        if not row:
+            raise HTTPException(status_code=404, detail="organization not found")
+        return row[0], row[1]
+    rows = (await db.execute(stmt.limit(2))).all()
+    if not rows:
+        raise HTTPException(status_code=403, detail="organization membership required")
+    if len(rows) != 1:
         raise HTTPException(status_code=400, detail="X-Organization-ID is required for multi-organization users")
-    return memberships[0][0]
+    return rows[0][0], rows[0][1]
 
-async def write_access(db: AsyncSession, user: User, org: Organization) -> bool:
-    result = await db.execute(select(Membership.role).where(and_(Membership.organization_id == org.id, Membership.user_id == user.id)))
-    return result.scalar_one_or_none() in ROLE_WRITE
+async def current_org(request: Request, db: AsyncSession, user: User) -> Organization:
+    org, _role = await current_membership(request, db, user)
+    return org
 
 async def record_event(db: AsyncSession, org_id: UUID, actor_user_id: UUID | None, server_id: UUID | None, event_type: str, metadata: dict) -> None:
     db.add(AuditEvent(organization_id=org_id, actor_user_id=actor_user_id, server_id=server_id, event_type=event_type, metadata=metadata))
@@ -82,7 +87,7 @@ async def bootstrap(db: AsyncSession, organization_name: str) -> User:
     password = settings.bootstrap_admin_password
     if not email or not password:
         raise HTTPException(status_code=503, detail="bootstrap credentials are not configured")
-    if await db.scalar(select(func.count()).select_from(User)):
+    if await db.scalar(select(User.id).limit(1)) is not None:
         raise HTTPException(status_code=409, detail="control plane is already bootstrapped")
     slug_base = "".join(c if c.isalnum() else "-" for c in organization_name.lower()).strip("-")[:70] or "unified-vps"
     org = Organization(name=organization_name, slug=f"{slug_base}-{hashlib.sha1(email.encode()).hexdigest()[:8]}")
@@ -149,6 +154,15 @@ async def scoped_server(db: AsyncSession, user: User, server_id: UUID, request: 
         raise HTTPException(status_code=404, detail="server not found")
     return org, server
 
+async def scoped_write_server(db: AsyncSession, user: User, server_id: UUID, request: Request):
+    org, role = await current_membership(request, db, user)
+    if role not in ROLE_WRITE:
+        raise HTTPException(status_code=403, detail="write access required")
+    server = await db.get(Server, server_id)
+    if not server or server.organization_id != org.id:
+        raise HTTPException(status_code=404, detail="server not found")
+    return org, server
+
 @app.get("/v1/servers", response_model=list[ServerOut])
 async def list_servers(request: Request, user: User = Depends(current_user), db: AsyncSession = Depends(get_db)):
     org = await current_org(request, db, user)
@@ -161,8 +175,8 @@ async def get_server(server_id: UUID, request: Request, user: User = Depends(cur
 
 @app.post("/v1/servers")
 async def create_server(body: ServerCreate, request: Request, user: User = Depends(current_user), db: AsyncSession = Depends(get_db)):
-    org = await current_org(request, db, user)
-    if not await write_access(db, user, org):
+    org, role = await current_membership(request, db, user)
+    if role not in ROLE_WRITE:
         raise HTTPException(status_code=403, detail="write access required")
     server = Server(organization_id=org.id, name=body.name, hostname=body.hostname, public_ipv4=body.public_ipv4, public_ipv6=body.public_ipv6, status="provisioning")
     db.add(server)
@@ -175,7 +189,6 @@ async def create_server(body: ServerCreate, request: Request, user: User = Depen
     except IntegrityError:
         await db.rollback()
         raise HTTPException(status_code=409, detail="server name already exists in this organization")
-    await db.refresh(server)
     return {"server": ServerOut.model_validate(server), "node_token": raw}
 
 async def authenticated_agent(db: AsyncSession, server_id: UUID, authorization: str | None) -> Server:
@@ -205,9 +218,7 @@ async def heartbeat(server_id: UUID, body: HeartbeatIn, request: Request, db: As
 
 @app.post("/v1/servers/{server_id}/tokens")
 async def rotate_server_token(server_id: UUID, request: Request, user: User = Depends(current_user), db: AsyncSession = Depends(get_db)):
-    org, server = await scoped_server(db, user, server_id, request)
-    if not await write_access(db, user, org):
-        raise HTTPException(status_code=403, detail="write access required")
+    org, server = await scoped_write_server(db, user, server_id, request)
     await db.execute(update(ServerToken).where(and_(ServerToken.server_id == server.id, ServerToken.revoked_at.is_(None))).values(revoked_at=datetime.now(timezone.utc)))
     raw = new_node_token()
     db.add(ServerToken(server_id=server.id, token_hash=token_hash(raw)))
@@ -228,11 +239,10 @@ async def next_command(server_id: UUID, request: Request, db: AsyncSession = Dep
     cmd.lease_until = now + timedelta(seconds=settings.command_lease_seconds)
     cmd.attempt_count += 1
     await db.commit()
-    await db.refresh(cmd)
     return cmd
 
 @app.post("/v1/servers/{server_id}/commands/{command_id}/result", response_model=CommandOut)
-async def command_result(server_id: UUID, command_id: UUID, request: Request, result_payload: dict, db: AsyncSession = Depends(get_db)):
+async def command_result(server_id: UUID, command_id: UUID, request: Request, result_payload: CommandResult, db: AsyncSession = Depends(get_db)):
     server = await authenticated_agent(db, server_id, request.headers.get("Authorization"))
     cmd = await db.get(Command, command_id)
     if not cmd or cmd.server_id != server.id:
@@ -253,14 +263,11 @@ async def command_result(server_id: UUID, command_id: UUID, request: Request, re
     if status_value == "failed":
         cmd.error = str(result_payload.error or "command failed")[:2000]
     await db.commit()
-    await db.refresh(cmd)
     return cmd
 
 @app.post("/v1/servers/{server_id}/commands/{command_id}/cancel", response_model=CommandOut)
 async def cancel_command(server_id: UUID, command_id: UUID, request: Request, user: User = Depends(current_user), db: AsyncSession = Depends(get_db)):
-    org, server = await scoped_server(db, user, server_id, request)
-    if not await write_access(db, user, org):
-        raise HTTPException(status_code=403, detail="write access required")
+    org, server = await scoped_write_server(db, user, server_id, request)
     cmd = await db.get(Command, command_id)
     if not cmd or cmd.organization_id != org.id or cmd.server_id != server.id:
         raise HTTPException(status_code=404, detail="command not found")
@@ -271,18 +278,11 @@ async def cancel_command(server_id: UUID, command_id: UUID, request: Request, us
     cmd.lease_until = None
     await record_event(db, org.id, user.id, server.id, "command.cancelled", {"command_id": str(command_id)})
     await db.commit()
-    await db.refresh(cmd)
     return cmd
 
 @app.post("/v1/servers/{server_id}/commands", response_model=CommandOut)
 async def create_command(server_id: UUID, body: CommandCreate, request: Request, user: User = Depends(current_user), db: AsyncSession = Depends(get_db)):
-    org, server = await scoped_server(db, user, server_id, request)
-    if not await write_access(db, user, org):
-        raise HTTPException(status_code=403, detail="write access required")
-    if body.idempotency_key:
-        existing = await db.scalar(select(Command).where(and_(Command.organization_id == org.id, Command.idempotency_key == body.idempotency_key)))
-        if existing:
-            return existing
+    org, server = await scoped_write_server(db, user, server_id, request)
     cmd = Command(organization_id=org.id, server_id=server.id, command_type=body.command_type, payload=body.payload, requested_by=user.id, idempotency_key=body.idempotency_key)
     db.add(cmd)
     await record_event(db, org.id, user.id, server.id, "command.queued", {"type": body.command_type})
@@ -295,7 +295,6 @@ async def create_command(server_id: UUID, body: CommandCreate, request: Request,
             if existing:
                 return existing
         raise HTTPException(status_code=409, detail="command creation conflicted with another request")
-    await db.refresh(cmd)
     return cmd
 
 @app.get("/v1/servers/{server_id}/commands", response_model=list[CommandOut])
