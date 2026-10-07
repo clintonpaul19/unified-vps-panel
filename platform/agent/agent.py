@@ -9,6 +9,11 @@ BASE = os.environ["UVPS_CONTROL_PLANE_URL"].rstrip("/")
 SERVER_ID = os.environ["UVPS_SERVER_ID"]
 TOKEN = os.environ["UVPS_NODE_TOKEN"]
 INTERVAL = max(float(os.environ.get("UVPS_HEARTBEAT_INTERVAL", "30")), 5.0)
+AGENT_VERSION = "0.2.0"
+HOSTNAME = socket.gethostname()
+PLATFORM = platform.platform()
+PYTHON_VERSION = platform.python_version()
+HTTP_USER_AGENT = "unified-vps-agent/" + AGENT_VERSION
 
 SERVICE_ALLOWLIST = {
     "ssh", "nginx", "haproxy", "xray", "hysteria-server",
@@ -17,7 +22,7 @@ SERVICE_ALLOWLIST = {
 
 def request(path, method="GET", payload=None):
     body = None if payload is None else json.dumps(payload, separators=(",", ":")).encode()
-    req = Request(f"{BASE}{path}", data=body, method=method, headers={"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json", "User-Agent": "unified-vps-agent/0.2"})
+    req = Request(f"{BASE}{path}", data=body, method=method, headers={"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json", "User-Agent": HTTP_USER_AGENT})
     with urlopen(req, timeout=8) as response:
         raw = response.read()
         return json.loads(raw.decode()) if raw else {}
@@ -32,7 +37,7 @@ def uptime_seconds():
 def heartbeat():
     try: loadavg = list(os.getloadavg())
     except (AttributeError, OSError): loadavg = [0.0, 0.0, 0.0]
-    return request(f"/v1/servers/{SERVER_ID}/heartbeat", "POST", {"agent_version": "0.2.0", "hostname": socket.gethostname(), "status": "online", "metrics": {"os": platform.platform(), "python": platform.python_version(), "loadavg": loadavg, "uptime_seconds": uptime_seconds()}})
+    return request(f"/v1/servers/{SERVER_ID}/heartbeat", "POST", {"agent_version": AGENT_VERSION, "hostname": HOSTNAME, "status": "online", "metrics": {"os": PLATFORM, "python": PYTHON_VERSION, "loadavg": loadavg, "uptime_seconds": uptime_seconds()}})
 
 def run_service_restart(payload):
     unit = str(payload.get("service", ""))
@@ -44,7 +49,7 @@ def run_service_restart(payload):
 def run_health_report(_payload):
     try: loadavg = list(os.getloadavg())
     except (AttributeError, OSError): loadavg = [0.0, 0.0, 0.0]
-    return {"hostname": socket.gethostname(), "platform": platform.platform(), "loadavg": loadavg, "uptime_seconds": uptime_seconds()}
+    return {"hostname": HOSTNAME, "platform": PLATFORM, "loadavg": loadavg, "uptime_seconds": uptime_seconds()}
 
 COMMAND_HANDLERS = {"service.restart": run_service_restart, "health.report": run_health_report}
 
