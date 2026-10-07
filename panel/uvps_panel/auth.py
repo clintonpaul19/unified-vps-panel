@@ -8,6 +8,9 @@ import secrets
 import time
 
 from .config import ADMIN_FILE, BASE, LOGIN_FAILURES, LOGIN_LOCK, LOGIN_MAX_FAILURES, LOGIN_WINDOW, PANEL_ENV, SESSION_COOKIE, SESSION_TTL
+_REQUEST_TOKEN_FILE = f"{BASE}/request.token"
+_REQUEST_TOKEN_TTL = 600
+
 
 ADMIN = os.environ.get("ADMIN_USER", "").strip()
 PASSWORD_HASH = ""
@@ -160,6 +163,53 @@ _load_admin_credentials()
 
 def admin_configured() -> bool:
     return bool(ADMIN and PASSWORD_HASH)
+
+
+def _request_token_secret() -> bytes:
+    os.makedirs(BASE, exist_ok=True, mode=0o700)
+    os.chmod(BASE, 0o700)
+    try:
+        with open(_REQUEST_TOKEN_FILE, "rb") as f:
+            secret = f.read()
+        if 32 <= len(secret) <= 64:
+            return secret
+    except OSError:
+        pass
+    secret = secrets.token_bytes(32)
+    tmp = _REQUEST_TOKEN_FILE + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(secret)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, _REQUEST_TOKEN_FILE)
+    finally:
+        try:
+            os.unlink(tmp)
+        except FileNotFoundError:
+            pass
+    return secret
+
+
+def _request_token(scope: str) -> str:
+    issued = int(time.time())
+    payload = f"{scope}|{issued}".encode("utf-8")
+    sig = hmac.new(_request_token_secret(), payload, hashlib.sha256).hexdigest()
+    return f"{_b64(payload)}.{sig}"
+
+
+def _valid_request_token(scope: str, token: str) -> bool:
+    try:
+        payload_text, supplied_sig = token.split(".", 1)
+        payload = _unb64(payload_text)
+        token_scope, issued_text = payload.decode("utf-8").split("|", 1)
+        issued = int(issued_text)
+        if token_scope != scope or issued < 0 or time.time() - issued > _REQUEST_TOKEN_TTL:
+            return False
+        expected_sig = hmac.new(_request_token_secret(), payload, hashlib.sha256).hexdigest()
+        return hmac.compare_digest(supplied_sig, expected_sig)
+    except (TypeError, ValueError, UnicodeError):
+        return False
 
 
 def _session_cookie(username: str) -> str:
