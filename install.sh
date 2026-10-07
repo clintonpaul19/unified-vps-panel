@@ -25,6 +25,7 @@ rm -f /etc/systemd/system/unified-vps-panel.service
 rm -f /usr/local/sbin/manage-user /usr/local/bin/menu
 rm -rf /opt/unified-vps/uvps_panel /opt/unified-vps/panel.py
 rm -f "$BASE/admin.json" "$BASE/panel.db" "$BASE/panel.env"
+rm -rf /opt/unified-vps/backups /var/log/unified-vps
 for u in unified-vps-backup.service unified-vps-backup.timer unified-vps-watchdog.service unified-vps-watchdog.timer; do
   systemctl disable --now "$u" 2>/dev/null || true
   rm -f "/etc/systemd/system/$u"
@@ -33,7 +34,7 @@ rm -f /etc/systemd/system/multi-user.target.wants/unified-vps-panel.service
 rm -f /etc/systemd/system/unified-vps-sslh-xray.service
 
 # Remove the old panel port rule and keep only tunnel ports.
-iptables -D INPUT -p tcp --dport 6080 -j ACCEPT 2>/dev/null || true
+while iptables -D INPUT -p tcp --dport 6080 -j ACCEPT 2>/dev/null; do :; done
 for p in 22 80 143 443 8080 8443 8880; do
   iptables -C INPUT -p tcp --dport "$p" -j ACCEPT 2>/dev/null || iptables -A INPUT -p tcp --dport "$p" -j ACCEPT
 done
@@ -127,6 +128,16 @@ if [[ "$CERT_REUSE" -ne 1 ]]; then
 fi
 "$ACME" --install-cert -d "$DOMAIN"   --fullchain-file "$BASE/xray.crt"   --key-file "$BASE/xray.key"   --reloadcmd "/usr/local/sbin/unified-vps-cert-reload"
 /usr/local/sbin/unified-vps-cert-reload
+
+# UDP/53 belongs to Hysteria 2. Prevent systemd-resolved from owning the port.
+if systemctl is-enabled --quiet systemd-resolved 2>/dev/null || systemctl is-active --quiet systemd-resolved 2>/dev/null; then
+  systemctl disable --now systemd-resolved.service 2>/dev/null || true
+fi
+if [[ -L /etc/resolv.conf ]] || grep -q '127\.0\.0\.53' /etc/resolv.conf 2>/dev/null; then
+  rm -f /etc/resolv.conf
+  printf '%s\n' 'nameserver 1.1.1.1' 'nameserver 8.8.8.8' > /etc/resolv.conf
+  chmod 644 /etc/resolv.conf
+fi
 
 # Local HTTP fallback only.
 rm -f /etc/nginx/sites-enabled/* /etc/nginx/conf.d/* 2>/dev/null || true
