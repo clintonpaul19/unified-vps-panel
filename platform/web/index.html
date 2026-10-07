@@ -31,7 +31,6 @@ async function load(){
   if(!orgs.length)throw new Error('No organization membership');
   if(!orgs.some(o=>o.id===activeOrgId))activeOrgId=orgs[0].id;
   const orgSelect=$('orgSelect'); orgSelect.innerHTML=orgs.map(o=>'<option value="'+esc(o.id)+'">'+esc(o.name)+'</option>').join(''); orgSelect.value=activeOrgId; orgSelect.style.display=orgs.length>1?'block':'none';
-  const generation=loadGeneration;
   const [servers,events]=await Promise.all([api('/v1/servers'),api('/v1/events')]);
   if(generation!==loadGeneration)return;
   $('serverCount').textContent=servers.length;$('onlineCount').textContent=servers.filter(s=>s.status==='online').length;
