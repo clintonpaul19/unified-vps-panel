@@ -94,3 +94,10 @@ def body(r):
     except json.JSONDecodeError: raise ValueError('invalid JSON')
     if not isinstance(value,dict): raise ValueError('request body must be a JSON object')
     return value
+
+def redirect(r,location,status=303,headers=None):
+    extra={'Location':location}
+    if headers:
+        extra.update(headers)
+    body_html=f'<!doctype html><meta charset="utf-8"><title>Redirecting</title><p><a href="{location}">Continue</a></p><script>location.replace({json.dumps(location)});</script>'
+    return send_html(r,body_html,status=status,headers=extra)
