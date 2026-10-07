@@ -11,6 +11,11 @@ export class ApiError extends Error {
 
 let unauthorizedHandler = () => {};
 
+function csrfToken() {
+  const match = document.cookie.match(/(?:^|; )uvps_csrf=([^;]*)/);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
 export function setUnauthorizedHandler(handler) {
   unauthorizedHandler = typeof handler === "function" ? handler : () => {};
 }
@@ -47,6 +52,10 @@ export async function request(path, options = {}) {
   }
 
   const requestHeaders = { Accept: "application/json", ...headers };
+  const csrf = csrfToken();
+  if (!["GET", "HEAD", "OPTIONS", "TRACE"].includes(method.toUpperCase()) && csrf && !requestHeaders["X-CSRF-Token"]) {
+    requestHeaders["X-CSRF-Token"] = csrf;
+  }
   const init = { method, headers: requestHeaders, signal: controller.signal };
 
   if (body !== undefined) {
