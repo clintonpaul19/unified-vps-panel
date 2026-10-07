@@ -28,7 +28,7 @@ Users with one organization may omit organization context. Multi-organization us
 ## Agent
 `POST /v1/servers/{server_id}/heartbeat`
 `GET /v1/servers/{server_id}/commands/next`
-`POST /v1/servers/{server_id}/commands/{command_id}/result`
+`POST /v1/servers/{server_id}/commands/{command_id}/result` — agent result must include the current lease_token
 
 ## Commands
 `POST /v1/servers/{server_id}/commands`
@@ -37,7 +37,7 @@ Users with one organization may omit organization context. Multi-organization us
 
 Commands are typed data. The API never accepts an arbitrary executable shell string.
 
-Command creation supports an idempotency key. Agent delivery uses a lease and bounded attempts so crashed nodes do not permanently strand work.
+Command creation supports an idempotency key. Agent delivery uses a bounded lease, a per-delivery lease token, and bounded attempts so crashed or stale nodes cannot permanently strand or later mutate reclaimed work.
 
 ## Audit
 `GET /v1/events`
