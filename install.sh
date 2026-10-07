@@ -516,6 +516,9 @@ systemctl enable --now fail2ban.service unified-vps-watchdog.timer unified-vps-b
 # stale/failed job while creating the enablement links.
 systemctl enable ssh nginx haproxy unified-vps-panel xray hysteria-server || true
 systemctl start ssh nginx
+# Stop any previous panel instance before the preflight so port 6080 belongs
+# exclusively to the files being installed.
+systemctl stop unified-vps-panel 2>/dev/null || true
 
 # First prove that the exact panel files can initialize and serve HTTP before
 # handing them to systemd. This catches import/runtime errors without hiding
