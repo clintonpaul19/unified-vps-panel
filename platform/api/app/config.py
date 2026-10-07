@@ -32,6 +32,10 @@ class Settings(BaseSettings):
         env = self.environment.lower().strip()
         if env == "production" and not self.session_secret:
             raise ValueError("SESSION_SECRET must be configured in production")
+        if env == "production" and not self.bootstrap_token:
+            raise ValueError("BOOTSTRAP_TOKEN must be configured in production")
+        if env == "production" and not self.cookie_secure:
+            raise ValueError("COOKIE_SECURE must be true in production")
         if self.database_pool_size < 1 or self.database_max_overflow < 0 or self.database_pool_timeout_seconds <= 0:
             raise ValueError("database pool settings are invalid")
         if self.session_ttl_seconds < 300:
