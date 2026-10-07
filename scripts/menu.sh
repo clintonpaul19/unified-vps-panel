@@ -133,7 +133,7 @@ lines=["listen: 0.0.0.0:53","tls:",f"  cert: {cert}",f"  key: {key}","auth:","  
 if users:
     for u,p in users.items(): lines.append(f"    {json.dumps(u)}: {json.dumps(p)}")
 else:
-    lines.append("    disabled: disabled")
+    lines.append("    disabled: " + __import__("secrets").token_urlsafe(24))
 lines.append("speedTest: true")
 fd,tmp=tempfile.mkstemp(dir=os.path.dirname(path),prefix=".hy2.")
 with os.fdopen(fd,"w") as f: f.write("\n".join(lines)+"\n")
