@@ -281,3 +281,25 @@ The current panel and CLI include:
 - Direct SSH brute-force protection through Fail2Ban on TCP 22; proxied WebSocket SSH transports are handled separately by HAProxy/wstunnel/payload routing.
 - Security dashboard covering SSH authentication, firewall rules, bans and certificate state.
 - Logs and maintenance reports.
+
+
+## Scalable control-plane MVP
+
+The repository now also contains a separate `platform/` control plane designed for multi-tenant operation. The production architecture is documented in `docs/ARCHITECTURE.md` and the HTTP contract in `docs/API.md`.
+
+The first vertical slice includes:
+
+- FastAPI + PostgreSQL control plane
+- organization, user, membership, server, command and audit models
+- Argon2id password hashing and signed HTTP-only sessions
+- one-time node token issuance and hashed token storage
+- outbound node heartbeat and typed command polling
+- minimal browser dashboard for authentication and server registration
+- Docker Compose for local control-plane development
+
+The scalable boundary is intentional: the web/API layer stays stateless, PostgreSQL remains the source of truth, workers/Redis can be introduced for high-volume asynchronous delivery, and VPS nodes connect outbound through a narrow agent protocol. The existing `panel/` application remains the node-local management surface rather than becoming a global multi-tenant database.
+
+See:
+- `docs/ARCHITECTURE.md`
+- `docs/API.md`
+- `platform/README.md`
