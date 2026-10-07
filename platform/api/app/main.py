@@ -239,7 +239,7 @@ async def bootstrap_route(
     db: AsyncSession = Depends(get_db),
     x_bootstrap_token: str | None = Header(default=None, alias="X-Bootstrap-Token"),
 ) -> dict:
-    if settings.bootstrap_token and not (
+    if not settings.bootstrap_token or not (
         x_bootstrap_token and hmac.compare_digest(x_bootstrap_token, settings.bootstrap_token)
     ):
         raise HTTPException(status_code=403, detail="bootstrap token required")
