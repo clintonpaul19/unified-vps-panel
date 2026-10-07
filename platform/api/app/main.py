@@ -635,6 +635,8 @@ async def command_result(
         return cmd
 
     now = datetime.now(timezone.utc)
+    if not cmd.lease_until or cmd.lease_until < now:
+        raise HTTPException(status_code=409, detail="command lease has expired")
     if status_value == "running":
         cmd.started_at = cmd.started_at or now
         cmd.lease_until = now + timedelta(seconds=settings.command_lease_seconds)
