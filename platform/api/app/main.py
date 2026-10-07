@@ -7,6 +7,7 @@ from uuid import UUID
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import FileResponse
+from starlette.middleware.gzip import GZipMiddleware
 from sqlalchemy import and_, desc, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,6 +30,7 @@ async def lifespan(_: FastAPI):
     await engine.dispose()
 
 app = FastAPI(title=settings.app_name, version="0.3.0", docs_url="/docs", redoc_url="/redoc", lifespan=lifespan)
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=5)
 
 async def get_db():
     async with SessionLocal() as db:
