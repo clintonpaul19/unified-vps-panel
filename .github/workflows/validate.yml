@@ -13,10 +13,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate Python files
         run: |
-          python3 -m py_compile panel/app.py scripts/ws-payload-ssh.py
+          python3 -m py_compile panel/app.py scripts/ws-payload-ssh.py platform/api/app/*.py platform/agent/agent.py
           python3 - <<'PY'
           import ast
-          for p in ('panel/app.py','scripts/ws-payload-ssh.py'):
+          for p in ('panel/app.py','scripts/ws-payload-ssh.py',*__import__('pathlib').Path('platform/api/app').glob('*.py'), 'platform/agent/agent.py'):
               ast.parse(open(p, encoding='utf-8').read(), filename=p)
           PY
       - name: Validate configuration files
@@ -65,6 +65,9 @@ jobs:
           assert "manage-user" in install
           assert "manage-user" in menu
           assert "ADMIN_PASSWORD=spiderman" not in install
+          for p in __import__('pathlib').Path('platform').rglob('*'):
+              if p.is_file() and b'\x00' in p.read_bytes():
+                  raise SystemExit(f"NUL byte found in {p}")
           assert "ADMIN_USER=spiderman" not in install
           print("Critical runtime invariants passed")
           PY
