@@ -6,6 +6,8 @@ from .config import BASE,DB
 
 DB_INIT_LOCK=threading.Lock()
 DB_INITIALIZED=False
+EVENT_PRUNE_LOCK=threading.Lock()
+EVENT_PRUNE_COUNTER=0
 
 def init_db():
     global DB_INITIALIZED
