@@ -38,6 +38,7 @@ def send(r,obj,status=200,headers=None):
     r.send_header('Content-Type','application/json')
     r.send_header('Cache-Control','no-store')
     r.send_header('X-Content-Type-Options','nosniff')
+    r.send_header('X-UVPS-Build',PANEL_BUILD)
     if headers:
         for k,v in headers.items(): r.send_header(k,v)
     r.send_header('Content-Length',str(len(b)))
