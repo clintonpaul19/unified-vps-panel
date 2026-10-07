@@ -831,7 +831,7 @@ async def events(
             "id": row.id,
             "event_type": row.event_type,
             "server_id": str(row.server_id) if row.server_id else None,
-            "metadata": row.metadata,
+            "metadata": row.event_metadata,
             "created_at": row.created_at,
         }
         for row in rows[:limit]
