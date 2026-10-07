@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import base64,hashlib,hmac,html,json,math,os,secrets,sqlite3,subprocess,time,re,threading,uuid,zlib
+import base64,hashlib,hmac,html,json,math,os,secrets,sqlite3,subprocess,time,re,threading,uuid,zlib,tarfile,pwd
 from urllib.request import Request,urlopen
 from urllib.parse import quote,urlsplit
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
@@ -23,6 +23,10 @@ LOGIN_WINDOW=600
 LOGIN_MAX_FAILURES=8
 HY2_STATS_SECRET=os.environ.get('HY2_STATS_SECRET','')
 PUBLIC_IP_CACHE=None
+PUBLIC_IP_CACHE_AT=0.0
+DB_INIT_LOCK=threading.Lock()
+DB_INITIALIZED=False
+SPEEDTEST_LOCK=threading.Lock()
 XRAY_TAGS={'VLESS':['vless443'],'VMess':['vmess443'],'Trojan':['trojan443']}
 SSH_PORTS=[80,443,143,8080,8443,8880]
 MAX_REQUEST_BODY=64*1024
@@ -70,35 +74,61 @@ if hashlib.sha256(f'{ADMIN}:{PASSWORD}'.encode()).hexdigest() == '89b4cdab4d0d83
         os.replace(tmp_env,PANEL_ENV)
     except OSError:
         pass
+def init_db():
+    global DB_INITIALIZED
+    if DB_INITIALIZED:
+        return
+    with DB_INIT_LOCK:
+        if DB_INITIALIZED:
+            return
+        os.makedirs(BASE, exist_ok=True)
+        c=sqlite3.connect(DB, timeout=5)
+        try:
+            c.execute('pragma journal_mode=WAL')
+            c.execute('pragma synchronous=NORMAL')
+            c.execute('pragma busy_timeout=5000')
+            c.execute('pragma foreign_keys=ON')
+            c.execute('''create table if not exists users(
+                id integer primary key, username text unique, protocol text, secret text,
+                quota_bytes integer default 0, used_bytes integer default 0,
+                expiry integer default 0, enabled integer default 1, created_at integer, raw_bytes integer default 0,
+                daily_used_bytes integer default 0, usage_day text default '')''')
+            for stmt in (
+                'alter table users add column raw_bytes integer default 0',
+                'alter table users add column daily_used_bytes integer default 0',
+                "alter table users add column usage_day text default ''",
+            ):
+                try: c.execute(stmt)
+                except sqlite3.OperationalError: pass
+            c.execute('''create table if not exists server_usage(
+                id integer primary key check(id=1),
+                raw_rx integer default 0, raw_tx integer default 0,
+                all_time_bytes integer default 0, daily_bytes integer default 0,
+                usage_day text default ''
+            )''')
+            c.execute('''create table if not exists events(
+                id integer primary key, created_at integer, action text, username text default '', details text default ''
+            )''')
+            c.execute('''create table if not exists usage_daily(
+                day text primary key, bytes integer default 0
+            )''')
+            c.execute('create index if not exists idx_users_protocol on users(protocol)')
+            c.execute('create index if not exists idx_users_expiry on users(expiry)')
+            c.execute('create index if not exists idx_events_created on events(created_at desc)')
+            c.execute('insert or ignore into server_usage(id,raw_rx,raw_tx,all_time_bytes,daily_bytes,usage_day) values(1,0,0,0,0,?)',
+                      (time.strftime('%Y-%m-%d'),))
+            c.commit()
+            DB_INITIALIZED=True
+        finally:
+            c.close()
+
 def conn():
-    c=sqlite3.connect(DB); c.row_factory=sqlite3.Row
-    c.execute('''create table if not exists users(
-        id integer primary key, username text unique, protocol text, secret text,
-        quota_bytes integer default 0, used_bytes integer default 0,
-        expiry integer default 0, enabled integer default 1, created_at integer, raw_bytes integer default 0,
-        daily_used_bytes integer default 0, usage_day text default '')''')
-    for stmt in (
-        'alter table users add column raw_bytes integer default 0',
-        'alter table users add column daily_used_bytes integer default 0',
-        "alter table users add column usage_day text default ''",
-    ):
-        try: c.execute(stmt)
-        except sqlite3.OperationalError: pass
-    c.execute('''create table if not exists server_usage(
-        id integer primary key check(id=1),
-        raw_rx integer default 0, raw_tx integer default 0,
-        all_time_bytes integer default 0, daily_bytes integer default 0,
-        usage_day text default ''
-    )''')
-    c.execute('''create table if not exists events(
-        id integer primary key, created_at integer, action text, username text default '', details text default ''
-    )''')
-    c.execute('''create table if not exists usage_daily(
-        day text primary key, bytes integer default 0
-    )''')
-    c.execute('insert or ignore into server_usage(id,raw_rx,raw_tx,all_time_bytes,daily_bytes,usage_day) values(1,0,0,0,0,?)',
-              (time.strftime('%Y-%m-%d'),))
-    c.commit(); return c
+    init_db()
+    c=sqlite3.connect(DB, timeout=5)
+    c.row_factory=sqlite3.Row
+    c.execute('pragma busy_timeout=5000')
+    c.execute('pragma foreign_keys=ON')
+    return c
 
 def admin_configured():
     return bool(ADMIN and PASSWORD)
@@ -256,8 +286,9 @@ def public_host():
     return DOMAIN or public_ip()
 
 def public_ip():
-    global PUBLIC_IP_CACHE
-    if PUBLIC_IP_CACHE: return PUBLIC_IP_CACHE
+    global PUBLIC_IP_CACHE,PUBLIC_IP_CACHE_AT
+    if PUBLIC_IP_CACHE and time.time()-PUBLIC_IP_CACHE_AT < 300:
+        return PUBLIC_IP_CACHE
     try:
         value=subprocess.check_output(['curl','-4fsS','--max-time','3','https://api.ipify.org'],text=True).strip()
         if re.fullmatch(r'\d{1,3}(?:\.\d{1,3}){3}',value):
@@ -433,12 +464,16 @@ def _hysteria_usage():
 
 def _primary_interface():
     try:
-        return subprocess.check_output(
-            "ip route show default 2>/dev/null | awk 'NR==1 {print $5}'",
-            shell=True, text=True, timeout=3
-        ).strip()
+        p=subprocess.run(['ip','route','show','default'],capture_output=True,text=True,timeout=3,check=False)
+        for line in p.stdout.splitlines():
+            parts=line.split()
+            if 'dev' in parts:
+                i=parts.index('dev')
+                if i+1 < len(parts):
+                    return parts[i+1]
     except Exception:
-        return ''
+        pass
+    return ''
 
 def _server_bytes():
     iface=_primary_interface()
@@ -510,7 +545,7 @@ def _system_metrics():
         'memory':{'total':total,'used':used,'available':available},
         'disk':{'total':du.total,'used':du.used,'free':du.free},
         'network':net,
-        'uptime_seconds':int(time.time()-__import__('psutil').boot_time()) if __import__('importlib').util.find_spec('psutil') else 0
+        'uptime_seconds':int(float(open('/proc/uptime').read().split()[0])) if os.path.exists('/proc/uptime') else 0
     }
 
 def _active_sessions():
@@ -528,8 +563,14 @@ def _active_sessions():
                 proc=m.group(1); pid=int(m.group(2))
             user=''
             if pid:
-                try: user=subprocess.check_output(['ps','-o','user=','-p',str(pid)],text=True).strip()
-                except Exception: pass
+                try:
+                    with open(f'/proc/{pid}/status',encoding='utf-8') as fh:
+                        uid_line=next((x for x in fh if x.startswith('Uid:')), '')
+                    uid=int(uid_line.split()[1]) if uid_line else -1
+                    if uid >= 0:
+                        user=pwd.getpwuid(uid).pw_name
+                except Exception:
+                    pass
             out.append({'local':local,'remote':peer,'process':proc,'pid':pid,'user':user,'transport':'tcp'})
             if len(out)>=100: break
     except Exception:
@@ -565,7 +606,7 @@ def _certificate_info():
 def _security_info():
     failed=0
     try:
-        text=subprocess.check_output(['journalctl','-u','ssh','--since','24 hours ago','--no-pager'],text=True,stderr=subprocess.DEVNULL)
+        text=subprocess.check_output(['journalctl','-u','ssh','--since','24 hours ago','-n','5000','--no-pager'],text=True,stderr=subprocess.DEVNULL)
         failed=sum(1 for x in text.splitlines() if 'Failed password' in x or 'Invalid user' in x)
     except Exception: pass
     banned=0; f2b='inactive'
@@ -763,10 +804,80 @@ def create_user(d):
     finally: c.close()
 
 def service_state(name):
+    return service_states([name]).get(name,'unknown')
+
+def apply_user_action(uid, action, days=0, event_name=None):
+    c=conn()
+    row=c.execute('select * from users where id=?',(int(uid),)).fetchone()
+    if not row:
+        c.close()
+        raise KeyError('not found')
     try:
-        return subprocess.check_output(['systemctl','is-active',name],stderr=subprocess.DEVNULL,text=True).strip()
+        now=int(time.time())
+        action=str(action).lower()
+        if action=='delete':
+            if row['protocol']=='SSH': del_ssh(row['username'])
+            elif row['protocol']=='Hysteria': kick_hysteria(row['username'])
+            else: del_xray(row['protocol'],row['username'])
+            c.execute('delete from users where id=?',(row['id'],))
+            c.commit()
+        elif action in ('enable','disable'):
+            enable=action=='enable'
+            if enable and row['expiry'] and row['expiry']<=now:
+                raise ValueError('account is expired; renew it before enabling')
+            if row['protocol'] in XRAY_TAGS:
+                if enable: ensure_xray_client(row['protocol'],row['username'],row['secret'])
+                else: del_xray(row['protocol'],row['username'])
+            elif row['protocol']=='Hysteria':
+                if not enable: kick_hysteria(row['username'])
+            elif row['protocol']=='SSH':
+                set_ssh_enabled(row['username'],enable,row['expiry'])
+            c.execute('update users set enabled=? where id=?',(1 if enable else 0,row['id']))
+            c.commit()
+        elif action=='renew':
+            days=int(days)
+            if days <= 0 or days > 36500:
+                raise ValueError('renewal duration must be between 1 and 36500 days')
+            exp=now+days*86400
+            baseline=int(row['raw_bytes'] or 0)
+            if row['protocol'] in XRAY_TAGS:
+                stats=_xray_usage()
+                if isinstance(stats,dict): baseline=int(stats.get(row['username'],baseline))
+                ensure_xray_client(row['protocol'],row['username'],row['secret'])
+            elif row['protocol']=='Hysteria':
+                stats=_hysteria_usage()
+                if isinstance(stats,dict): baseline=int(stats.get(row['username'],baseline))
+            elif row['protocol']=='SSH':
+                set_ssh_enabled(row['username'],True,exp)
+            c.execute('update users set expiry=?,enabled=1,used_bytes=0,raw_bytes=?,daily_used_bytes=0,usage_day=? where id=?',
+                      (exp,baseline,time.strftime('%Y-%m-%d'),row['id']))
+            c.commit()
+        else:
+            raise ValueError('unsupported action')
     except Exception:
-        return 'unknown'
+        c.rollback()
+        raise
+    finally:
+        c.close()
+    log_event(event_name or ('account_deleted' if action=='delete' else 'account_'+action), row['protocol'], row['username'])
+    return row
+
+def service_states(names):
+    names=list(names)
+    if not names:
+        return {}
+    try:
+        p=subprocess.run(['systemctl','is-active',*names],capture_output=True,text=True,timeout=5,check=False)
+        values=p.stdout.splitlines()
+        if len(values)==len(names):
+            return dict(zip(names,values))
+    except Exception:
+        pass
+    out={}
+    for name in names:
+        try: out[name]=subprocess.check_output(['systemctl','is-active',name],stderr=subprocess.DEVNULL,text=True,timeout=3).strip()
+        except Exception: out[name]='unknown'
+    return out
 
 class H(BaseHTTPRequestHandler):
     def setup(self):
@@ -776,7 +887,8 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         self.path=urlsplit(self.path).path
         if self.path=='/health':
-            services={name:service_state(name) for name in ('ssh','nginx','haproxy','xray','hysteria-server','unified-vps-wstunnel-ssh','unified-vps-ws-payload-ssh','unified-vps-panel')}
+            service_names=('ssh','nginx','haproxy','xray','hysteria-server','unified-vps-wstunnel-ssh','unified-vps-ws-payload-ssh','unified-vps-panel')
+            services=service_states(service_names)
             tcp={}
             for port in (22,80,143,443,8080,8443,8880,6080):
                 try:
@@ -864,6 +976,8 @@ class H(BaseHTTPRequestHandler):
             return send(self,{'backups':files})
 
         if self.path=='/api/speedtest':
+            if not SPEEDTEST_LOCK.acquire(blocking=False):
+                return send(self,{'ok':False,'output':'Speedtest already running'},409)
             try:
                 env=os.environ.copy()
                 env.update({'HOME':'/root','USER':'root','LOGNAME':'root','LANG':'C.UTF-8','LC_ALL':'C.UTF-8','PATH':'/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'})
@@ -873,6 +987,8 @@ class H(BaseHTTPRequestHandler):
                     output=f'Speedtest exited with code {p.returncode}'
                 return send(self,{'ok':p.returncode==0,'output':output},200 if p.returncode==0 else 500)
             except Exception as e: return send(self,{'ok':False,'output':str(e)},500)
+            finally:
+                SPEEDTEST_LOCK.release()
         if self.path=='/':
             c=conn(); rows=[record(x) for x in c.execute('select * from users order by id desc')]; c.close()
             counts={p:sum(1 for x in rows if x['protocol']==p) for p in ('SSH','VLESS','VMess','Trojan','Hysteria')}
@@ -884,13 +1000,14 @@ class H(BaseHTTPRequestHandler):
             server_daily=int(srv_row['daily_bytes'] if srv_row else 0)
             server_all=int(srv_row['all_time_bytes'] if srv_row else 0)
             usage_conn.close()
+            svc=service_states(('ssh','nginx','haproxy','xray','hysteria-server','unified-vps-panel'))
             services={
-                'SSH':service_state('ssh'),
-                'NGINX':service_state('nginx'),
-                'HAProxy':service_state('haproxy'),
-                'Xray':service_state('xray'),
-                'Hysteria 2':service_state('hysteria-server'),
-                'Panel':service_state('unified-vps-panel')
+                'SSH':svc.get('ssh','unknown'),
+                'NGINX':svc.get('nginx','unknown'),
+                'HAProxy':svc.get('haproxy','unknown'),
+                'Xray':svc.get('xray','unknown'),
+                'Hysteria 2':svc.get('hysteria-server','unknown'),
+                'Panel':svc.get('unified-vps-panel','unknown')
             }
             reboot='04:00 local' if os.path.exists('/etc/cron.d/unified-vps-daily-reboot') else 'Not configured'
 
@@ -1432,6 +1549,11 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
                     if test.returncode:
                         return send(self,{'error':'latest backup is invalid'},500)
                     try:
+                        with tarfile.open(latest,'r:gz') as tf:
+                            for member in tf.getmembers():
+                                name=os.path.normpath(member.name)
+                                if name.startswith('/') or name == '..' or name.startswith('../'):
+                                    return send(self,{'error':'backup contains an unsafe path'},400)
                         p=subprocess.run(['tar','-xzf',latest,'-C','/'],capture_output=True,text=True,timeout=120)
                         if p.returncode:
                             return send(self,{'error':(p.stderr or p.stdout).strip() or 'restore failed'},500)
@@ -1480,117 +1602,55 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
             try: return send(self,create_user(d))
             except Exception as e: return send(self,{'error':str(e)},500)
         if self.path=='/api/users/bulk':
-            ids=[int(x) for x in d.get('ids',[]) if str(x).isdigit()]
+            ids=[int(x) for x in d.get('ids',[]) if str(x).isdigit()][:5000]
             action=str(d.get('action','')).lower()
             if not ids or action not in ('enable','disable','delete','renew'):
                 return send(self,{'error':'invalid bulk request'},400)
-            if action=='renew' and int(d.get('days',0) or 0)<=0:
+            days=int(d.get('days',0) or 0)
+            if action=='renew' and days<=0:
                 return send(self,{'error':'renewal days required'},400)
             results=[]
             for uid in ids:
                 try:
-                    c=conn(); row=c.execute('select * from users where id=?',(uid,)).fetchone(); c.close()
-                    if not row: results.append({'id':uid,'ok':False,'error':'not found'}); continue
-                    if action=='delete':
-                        if row['protocol']=='SSH': del_ssh(row['username'])
-                        elif row['protocol']=='Hysteria': kick_hysteria(row['username'])
-                        else: del_xray(row['protocol'],row['username'])
-                        c=conn(); c.execute('delete from users where id=?',(uid,)); c.commit(); c.close()
-                    elif action in ('enable','disable'):
-                        enable=action=='enable'
-                        if enable and row['expiry'] and row['expiry']<=int(time.time()):
-                            raise ValueError('account is expired; renew it before enabling')
-                        if row['protocol'] in XRAY_TAGS:
-                            if enable:
-                                ensure_xray_client(row['protocol'],row['username'],row['secret'])
-                            else:
-                                del_xray(row['protocol'],row['username'])
-                        elif row['protocol']=='Hysteria' and not enable: kick_hysteria(row['username'])
-                        elif row['protocol']=='SSH': set_ssh_enabled(row['username'],enable,row['expiry'])
-                        c=conn(); c.execute('update users set enabled=? where id=?',(1 if enable else 0,uid)); c.commit(); c.close()
-                    else:
-                        days=int(d.get('days',0))
-                        if days <= 0 or days > 36500: raise ValueError('renewal duration must be between 1 and 36500 days')
-                        exp=int(time.time())+days*86400
-                        baseline=int(row['raw_bytes'] or 0)
-                        if row['protocol'] in XRAY_TAGS:
-                            stats=_xray_usage()
-                            if isinstance(stats,dict): baseline=int(stats.get(row['username'],baseline))
-                            ensure_xray_client(row['protocol'],row['username'],row['secret'])
-                        elif row['protocol']=='Hysteria':
-                            stats=_hysteria_usage()
-                            if isinstance(stats,dict): baseline=int(stats.get(row['username'],baseline))
-                        elif row['protocol']=='SSH':
-                            set_ssh_enabled(row['username'],True,exp)
-                        c=conn(); c.execute('update users set expiry=?,enabled=1,used_bytes=0,raw_bytes=?,daily_used_bytes=0,usage_day=? where id=?',(exp,baseline,time.strftime('%Y-%m-%d'),uid)); c.commit(); c.close()
-                    log_event('bulk_'+action,row['protocol'],row['username'])
+                    apply_user_action(uid,action,days,event_name='bulk_'+action)
                     results.append({'id':uid,'ok':True})
+                except KeyError:
+                    results.append({'id':uid,'ok':False,'error':'not found'})
                 except Exception as e:
                     results.append({'id':uid,'ok':False,'error':str(e)})
             return send(self,{'ok':all(x['ok'] for x in results),'results':results})
 
         if self.path=='/api/users/action':
-            c=conn(); row=c.execute('select * from users where id=?',(int(d.get('id',0)),)).fetchone()
-            if not row: c.close(); return send(self,{'error':'not found'},404)
+            uid=d.get('id',0)
+            try: uid=int(uid)
+            except (TypeError,ValueError): return send(self,{'error':'invalid id'},400)
             action=str(d.get('action','')).lower()
-            try:
-                if action=='renew':
-                    days=int(d.get('days',0) or 0)
-                    if days <= 0 or days > 36500: raise ValueError('renewal duration must be between 1 and 36500 days')
-                    exp=int(time.time())+days*86400
-                    baseline=int(row['raw_bytes'] or 0)
-                    if row['protocol'] in XRAY_TAGS:
-                        stats=_xray_usage()
-                        if isinstance(stats,dict): baseline=int(stats.get(row['username'],baseline))
-                        ensure_xray_client(row['protocol'],row['username'],row['secret'])
-                    elif row['protocol']=='Hysteria':
-                        stats=_hysteria_usage()
-                        if isinstance(stats,dict): baseline=int(stats.get(row['username'],baseline))
-                    elif row['protocol']=='SSH':
-                        set_ssh_enabled(row['username'],True,exp)
-                    c.execute('update users set expiry=?,enabled=1,used_bytes=0,raw_bytes=?,daily_used_bytes=0,usage_day=? where id=?',(exp,baseline,time.strftime('%Y-%m-%d'),row['id']))
-                    c.commit()
-                    log_event('account_renewed',f'{days} days',row['username'])
-                    return send(self,{'ok':True,'action':'renew','id':row['id']})
-                if action in ('enable','disable'):
-                    enable=action=='enable'
-                    if enable and row['expiry'] and row['expiry']<=int(time.time()):
-                        raise ValueError('account is expired; renew it before enabling')
-                    if enable:
-                        if row['protocol'] in XRAY_TAGS: ensure_xray_client(row['protocol'],row['username'],row['secret'])
-                        elif row['protocol']=='SSH':
-                            set_ssh_enabled(row['username'],True,row['expiry'])
-                    else:
-                        if row['protocol'] in XRAY_TAGS:
-                            del_xray(row['protocol'],row['username'])
-                        elif row['protocol']=='Hysteria':
-                            kick_hysteria(row['username'])
-                        elif row['protocol']=='SSH':
-                            set_ssh_enabled(row['username'],False)
-                    c.execute('update users set enabled=? where id=?',(1 if enable else 0,row['id']))
-                    c.commit()
-                    log_event('account_'+action,row['protocol'],row['username'])
-                    return send(self,{'ok':True,'action':action,'id':row['id']})
+            if action not in ('enable','disable','renew'):
                 return send(self,{'error':'unsupported action'},400)
+            try:
+                days=int(d.get('days',0) or 0)
+                apply_user_action(uid,action,days)
+                return send(self,{'ok':True,'action':action,'id':uid})
+            except KeyError:
+                return send(self,{'error':'not found'},404)
             except Exception as e:
-                c.rollback(); return send(self,{'error':str(e)},500)
-            finally: c.close()
+                return send(self,{'error':str(e)},500)
 
         if self.path=='/api/users/delete':
-            c=conn(); row=c.execute('select * from users where id=?',(int(d.get('id',0)),)).fetchone()
-            if not row: c.close(); return send(self,{'error':'not found'},404)
             try:
-                if row['protocol']=='SSH': del_ssh(row['username'])
-                elif row['protocol']=='Hysteria': kick_hysteria(row['username'])
-                else: del_xray(row['protocol'],row['username'])
-                c.execute('delete from users where id=?',(row['id'],)); c.commit()
-                log_event('account_deleted',row['protocol'],row['username'])
+                uid=int(d.get('id',0))
+            except (TypeError,ValueError):
+                return send(self,{'error':'invalid id'},400)
+            try:
+                apply_user_action(uid,'delete')
                 return send(self,{'ok':True})
-            except Exception as e: c.rollback(); return send(self,{'error':str(e)},500)
-            finally: c.close()
+            except KeyError:
+                return send(self,{'error':'not found'},404)
+            except Exception as e:
+                return send(self,{'error':str(e)},500)
         return send(self,{'error':'not found'},404)
 
 if __name__=='__main__':
-    conn().close()
+    init_db()
     threading.Thread(target=sync_usage,daemon=True).start()
     ThreadingHTTPServer((os.environ.get('PANEL_BIND','0.0.0.0'),PORT),H).serve_forever()
