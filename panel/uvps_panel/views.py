@@ -23,97 +23,97 @@ def login_page(r):
     return send_html(r,page,headers={'Set-Cookie':f'uvps_login_nonce={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=600','Pragma':'no-cache'})
 
 def dashboard_page():
-        c=conn(); rows=[record(x) for x in c.execute('select * from users order by id desc')]; c.close()
-        counts={p:sum(1 for x in rows if x['protocol']==p) for p in ('SSH','VLESS','VMess','Trojan','Hysteria')}
-        active=sum(1 for x in rows if x['enabled'])
-        total_used=sum(int(x['used_bytes'] or 0) for x in rows)
-        total_daily=sum(int(x['daily_used_bytes'] or 0) for x in rows)
-        usage_conn=conn()
-        srv_row=usage_conn.execute('select * from server_usage where id=1').fetchone()
-        server_daily=int(srv_row['daily_bytes'] if srv_row else 0)
-        server_all=int(srv_row['all_time_bytes'] if srv_row else 0)
-        usage_conn.close()
-        svc=service_states(('ssh','nginx','haproxy','xray','hysteria-server','unified-vps-panel'))
-        services={
-            'SSH':svc.get('ssh','unknown'),
-            'NGINX':svc.get('nginx','unknown'),
-            'HAProxy':svc.get('haproxy','unknown'),
-            'Xray':svc.get('xray','unknown'),
-            'Hysteria 2':svc.get('hysteria-server','unknown'),
-            'Panel':svc.get('unified-vps-panel','unknown')
-        }
-        reboot='04:00 local' if os.path.exists('/etc/cron.d/unified-vps-daily-reboot') else 'Not configured'
+    c=conn(); rows=[record(x) for x in c.execute('select * from users order by id desc')]; c.close()
+    counts={p:sum(1 for x in rows if x['protocol']==p) for p in ('SSH','VLESS','VMess','Trojan','Hysteria')}
+    active=sum(1 for x in rows if x['enabled'])
+    total_used=sum(int(x['used_bytes'] or 0) for x in rows)
+    total_daily=sum(int(x['daily_used_bytes'] or 0) for x in rows)
+    usage_conn=conn()
+    srv_row=usage_conn.execute('select * from server_usage where id=1').fetchone()
+    server_daily=int(srv_row['daily_bytes'] if srv_row else 0)
+    server_all=int(srv_row['all_time_bytes'] if srv_row else 0)
+    usage_conn.close()
+    svc=service_states(('ssh','nginx','haproxy','xray','hysteria-server','unified-vps-panel'))
+    services={
+        'SSH':svc.get('ssh','unknown'),
+        'NGINX':svc.get('nginx','unknown'),
+        'HAProxy':svc.get('haproxy','unknown'),
+        'Xray':svc.get('xray','unknown'),
+        'Hysteria 2':svc.get('hysteria-server','unknown'),
+        'Panel':svc.get('unified-vps-panel','unknown')
+    }
+    reboot='04:00 local' if os.path.exists('/etc/cron.d/unified-vps-daily-reboot') else 'Not configured'
 
-        def state_badge(state):
-            cls='up' if state=='active' else 'down'
-            return f'<span class="status {cls}"><span class="dot"></span>{html.escape(state.upper())}</span>'
+    def state_badge(state):
+        cls='up' if state=='active' else 'down'
+        return f'<span class="status {cls}"><span class="dot"></span>{html.escape(state.upper())}</span>'
 
-        rows_html=[]
-        for x in rows:
-            xid=x['id']; protocol=x['protocol']; username=html.escape(x['username'],quote=True)
-            secret=html.escape(str(x['secret']),quote=True)
-            enabled=bool(x['enabled'])
-            enabled_label='Enabled' if enabled else 'Disabled'
-            action='disable' if enabled else 'enable'
-            action_label='Disable' if enabled else 'Enable'
-            expiry='Unlimited' if not x['expiry'] else time.strftime('%Y-%m-%d %H:%M',time.localtime(x['expiry']))
-            used=f"{x['used_bytes']/(1024**3):.2f} GB"
-            daily=f"{x['daily_used_bytes']/(1024**3):.2f} GB"
-            quota='Unlimited' if not x['quota_bytes'] else f"{x['quota_bytes']/(1024**3):.2f} GB"
-            usage_text = "Not metered" if protocol=='SSH' else used
-            daily_text = "Today: not metered" if protocol=='SSH' else f"Today: {daily}"
-            if protocol in XRAY_TAGS:
-                uris=[]
-                for port in ('80','443'):
-                    uri=html.escape(x['uris'].get(port,''),quote=True)
-                    uris.append(f'<div class="copyline"><code>{uri}</code><button class="copy-btn" data-copy="{uri}" type="button">Copy {port}</button></div>')
-                connection='<div class="uri-stack">'+''.join(uris)+'</div>'
-            elif protocol=='SSH':
-                parts=[]
-                for label,key in (('WS 80','WebSocket'),('WS 8080','WebSocket8080'),('WS 8880','WebSocket8880'),('WSS 443','WebSocketTLS'),('WSS 8443','WebSocketTLS8443')):
-                    uri=html.escape(x['uris'].get(key,''),quote=True)
-                    parts.append(f'<div class="copyline"><code>{uri}</code><button class="copy-btn" data-copy="{uri}" type="button">Copy</button></div>')
-                connection=f'<div class="sshmeta"><span>Host: {html.escape(x["host"],quote=True)}</span><span>Path: {html.escape(x["uris"].get("Path","/ssh"),quote=True)}</span></div><div class="uri-stack">{"".join(parts)}</div>'
-            else:
-                uri=html.escape(next(iter(x['uris'].values()),''),quote=True)
-                connection=f'<div class="copyline"><code>{uri}</code><button class="copy-btn" data-copy="{uri}" type="button">Copy URI</button></div>'
-            expiry_class='warn' if x['expiry'] and x['expiry']<=time.time()+7*86400 else ''
-            expiry_notice='<span class="muted warn">Expires soon</span>' if expiry_class else ''
-            rows_html.append(
-                f'<tr data-row data-id="{xid}" data-user="{username}" data-protocol="{html.escape(protocol.lower())}">'
-                f'<td><input class="rowcheck" type="checkbox" value="{xid}"></td><td><div class="usercell"><div class="avatar">{html.escape(x["username"][0].upper())}</div><div><strong>{username}</strong><span class="muted">{html.escape(protocol)}</span></div></div></td>'
-                f'<td>{state_badge("active" if enabled else "disabled")}</td>'
-                f'<td><span class="pill">{html.escape(str(x["port"]))}</span></td>'
-                f'<td><button class="secret-btn" data-secret="{secret}" type="button">Reveal</button></td>'
-                f'<td><span id="alltime-{xid}">{usage_text}</span><span class="muted"> / {quota}</span><span id="daily-{xid}" class="muted">{daily_text}</span></td>'
-                f'<td><span class="muted {expiry_class}">{html.escape(expiry)}</span>{expiry_notice}</td>'
-                f'<td>{connection}</td>'
-                f'<td><div class="actions"><button class="ghost" data-action="{action}" data-id="{xid}" type="button">{action_label}</button><button class="ghost" data-renew="{xid}" type="button">Renew</button><button class="danger" data-delete="{xid}" type="button">Delete</button></div></td>'
-                f'</tr>'
-            )
+    rows_html=[]
+    for x in rows:
+        xid=x['id']; protocol=x['protocol']; username=html.escape(x['username'],quote=True)
+        secret=html.escape(str(x['secret']),quote=True)
+        enabled=bool(x['enabled'])
+        enabled_label='Enabled' if enabled else 'Disabled'
+        action='disable' if enabled else 'enable'
+        action_label='Disable' if enabled else 'Enable'
+        expiry='Unlimited' if not x['expiry'] else time.strftime('%Y-%m-%d %H:%M',time.localtime(x['expiry']))
+        used=f"{x['used_bytes']/(1024**3):.2f} GB"
+        daily=f"{x['daily_used_bytes']/(1024**3):.2f} GB"
+        quota='Unlimited' if not x['quota_bytes'] else f"{x['quota_bytes']/(1024**3):.2f} GB"
+        usage_text = "Not metered" if protocol=='SSH' else used
+        daily_text = "Today: not metered" if protocol=='SSH' else f"Today: {daily}"
+        if protocol in XRAY_TAGS:
+            uris=[]
+            for port in ('80','443'):
+                uri=html.escape(x['uris'].get(port,''),quote=True)
+                uris.append(f'<div class="copyline"><code>{uri}</code><button class="copy-btn" data-copy="{uri}" type="button">Copy {port}</button></div>')
+            connection='<div class="uri-stack">'+''.join(uris)+'</div>'
+        elif protocol=='SSH':
+            parts=[]
+            for label,key in (('WS 80','WebSocket'),('WS 8080','WebSocket8080'),('WS 8880','WebSocket8880'),('WSS 443','WebSocketTLS'),('WSS 8443','WebSocketTLS8443')):
+                uri=html.escape(x['uris'].get(key,''),quote=True)
+                parts.append(f'<div class="copyline"><code>{uri}</code><button class="copy-btn" data-copy="{uri}" type="button">Copy</button></div>')
+            connection=f'<div class="sshmeta"><span>Host: {html.escape(x["host"],quote=True)}</span><span>Path: {html.escape(x["uris"].get("Path","/ssh"),quote=True)}</span></div><div class="uri-stack">{"".join(parts)}</div>'
+        else:
+            uri=html.escape(next(iter(x['uris'].values()),''),quote=True)
+            connection=f'<div class="copyline"><code>{uri}</code><button class="copy-btn" data-copy="{uri}" type="button">Copy URI</button></div>'
+        expiry_class='warn' if x['expiry'] and x['expiry']<=time.time()+7*86400 else ''
+        expiry_notice='<span class="muted warn">Expires soon</span>' if expiry_class else ''
+        rows_html.append(
+            f'<tr data-row data-id="{xid}" data-user="{username}" data-protocol="{html.escape(protocol.lower())}">'
+            f'<td><input class="rowcheck" type="checkbox" value="{xid}"></td><td><div class="usercell"><div class="avatar">{html.escape(x["username"][0].upper())}</div><div><strong>{username}</strong><span class="muted">{html.escape(protocol)}</span></div></div></td>'
+            f'<td>{state_badge("active" if enabled else "disabled")}</td>'
+            f'<td><span class="pill">{html.escape(str(x["port"]))}</span></td>'
+            f'<td><button class="secret-btn" data-secret="{secret}" type="button">Reveal</button></td>'
+            f'<td><span id="alltime-{xid}">{usage_text}</span><span class="muted"> / {quota}</span><span id="daily-{xid}" class="muted">{daily_text}</span></td>'
+            f'<td><span class="muted {expiry_class}">{html.escape(expiry)}</span>{expiry_notice}</td>'
+            f'<td>{connection}</td>'
+            f'<td><div class="actions"><button class="ghost" data-action="{action}" data-id="{xid}" type="button">{action_label}</button><button class="ghost" data-renew="{xid}" type="button">Renew</button><button class="danger" data-delete="{xid}" type="button">Delete</button></div></td>'
+            f'</tr>'
+        )
 
-        rows_html=''.join(rows_html) or '<tr><td colspan="9"><div class="empty">No accounts yet. Create the first account above.</div></td></tr>'
-        cards_html=[]
-        for x in rows:
-            xid=x['id']; protocol=x['protocol']; enabled=bool(x['enabled'])
-            expiry='Unlimited' if not x['expiry'] else time.strftime('%Y-%m-%d',time.localtime(x['expiry']))
-            usage='Not metered' if protocol=='SSH' else _human_bytes(x['used_bytes'])
-            today='Not metered' if protocol=='SSH' else _human_bytes(x['daily_used_bytes'])
-            expiry_warn=bool(x['expiry'] and x['expiry']<=time.time()+7*86400)
-            card_expiry_class='warn' if expiry_warn else ''
-            card_action='disable' if enabled else 'enable'
-            card_action_label='Disable' if enabled else 'Enable'
-            cards_html.append(
-                f'<article class="account-card" data-card-user="{html.escape(x["username"],quote=True)}" data-card-protocol="{html.escape(protocol.lower())}">'
-                f'<div class="cardtop"><div class="usercell"><div class="avatar">{html.escape(x["username"][0].upper())}</div><div><strong>{html.escape(x["username"])}</strong><span class="muted">{html.escape(protocol)}</span></div></div>{state_badge("active" if enabled else "disabled")}</div>'
-                f'<div class="cardstats"><div><span>Today</span><strong>{today}</strong></div><div><span>All time</span><strong>{usage}</strong></div><div><span>Expiry</span><strong class="{card_expiry_class}">{html.escape(expiry)}</strong></div></div>'
-                f'<div class="cardactions"><button class="ghost" data-action="{card_action}" data-id="{xid}" type="button">{card_action_label}</button><button class="danger" data-delete="{xid}" type="button">Delete</button></div>'
-                f'</article>'
-            )
-        cards_html=''.join(cards_html) or '<div class="empty">No accounts yet.</div>'
-        service_html=''.join(f'<div class="service-card"><span>{html.escape(k)}</span>{state_badge(v)}</div>' for k,v in services.items())
+    rows_html=''.join(rows_html) or '<tr><td colspan="9"><div class="empty">No accounts yet. Create the first account above.</div></td></tr>'
+    cards_html=[]
+    for x in rows:
+        xid=x['id']; protocol=x['protocol']; enabled=bool(x['enabled'])
+        expiry='Unlimited' if not x['expiry'] else time.strftime('%Y-%m-%d',time.localtime(x['expiry']))
+        usage='Not metered' if protocol=='SSH' else _human_bytes(x['used_bytes'])
+        today='Not metered' if protocol=='SSH' else _human_bytes(x['daily_used_bytes'])
+        expiry_warn=bool(x['expiry'] and x['expiry']<=time.time()+7*86400)
+        card_expiry_class='warn' if expiry_warn else ''
+        card_action='disable' if enabled else 'enable'
+        card_action_label='Disable' if enabled else 'Enable'
+        cards_html.append(
+            f'<article class="account-card" data-card-user="{html.escape(x["username"],quote=True)}" data-card-protocol="{html.escape(protocol.lower())}">'
+            f'<div class="cardtop"><div class="usercell"><div class="avatar">{html.escape(x["username"][0].upper())}</div><div><strong>{html.escape(x["username"])}</strong><span class="muted">{html.escape(protocol)}</span></div></div>{state_badge("active" if enabled else "disabled")}</div>'
+            f'<div class="cardstats"><div><span>Today</span><strong>{today}</strong></div><div><span>All time</span><strong>{usage}</strong></div><div><span>Expiry</span><strong class="{card_expiry_class}">{html.escape(expiry)}</strong></div></div>'
+            f'<div class="cardactions"><button class="ghost" data-action="{card_action}" data-id="{xid}" type="button">{card_action_label}</button><button class="danger" data-delete="{xid}" type="button">Delete</button></div>'
+            f'</article>'
+        )
+    cards_html=''.join(cards_html) or '<div class="empty">No accounts yet.</div>'
+    service_html=''.join(f'<div class="service-card"><span>{html.escape(k)}</span>{state_badge(v)}</div>' for k,v in services.items())
 
-        page = """<!doctype html>
+    page = """<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -152,97 +152,97 @@ button{cursor:pointer}
 <aside class="sidebar">
   <div class="brand"><div class="brandmark">UV</div><div><h1>Unified VPS</h1><p>Control Center</p></div></div>
   <nav class="nav">
-    <a class="active" href="#dashboard">Dashboard</a>
-    <a href="#accounts">Accounts</a>
-    <a href="#transports">Transports</a>
-    <a href="#services">Services</a>
+<a class="active" href="#dashboard">Dashboard</a>
+<a href="#accounts">Accounts</a>
+<a href="#transports">Transports</a>
+<a href="#services">Services</a>
   </nav>
   <div class="sidefoot"><span class="label">DAILY REBOOT</span><strong>__REBOOT__</strong><span class="label">Panel access: __PANEL_URL__</span></div>
 </aside>
 <main class="main">
   <header class="topbar"><div><h2>Command Center</h2><p>__DOMAIN__</p><p class="muted">Build __BUILD__</p></div><div class="top-actions"><span class="badge">IPv4 __IP__</span><span class="badge">__OS__</span></div></header>
   <section class="content" id="dashboard">
-    <div class="hero"><div><h3>Server overview</h3><p>Live account inventory, services and transport endpoints.</p><span id="usageStamp" class="muted" style="margin-top:6px">Usage updating…</span></div><button class="primary" id="openCreate" type="button" onclick="document.getElementById('modal').classList.add('open')">+ Create account</button></div>
-    <div class="stats">
-      <div class="stat"><div class="k">Total accounts</div><div class="v">__TOTAL__</div><div class="s">All protocols</div></div>
-      <div class="stat"><div class="k">Active accounts</div><div class="v">__ACTIVE__</div><div class="s">Currently enabled</div></div>
-      <div class="stat"><div class="k">Server traffic today</div><div class="v" id="serverDaily">__SERVER_DAILY__</div><div class="s">Live interface accounting</div></div>
-      <div class="stat"><div class="k">Server traffic all time</div><div class="v" id="serverAll">__SERVER_ALL__</div><div class="s">Persistent total</div></div>
-      <div class="stat"><div class="k">Daily reboot</div><div class="v" style="font-size:20px">__REBOOT__</div><div class="s">Automatic maintenance</div></div>
-      <div class="stat"><div class="k">CPU load</div><div class="v" id="cpuLoad">—</div><div class="s">Live 10s telemetry</div></div>
-      <div class="stat"><div class="k">Memory</div><div class="v" id="memUse">—</div><div class="s">Used / total</div></div>
-      <div class="stat"><div class="k">Disk</div><div class="v" id="diskUse">—</div><div class="s">Used / total</div></div>
-    </div>
-    <div class="grid2" id="services">
-      <section class="panel"><div class="panelhead"><div><h4>Service health</h4><p>Critical components detected by systemd.</p></div></div><div class="services">__SERVICES__</div></section>
-      <section class="panel" id="transports"><div class="panelhead"><div><h4>Transport matrix</h4><p>Public listeners exposed by Unified VPS.</p></div></div>
-    <div class="matrix">
-      <div><span>SSH over WebSocket</span><span>80 / 8080 / 8880</span></div>
-      <div><span>SSH over WSS</span><span>443 / 8443</span></div>
-      <div><span>SSH raw TCP</span><span>143 / 8080 / 8443</span></div>
-      <div><span>VLESS / VMess / Trojan</span><span>80 / 443</span></div>
-      <div><span>Hysteria 2</span><span>UDP 53</span></div>
-      <div><span>Web panel</span><span>TCP 6080</span></div>
-    </div>
-      </section>
-    </div>
-    <div class="grid2">
-      <section class="panel">
-    <div class="panelhead"><div><h4>Live network</h4><p>Interface throughput and active TCP sessions.</p></div></div>
-    <div class="matrix">
-      <div><span>Download / RX</span><span id="rxRate">—</span></div>
-      <div><span>Upload / TX</span><span id="txRate">—</span></div>
-      <div><span>Active sessions</span><span id="sessionCount">—</span></div>
-      <div><span>Certificate</span><span id="certState">Checking…</span></div>
-      <div><span>Fail2Ban</span><span id="f2bState">Checking…</span></div>
-    </div>
-      </section>
-      <section class="panel">
-    <div class="panelhead"><div><h4>System activity</h4><p>Recent account and maintenance events.</p></div></div>
-    <div id="events" class="eventlist"><div class="muted">Loading events…</div></div>
-      </section>
-    </div>
-    <section class="panel" id="sessionsPanel" style="margin-top:14px">
-      <div class="panelhead"><div><h4>Active connections</h4><p>Current established TCP sessions visible to the server.</p></div><button class="secondary" id="refreshSessions" type="button">Refresh</button></div>
-      <div class="tablewrap"><table style="min-width:760px"><thead><tr><th>Process</th><th>User</th><th>Local</th><th>Remote</th><th>PID</th></tr></thead><tbody id="sessionsBody"><tr><td colspan="5" class="muted">Loading…</td></tr></tbody></table></div>
-    </section>
-    <section class="panel" id="securityPanel" style="margin-top:14px">
-      <div class="panelhead"><div><h4>Security center</h4><p>SSH protection, firewall and certificate posture.</p></div></div>
-      <div class="services" id="securityGrid"><div class="service-card">Loading…</div></div>
-    </section>
-    <section class="panel" id="activityPanel" style="margin-top:14px">
-      <div class="panelhead"><div><h4>Usage history</h4><p>Server traffic is persisted daily and all-time.</p></div></div>
-      <canvas id="usageChart" height="120" style="width:100%;display:block"></canvas>
-    </section>
-    <section class="panel" style="margin-top:14px">
-      <div class="panelhead"><div><h4>Account expiry</h4><p>Accounts expiring within the next seven days.</p></div></div>
-      <div id="expiryList" class="services"><div class="muted">Checking expiries…</div></div>
-    </section>
-    <section class="panel accounts" id="accounts">
-      <div class="panelhead"><div><h4>Account management</h4><p>Create, renew, enable, disable and copy connection credentials.</p></div>
-    <div class="toolbar"><input class="search" id="search" placeholder="Search username or protocol…"><select class="select" id="filter"><option value="">All protocols</option><option>SSH</option><option>VLESS</option><option>VMess</option><option>Trojan</option><option>Hysteria</option></select><button class="secondary" id="bulkEnable" type="button">Enable selected</button><button class="secondary" id="bulkDisable" type="button">Disable selected</button><button class="danger" id="bulkDelete" type="button">Delete selected</button><button class="secondary" id="backupNow" type="button">Backup</button><button class="secondary" id="restoreLatest" type="button">Restore latest</button><button class="secondary" id="renewCert" type="button">Renew certificate</button><button class="secondary" id="speedtest" type="button">Run speedtest</button></div>
-      </div>
-      <pre id="speedout" style="display:none;max-height:260px;overflow:auto;padding:12px;border:1px solid var(--line);border-radius:10px;background:#06100a;color:#bcebcf;font-size:11px"></pre>
-      <div class="account-cards" id="accountCards">__ACCOUNT_CARDS__</div>
-      <div class="tablewrap"><table><thead><tr><th><input id="selectAll" type="checkbox" title="Select all"></th><th>Account</th><th>Status</th><th>Ports</th><th>Secret</th><th>Usage</th><th>Expiry</th><th>Connection URI</th><th>Actions</th></tr></thead><tbody id="accountsBody">__ROWS__</tbody></table></div>
-    </section>
+<div class="hero"><div><h3>Server overview</h3><p>Live account inventory, services and transport endpoints.</p><span id="usageStamp" class="muted" style="margin-top:6px">Usage updating…</span></div><button class="primary" id="openCreate" type="button" onclick="document.getElementById('modal').classList.add('open')">+ Create account</button></div>
+<div class="stats">
+  <div class="stat"><div class="k">Total accounts</div><div class="v">__TOTAL__</div><div class="s">All protocols</div></div>
+  <div class="stat"><div class="k">Active accounts</div><div class="v">__ACTIVE__</div><div class="s">Currently enabled</div></div>
+  <div class="stat"><div class="k">Server traffic today</div><div class="v" id="serverDaily">__SERVER_DAILY__</div><div class="s">Live interface accounting</div></div>
+  <div class="stat"><div class="k">Server traffic all time</div><div class="v" id="serverAll">__SERVER_ALL__</div><div class="s">Persistent total</div></div>
+  <div class="stat"><div class="k">Daily reboot</div><div class="v" style="font-size:20px">__REBOOT__</div><div class="s">Automatic maintenance</div></div>
+  <div class="stat"><div class="k">CPU load</div><div class="v" id="cpuLoad">—</div><div class="s">Live 10s telemetry</div></div>
+  <div class="stat"><div class="k">Memory</div><div class="v" id="memUse">—</div><div class="s">Used / total</div></div>
+  <div class="stat"><div class="k">Disk</div><div class="v" id="diskUse">—</div><div class="s">Used / total</div></div>
+</div>
+<div class="grid2" id="services">
+  <section class="panel"><div class="panelhead"><div><h4>Service health</h4><p>Critical components detected by systemd.</p></div></div><div class="services">__SERVICES__</div></section>
+  <section class="panel" id="transports"><div class="panelhead"><div><h4>Transport matrix</h4><p>Public listeners exposed by Unified VPS.</p></div></div>
+<div class="matrix">
+  <div><span>SSH over WebSocket</span><span>80 / 8080 / 8880</span></div>
+  <div><span>SSH over WSS</span><span>443 / 8443</span></div>
+  <div><span>SSH raw TCP</span><span>143 / 8080 / 8443</span></div>
+  <div><span>VLESS / VMess / Trojan</span><span>80 / 443</span></div>
+  <div><span>Hysteria 2</span><span>UDP 53</span></div>
+  <div><span>Web panel</span><span>TCP 6080</span></div>
+</div>
+  </section>
+</div>
+<div class="grid2">
+  <section class="panel">
+<div class="panelhead"><div><h4>Live network</h4><p>Interface throughput and active TCP sessions.</p></div></div>
+<div class="matrix">
+  <div><span>Download / RX</span><span id="rxRate">—</span></div>
+  <div><span>Upload / TX</span><span id="txRate">—</span></div>
+  <div><span>Active sessions</span><span id="sessionCount">—</span></div>
+  <div><span>Certificate</span><span id="certState">Checking…</span></div>
+  <div><span>Fail2Ban</span><span id="f2bState">Checking…</span></div>
+</div>
+  </section>
+  <section class="panel">
+<div class="panelhead"><div><h4>System activity</h4><p>Recent account and maintenance events.</p></div></div>
+<div id="events" class="eventlist"><div class="muted">Loading events…</div></div>
+  </section>
+</div>
+<section class="panel" id="sessionsPanel" style="margin-top:14px">
+  <div class="panelhead"><div><h4>Active connections</h4><p>Current established TCP sessions visible to the server.</p></div><button class="secondary" id="refreshSessions" type="button">Refresh</button></div>
+  <div class="tablewrap"><table style="min-width:760px"><thead><tr><th>Process</th><th>User</th><th>Local</th><th>Remote</th><th>PID</th></tr></thead><tbody id="sessionsBody"><tr><td colspan="5" class="muted">Loading…</td></tr></tbody></table></div>
+</section>
+<section class="panel" id="securityPanel" style="margin-top:14px">
+  <div class="panelhead"><div><h4>Security center</h4><p>SSH protection, firewall and certificate posture.</p></div></div>
+  <div class="services" id="securityGrid"><div class="service-card">Loading…</div></div>
+</section>
+<section class="panel" id="activityPanel" style="margin-top:14px">
+  <div class="panelhead"><div><h4>Usage history</h4><p>Server traffic is persisted daily and all-time.</p></div></div>
+  <canvas id="usageChart" height="120" style="width:100%;display:block"></canvas>
+</section>
+<section class="panel" style="margin-top:14px">
+  <div class="panelhead"><div><h4>Account expiry</h4><p>Accounts expiring within the next seven days.</p></div></div>
+  <div id="expiryList" class="services"><div class="muted">Checking expiries…</div></div>
+</section>
+<section class="panel accounts" id="accounts">
+  <div class="panelhead"><div><h4>Account management</h4><p>Create, renew, enable, disable and copy connection credentials.</p></div>
+<div class="toolbar"><input class="search" id="search" placeholder="Search username or protocol…"><select class="select" id="filter"><option value="">All protocols</option><option>SSH</option><option>VLESS</option><option>VMess</option><option>Trojan</option><option>Hysteria</option></select><button class="secondary" id="bulkEnable" type="button">Enable selected</button><button class="secondary" id="bulkDisable" type="button">Disable selected</button><button class="danger" id="bulkDelete" type="button">Delete selected</button><button class="secondary" id="backupNow" type="button">Backup</button><button class="secondary" id="restoreLatest" type="button">Restore latest</button><button class="secondary" id="renewCert" type="button">Renew certificate</button><button class="secondary" id="speedtest" type="button">Run speedtest</button></div>
+  </div>
+  <pre id="speedout" style="display:none;max-height:260px;overflow:auto;padding:12px;border:1px solid var(--line);border-radius:10px;background:#06100a;color:#bcebcf;font-size:11px"></pre>
+  <div class="account-cards" id="accountCards">__ACCOUNT_CARDS__</div>
+  <div class="tablewrap"><table><thead><tr><th><input id="selectAll" type="checkbox" title="Select all"></th><th>Account</th><th>Status</th><th>Ports</th><th>Secret</th><th>Usage</th><th>Expiry</th><th>Connection URI</th><th>Actions</th></tr></thead><tbody id="accountsBody">__ROWS__</tbody></table></div>
+</section>
   </section>
 </main>
 </div>
 
 <div class="overlay" id="modal">
   <div class="modal">
-    <div class="modalhead"><div><h3>Create account</h3><p>Provision a new Unified VPS identity.</p></div><button class="close" id="closeCreate" type="button" onclick="document.getElementById('modal').classList.remove('open')">Close</button></div>
-    <form id="createForm">
-      <div class="formgrid">
-    <div class="field"><label>Username</label><input name="username" required maxlength="32"></div>
-    <div class="field"><label>Protocol</label><select name="protocol" id="protocol"><option>SSH</option><option>VLESS</option><option>VMess</option><option>Trojan</option><option>Hysteria</option></select></div>
-    <div class="field full" id="sshSecretField" hidden><label id="sshSecretLabel">SSH password</label><input name="secret" id="sshSecret" type="password" autocomplete="new-password"></div>
-    <div class="field"><label>Duration (days)</label><input name="days" type="number" min="0" value="0"></div>
-    <div class="field"><label>Quota (GB)</label><input name="quota_gb" id="quota" type="number" min="0" step="0.1" value="0"></div>
-      </div>
-      <div class="modalfoot"><button class="secondary" id="cancelCreate" type="button" onclick="document.getElementById('modal').classList.remove('open')">Cancel</button><button class="primary" type="submit">Create account</button></div>
-    </form>
+<div class="modalhead"><div><h3>Create account</h3><p>Provision a new Unified VPS identity.</p></div><button class="close" id="closeCreate" type="button" onclick="document.getElementById('modal').classList.remove('open')">Close</button></div>
+<form id="createForm">
+  <div class="formgrid">
+<div class="field"><label>Username</label><input name="username" required maxlength="32"></div>
+<div class="field"><label>Protocol</label><select name="protocol" id="protocol"><option>SSH</option><option>VLESS</option><option>VMess</option><option>Trojan</option><option>Hysteria</option></select></div>
+<div class="field full" id="sshSecretField" hidden><label id="sshSecretLabel">SSH password</label><input name="secret" id="sshSecret" type="password" autocomplete="new-password"></div>
+<div class="field"><label>Duration (days)</label><input name="days" type="number" min="0" value="0"></div>
+<div class="field"><label>Quota (GB)</label><input name="quota_gb" id="quota" type="number" min="0" step="0.1" value="0"></div>
+  </div>
+  <div class="modalfoot"><button class="secondary" id="cancelCreate" type="button" onclick="document.getElementById('modal').classList.remove('open')">Cancel</button><button class="primary" type="submit">Create account</button></div>
+</form>
   </div>
 </div>
 <div class="toast" id="toast"></div>
@@ -256,8 +256,8 @@ async function copyText(value,button){
   let ok=false;
   try{if(navigator.clipboard&&window.isSecureContext){await navigator.clipboard.writeText(value);ok=true}}catch(e){}
   if(!ok){
-    const ta=document.createElement("textarea");ta.value=value;ta.style.position="fixed";ta.style.opacity="0";document.body.appendChild(ta);ta.focus();ta.select();
-    try{ok=document.execCommand("copy")}catch(e){ok=false}ta.remove();
+const ta=document.createElement("textarea");ta.value=value;ta.style.position="fixed";ta.style.opacity="0";document.body.appendChild(ta);ta.focus();ta.select();
+try{ok=document.execCommand("copy")}catch(e){ok=false}ta.remove();
   }
   if(ok){const old=button.textContent;button.textContent="Copied";setTimeout(()=>button.textContent=old,1200)}else{toast("Copy blocked — URI selected for manual copy.")}
 }
@@ -265,19 +265,19 @@ document.addEventListener("click",async e=>{
   const copy=e.target.closest("[data-copy]"); if(copy){await copyText(copy.dataset.copy,copy);return}
   const reveal=e.target.closest(".secret-btn"); if(reveal){if(reveal.dataset.revealed==="1"){reveal.textContent="Reveal";reveal.dataset.revealed="0"}else{reveal.textContent=reveal.dataset.secret;reveal.dataset.revealed="1"}return}
   const act=e.target.closest("[data-action]"); if(act){
-    const id=act.dataset.id, action=act.dataset.action;
-    const r=await fetch("/api/users/action",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:Number(id),action:action})});
-    const j=await r.json(); if(!r.ok){toast(j.error||"Action failed");return} location.reload(); return
+const id=act.dataset.id, action=act.dataset.action;
+const r=await fetch("/api/users/action",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:Number(id),action:action})});
+const j=await r.json(); if(!r.ok){toast(j.error||"Action failed");return} location.reload(); return
   }
   const del=e.target.closest("[data-delete]"); if(del){
-    if(!confirm("Delete this account permanently?")) return;
-    const r=await fetch("/api/users/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:Number(del.dataset.delete)})});
-    const j=await r.json(); if(!r.ok){toast(j.error||"Delete failed");return} location.reload(); return
+if(!confirm("Delete this account permanently?")) return;
+const r=await fetch("/api/users/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:Number(del.dataset.delete)})});
+const j=await r.json(); if(!r.ok){toast(j.error||"Delete failed");return} location.reload(); return
   }
   const renew=e.target.closest("[data-renew]"); if(renew){
-    const days=prompt("Renew for how many days?","30"); if(!days||!/^\\d+$/.test(days)||Number(days)<1)return;
-    const r=await fetch("/api/users/action",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:Number(renew.dataset.renew),action:"renew",days:Number(days)})});
-    const j=await r.json(); if(!r.ok){toast(j.error||"Renewal failed");return} location.reload(); return
+const days=prompt("Renew for how many days?","30"); if(!days||!/^\\d+$/.test(days)||Number(days)<1)return;
+const r=await fetch("/api/users/action",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:Number(renew.dataset.renew),action:"renew",days:Number(days)})});
+const j=await r.json(); if(!r.ok){toast(j.error||"Renewal failed");return} location.reload(); return
   }
 });
 $("#openCreate").onclick=()=>$("#modal").classList.add("open");
@@ -289,12 +289,12 @@ $("#createForm").onsubmit=async e=>{
   e.preventDefault();
   const submit=e.target.querySelector("button[type=submit]"); if(submit)submit.disabled=true;
   try{
-    const f=new FormData(e.target), payload=Object.fromEntries(f.entries());
-    payload.days=Number(payload.days||0);payload.quota_gb=Number(payload.quota_gb||0);if(payload.protocol!=="SSH")delete payload.secret;
-    const r=await fetch("/api/users",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload),cache:"no-store"});
-    const text=await r.text(); let j={}; try{j=JSON.parse(text)}catch(_){j={error:text||("HTTP "+r.status)}}
-    if(!r.ok){toast(j.error||"Account creation failed");return}
-    location.reload();
+const f=new FormData(e.target), payload=Object.fromEntries(f.entries());
+payload.days=Number(payload.days||0);payload.quota_gb=Number(payload.quota_gb||0);if(payload.protocol!=="SSH")delete payload.secret;
+const r=await fetch("/api/users",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload),cache:"no-store"});
+const text=await r.text(); let j={}; try{j=JSON.parse(text)}catch(_){j={error:text||("HTTP "+r.status)}}
+if(!r.ok){toast(j.error||"Account creation failed");return}
+location.reload();
   }catch(err){toast("Account creation failed: "+(err.message||"network error"))}
   finally{if(submit)submit.disabled=false}
 };
@@ -325,8 +325,8 @@ function renderExpiry(rows){
 $("#speedtest").onclick=async()=>{
   const out=$("#speedout");out.style.display="block";out.textContent="Running Ookla Speedtest…";
   try{
-    const r=await fetch("/api/speedtest"),j=await r.json();
-    out.textContent=j.output||j.error||"No result";
+const r=await fetch("/api/speedtest"),j=await r.json();
+out.textContent=j.output||j.error||"No result";
   }catch(e){out.textContent="Speedtest unavailable.";toast("Speedtest request failed");}
 };
 
@@ -338,84 +338,84 @@ function fmtBytes(n){
 }
 async function refreshUsage(){
   try{
-    const r=await fetch("/api/usage",{cache:"no-store"}); if(!r.ok)throw new Error("HTTP "+r.status);
-    const j=await r.json(),accounts=j.accounts||[];
-    const sd=document.getElementById("serverDaily"), sa=document.getElementById("serverAll");
-    if(sd)sd.textContent=fmtBytes(j.server.daily_bytes);
-    if(sa)sa.textContent=fmtBytes(j.server.all_time_bytes);
-    for(const a of accounts){
-      const all=document.getElementById("alltime-"+a.id), daily=document.getElementById("daily-"+a.id);
-      if(a.protocol==="SSH") continue;
-      if(all)all.textContent=fmtBytes(a.all_time_bytes);
-      if(daily)daily.textContent="Today: "+fmtBytes(a.daily_bytes);
-    }
-    renderExpiry(accounts);
-    const stamp=document.getElementById("usageStamp");
-    if(stamp)stamp.textContent="Usage updated "+new Date((j.updated_at||Date.now()/1000)*1000).toLocaleTimeString();
+const r=await fetch("/api/usage",{cache:"no-store"}); if(!r.ok)throw new Error("HTTP "+r.status);
+const j=await r.json(),accounts=j.accounts||[];
+const sd=document.getElementById("serverDaily"), sa=document.getElementById("serverAll");
+if(sd)sd.textContent=fmtBytes(j.server.daily_bytes);
+if(sa)sa.textContent=fmtBytes(j.server.all_time_bytes);
+for(const a of accounts){
+  const all=document.getElementById("alltime-"+a.id), daily=document.getElementById("daily-"+a.id);
+  if(a.protocol==="SSH") continue;
+  if(all)all.textContent=fmtBytes(a.all_time_bytes);
+  if(daily)daily.textContent="Today: "+fmtBytes(a.daily_bytes);
+}
+renderExpiry(accounts);
+const stamp=document.getElementById("usageStamp");
+if(stamp)stamp.textContent="Usage updated "+new Date((j.updated_at||Date.now()/1000)*1000).toLocaleTimeString();
   }catch(e){
-    const sd=document.getElementById("serverDaily"),sa=document.getElementById("serverAll"),st=document.getElementById("usageStamp");
-    if(sd)sd.textContent="Unavailable"; if(sa)sa.textContent="Unavailable"; if(st)st.textContent="Usage unavailable";
+const sd=document.getElementById("serverDaily"),sa=document.getElementById("serverAll"),st=document.getElementById("usageStamp");
+if(sd)sd.textContent="Unavailable"; if(sa)sa.textContent="Unavailable"; if(st)st.textContent="Usage unavailable";
   }
 }
 
 function fmtRate(n){return fmtBytes(Number(n||0))+"/s"}
 async function refreshMetrics(){
   try{
-    const r=await fetch("/api/metrics",{cache:"no-store"}); if(!r.ok)throw new Error("HTTP "+r.status); const j=await r.json();
-    const load=(j.cpu_load||[0])[0], mem=j.memory||{}, disk=j.disk||{}, net=j.network||{};
-    const cpu=document.getElementById("cpuLoad"), mm=document.getElementById("memUse"), dd=document.getElementById("diskUse");
-    if(cpu)cpu.textContent=Number(load||0).toFixed(2);
-    if(mm)mm.textContent=fmtBytes(mem.used||0)+" / "+fmtBytes(mem.total||0);
-    if(dd)dd.textContent=fmtBytes(disk.used||0)+" / "+fmtBytes(disk.total||0);
-    const rx=document.getElementById("rxRate"),tx=document.getElementById("txRate");
-    if(rx)rx.textContent=fmtRate(net.rx_bps);
-    if(tx)tx.textContent=fmtRate(net.tx_bps);
+const r=await fetch("/api/metrics",{cache:"no-store"}); if(!r.ok)throw new Error("HTTP "+r.status); const j=await r.json();
+const load=(j.cpu_load||[0])[0], mem=j.memory||{}, disk=j.disk||{}, net=j.network||{};
+const cpu=document.getElementById("cpuLoad"), mm=document.getElementById("memUse"), dd=document.getElementById("diskUse");
+if(cpu)cpu.textContent=Number(load||0).toFixed(2);
+if(mm)mm.textContent=fmtBytes(mem.used||0)+" / "+fmtBytes(mem.total||0);
+if(dd)dd.textContent=fmtBytes(disk.used||0)+" / "+fmtBytes(disk.total||0);
+const rx=document.getElementById("rxRate"),tx=document.getElementById("txRate");
+if(rx)rx.textContent=fmtRate(net.rx_bps);
+if(tx)tx.textContent=fmtRate(net.tx_bps);
   }catch(e){
-    const ids=["cpuLoad","memUse","diskUse","rxRate","txRate"]; ids.forEach(id=>{const el=document.getElementById(id);if(el)el.textContent="Unavailable"});
+const ids=["cpuLoad","memUse","diskUse","rxRate","txRate"]; ids.forEach(id=>{const el=document.getElementById(id);if(el)el.textContent="Unavailable"});
   }
 }
 async function refreshSessions(){
   try{
-    const r=await fetch("/api/sessions",{cache:"no-store"}); if(!r.ok)throw new Error("HTTP "+r.status); const j=await r.json();
-    const body=document.getElementById("sessionsBody"); if(!body)return;
-    const rows=j.sessions||[];
-    document.getElementById("sessionCount").textContent=String(rows.length);
-    const esc=v=>String(v??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch]));
-    body.innerHTML=rows.length?rows.map(x=>"<tr><td>"+esc(x.process||"—")+"</td><td>"+esc(x.user||"—")+"</td><td>"+esc(x.local||"—")+"</td><td>"+esc(x.remote||"—")+"</td><td>"+esc(x.pid||"—")+"</td></tr>").join(""):"<tr><td colspan='5' class='muted'>No established TCP sessions.</td></tr>";
+const r=await fetch("/api/sessions",{cache:"no-store"}); if(!r.ok)throw new Error("HTTP "+r.status); const j=await r.json();
+const body=document.getElementById("sessionsBody"); if(!body)return;
+const rows=j.sessions||[];
+document.getElementById("sessionCount").textContent=String(rows.length);
+const esc=v=>String(v??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch]));
+body.innerHTML=rows.length?rows.map(x=>"<tr><td>"+esc(x.process||"—")+"</td><td>"+esc(x.user||"—")+"</td><td>"+esc(x.local||"—")+"</td><td>"+esc(x.remote||"—")+"</td><td>"+esc(x.pid||"—")+"</td></tr>").join(""):"<tr><td colspan='5' class='muted'>No established TCP sessions.</td></tr>";
   }catch(e){
-    const body=document.getElementById("sessionsBody"); if(body)body.innerHTML="<tr><td colspan='5' class='muted'>Unable to load active connections.</td></tr>";
+const body=document.getElementById("sessionsBody"); if(body)body.innerHTML="<tr><td colspan='5' class='muted'>Unable to load active connections.</td></tr>";
   }
 }
 async function refreshSecurity(){
   try{
-    const r=await fetch("/api/security",{cache:"no-store"});
-    if(!r.ok)throw new Error("security API unavailable");
-    const j=await r.json(), cert=j.certificate||{ok:false,error:"Certificate unavailable"};
-    const fs=document.getElementById("f2bState"), cs=document.getElementById("certState");
-    if(fs)fs.textContent=(j.fail2ban||"unknown").toUpperCase()+" • "+(j.banned||0)+" banned";
-    if(cs){cs.textContent=cert.ok?(cert.days_remaining+" days remaining"):"Unavailable";cs.className=cert.ok&&cert.days_remaining>14?"metric-good":(cert.days_remaining>=0?"warn":"dangertext")}
-    const g=document.getElementById("securityGrid");
-    if(g)g.innerHTML=[
-      ["Fail2Ban",String(j.fail2ban||"unknown").toUpperCase()],
-      ["Banned IPs",String(j.banned||0)],
-      ["SSH failures / 24h",String(j.failed_ssh_24h||0)],
-      ["Firewall rules",String(j.firewall_rules||0)],
-      ["SSH password auth",String((j.ssh_auth||{}).passwordauthentication||"unknown").toUpperCase()],
-      ["Certificate",cert.ok?(cert.days_remaining+" days left"):"Unavailable"]
-    ].map(x=>"<div class='service-card'><span>"+x[0]+"</span><strong>"+x[1]+"</strong></div>").join("");
+const r=await fetch("/api/security",{cache:"no-store"});
+if(!r.ok)throw new Error("security API unavailable");
+const j=await r.json(), cert=j.certificate||{ok:false,error:"Certificate unavailable"};
+const fs=document.getElementById("f2bState"), cs=document.getElementById("certState");
+if(fs)fs.textContent=(j.fail2ban||"unknown").toUpperCase()+" • "+(j.banned||0)+" banned";
+if(cs){cs.textContent=cert.ok?(cert.days_remaining+" days remaining"):"Unavailable";cs.className=cert.ok&&cert.days_remaining>14?"metric-good":(cert.days_remaining>=0?"warn":"dangertext")}
+const g=document.getElementById("securityGrid");
+if(g)g.innerHTML=[
+  ["Fail2Ban",String(j.fail2ban||"unknown").toUpperCase()],
+  ["Banned IPs",String(j.banned||0)],
+  ["SSH failures / 24h",String(j.failed_ssh_24h||0)],
+  ["Firewall rules",String(j.firewall_rules||0)],
+  ["SSH password auth",String((j.ssh_auth||{}).passwordauthentication||"unknown").toUpperCase()],
+  ["Certificate",cert.ok?(cert.days_remaining+" days left"):"Unavailable"]
+].map(x=>"<div class='service-card'><span>"+x[0]+"</span><strong>"+x[1]+"</strong></div>").join("");
   }catch(e){
-    const fs=document.getElementById("f2bState"),cs=document.getElementById("certState"); if(fs)fs.textContent="Unavailable"; if(cs)cs.textContent="Unavailable";
-    const g=document.getElementById("securityGrid"); if(g)g.innerHTML="<div class='service-card'><span>Security telemetry</span><strong>Unavailable</strong></div>";
+const fs=document.getElementById("f2bState"),cs=document.getElementById("certState"); if(fs)fs.textContent="Unavailable"; if(cs)cs.textContent="Unavailable";
+const g=document.getElementById("securityGrid"); if(g)g.innerHTML="<div class='service-card'><span>Security telemetry</span><strong>Unavailable</strong></div>";
   }
 }
 async function refreshEvents(){
   try{
-    const r=await fetch("/api/events",{cache:"no-store"}); if(!r.ok)throw new Error("HTTP "+r.status); const j=await r.json();
-    const e=document.getElementById("events"); if(!e)return;
-    const esc=v=>String(v??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch]));
-    e.innerHTML=(j.events||[]).slice(0,30).map(x=>"<div class='event'><strong>"+esc(x.action)+(x.username?" • "+esc(x.username):"")+"</strong><small>"+new Date(x.created_at*1000).toLocaleString()+" "+esc(x.details||"")+"</small></div>").join("")||"<div class='muted'>No activity yet.</div>";
+const r=await fetch("/api/events",{cache:"no-store"}); if(!r.ok)throw new Error("HTTP "+r.status); const j=await r.json();
+const e=document.getElementById("events"); if(!e)return;
+const esc=v=>String(v??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch]));
+e.innerHTML=(j.events||[]).slice(0,30).map(x=>"<div class='event'><strong>"+esc(x.action)+(x.username?" • "+esc(x.username):"")+"</strong><small>"+new Date(x.created_at*1000).toLocaleString()+" "+esc(x.details||"")+"</small></div>").join("")||"<div class='muted'>No activity yet.</div>";
   }catch(e){
-    const el=document.getElementById("events"); if(el)el.innerHTML="<div class='muted'>Unable to load activity events.</div>";
+const el=document.getElementById("events"); if(el)el.innerHTML="<div class='muted'>Unable to load activity events.</div>";
   }
 }
 function drawUsageChart(data){
@@ -431,19 +431,19 @@ function drawUsageChart(data){
 }
 async function refreshChart(){
   try{
-    const r=await fetch("/api/usage-history",{cache:"no-store"});if(!r.ok)throw new Error("HTTP "+r.status);const j=await r.json();drawUsageChart(j.values||[]);
+const r=await fetch("/api/usage-history",{cache:"no-store"});if(!r.ok)throw new Error("HTTP "+r.status);const j=await r.json();drawUsageChart(j.values||[]);
   }catch(e){
-    const canvas=document.getElementById("usageChart"); if(canvas){const ctx=canvas.getContext("2d");ctx.clearRect(0,0,canvas.width,canvas.height);ctx.font="13px system-ui";ctx.fillText("Usage history unavailable",12,40);}
+const canvas=document.getElementById("usageChart"); if(canvas){const ctx=canvas.getContext("2d");ctx.clearRect(0,0,canvas.width,canvas.height);ctx.font="13px system-ui";ctx.fillText("Usage history unavailable",12,40);}
   }
 }
 const pollers=[];
 function startPoll(fn,interval){
   let running=false,timer=0;
   const run=async()=>{
-    if(document.hidden){timer=window.setTimeout(run,interval);return}
-    if(running)return;
-    running=true;
-    try{await fn()}finally{running=false;timer=window.setTimeout(run,interval)}
+if(document.hidden){timer=window.setTimeout(run,interval);return}
+if(running)return;
+running=true;
+try{await fn()}finally{running=false;timer=window.setTimeout(run,interval)}
   };
   const wake=()=>{if(!document.hidden){window.clearTimeout(timer);run()}};
   pollers.push(wake);run();
@@ -458,29 +458,29 @@ document.addEventListener("visibilitychange",()=>{if(!document.hidden)pollers.fo
 document.getElementById("refreshSessions").onclick=refreshSessions;
 </script>
 </body></html>"""
-        page=page.replace('__ROWS__',rows_html)
-        page=page.replace('__ACCOUNT_CARDS__',cards_html)
-        page=page.replace('__SERVICES__',service_html)
-        page=page.replace('__REBOOT__',html.escape(reboot,quote=True))
-        page=page.replace('__PANEL_URL__',html.escape(f'http://{public_host()}:{PORT}/',quote=True))
-        page=page.replace('__DOMAIN__',html.escape(public_host()))
-        page=page.replace('__BUILD__',PANEL_BUILD)
-        page=page.replace('__IP__',html.escape(public_ip()))
-        os_name=os.uname().sysname+' '+os.uname().release
-        try:
-            with open('/etc/os-release') as fh:
-                vals={}
-                for line in fh:
-                    if '=' in line:
-                        k,v=line.rstrip().split('=',1)
-                        vals[k]=v.strip().strip('"')
-            os_name=vals.get('PRETTY_NAME',os_name)
-        except Exception:
-            pass
-        page=page.replace('__OS__',html.escape(os_name))
-        page=page.replace('__TOTAL__',str(len(rows)))
-        page=page.replace('__ACTIVE__',str(active))
-        page=page.replace('__SERVER_DAILY__',_human_bytes(server_daily))
-        page=page.replace('__SERVER_ALL__',_human_bytes(server_all))
-    return page
+    page=page.replace('__ROWS__',rows_html)
+    page=page.replace('__ACCOUNT_CARDS__',cards_html)
+    page=page.replace('__SERVICES__',service_html)
+    page=page.replace('__REBOOT__',html.escape(reboot,quote=True))
+    page=page.replace('__PANEL_URL__',html.escape(f'http://{public_host()}:{PORT}/',quote=True))
+    page=page.replace('__DOMAIN__',html.escape(public_host()))
+    page=page.replace('__BUILD__',PANEL_BUILD)
+    page=page.replace('__IP__',html.escape(public_ip()))
+    os_name=os.uname().sysname+' '+os.uname().release
+    try:
+        with open('/etc/os-release') as fh:
+            vals={}
+            for line in fh:
+                if '=' in line:
+                    k,v=line.rstrip().split('=',1)
+                    vals[k]=v.strip().strip('"')
+        os_name=vals.get('PRETTY_NAME',os_name)
+    except Exception:
+        pass
+    page=page.replace('__OS__',html.escape(os_name))
+    page=page.replace('__TOTAL__',str(len(rows)))
+    page=page.replace('__ACTIVE__',str(active))
+    page=page.replace('__SERVER_DAILY__',_human_bytes(server_daily))
+    page=page.replace('__SERVER_ALL__',_human_bytes(server_all))
+return page
 
