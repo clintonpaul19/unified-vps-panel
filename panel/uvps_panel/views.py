@@ -266,6 +266,7 @@ async function fetchCredential(id){
   return j;
 }
 document.addEventListener("click",async e=>{
+  const plainCopy=e.target.closest("[data-copy]"); if(plainCopy){await copyText(plainCopy.dataset.copy,plainCopy);return}
   const copy=e.target.closest("[data-copy-id]"); if(copy){
     try{
       const j=await fetchCredential(copy.dataset.copyId);
