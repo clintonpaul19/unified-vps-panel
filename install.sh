@@ -516,22 +516,64 @@ systemctl enable --now fail2ban.service unified-vps-watchdog.timer unified-vps-b
 # stale/failed job while creating the enablement links.
 systemctl enable ssh nginx haproxy unified-vps-panel xray hysteria-server || true
 systemctl start ssh nginx
+
+# First prove that the exact panel files can initialize and serve HTTP before
+# handing them to systemd. This catches import/runtime errors without hiding
+# them behind a Restart= loop.
+PANEL_PREFLIGHT_LOG="$(mktemp)"
+set +e
+timeout 8s env PANEL_PREFLIGHT=1 PANEL_BIND=127.0.0.1 PANEL_PORT=6080   python3 /opt/unified-vps/panel.py >"$PANEL_PREFLIGHT_LOG" 2>&1 &
+PANEL_PREFLIGHT_PID=$!
+set -e
+PANEL_PREFLIGHT_READY=0
+for _ in {1..16}; do
+  if curl -fsS --max-time 1 http://127.0.0.1:6080/ >/dev/null 2>&1; then
+    PANEL_PREFLIGHT_READY=1
+    break
+  fi
+  if ! kill -0 "$PANEL_PREFLIGHT_PID" 2>/dev/null; then
+    break
+  fi
+  sleep 0.5
+done
+kill "$PANEL_PREFLIGHT_PID" 2>/dev/null || true
+wait "$PANEL_PREFLIGHT_PID" 2>/dev/null || true
+
+if [ "$PANEL_PREFLIGHT_READY" -ne 1 ]; then
+  echo "ERROR: panel preflight failed."
+  echo "--- panel preflight output ---"
+  cat "$PANEL_PREFLIGHT_LOG" 2>/dev/null || true
+  rm -f "$PANEL_PREFLIGHT_LOG"
+  exit 1
+fi
+rm -f "$PANEL_PREFLIGHT_LOG"
+
 if ! systemctl start unified-vps-panel; then
   echo "ERROR: unified-vps-panel.service failed to start."
   systemctl status unified-vps-panel --no-pager -l || true
   echo "--- panel journal ---"
-  journalctl -u unified-vps-panel -n 80 --no-pager || true
+  journalctl -u unified-vps-panel -n 120 --no-pager || true
   echo "--- port 6080 ---"
   ss -ltnp 2>/dev/null | grep ':6080' || true
   exit 1
 fi
-sleep 1
 
-# Runtime smoke test for the first-run panel path. Syntax checks alone cannot
-# catch missing runtime globals such as MAX_REQUEST_BODY.
-PANEL_HOME="$(curl -fsS --max-time 5 http://127.0.0.1:6080/ 2>/dev/null || true)"
-if [ -z "$PANEL_HOME" ]; then
-  echo "ERROR: panel HTTP smoke test returned no response."
+PANEL_HOME=""
+for _ in {1..15}; do
+  PANEL_HOME="$(curl -fsS --max-time 2 http://127.0.0.1:6080/ 2>/dev/null || true)"
+  if [ -n "$PANEL_HOME" ]; then
+    break
+  fi
+  sleep 1
+done
+if [ -z "$PANEL_HOME" ] || ! systemctl is-active --quiet unified-vps-panel; then
+  echo "ERROR: panel HTTP smoke test failed."
+  echo "--- panel service status ---"
+  systemctl status unified-vps-panel --no-pager -l || true
+  echo "--- panel journal ---"
+  journalctl -u unified-vps-panel -n 120 --no-pager || true
+  echo "--- port 6080 ---"
+  ss -ltnp 2>/dev/null | grep ':6080' || true
   exit 1
 fi
 EXPECTED_PANEL_BUILD="$(grep -E "^PANEL_BUILD=['\"][^'\"]+['\"]" /opt/unified-vps/uvps_panel/config.py | sed -E "s/.*PANEL_BUILD=['\"]([^'\"]+)['\"].*/\1/" | head -n1)"
