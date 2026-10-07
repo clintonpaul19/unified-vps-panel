@@ -4,6 +4,8 @@ import secrets
 import time
 from .config import PANEL_BUILD,PORT,SSH_PORTS
 from .accounts import record
+from .db import conn
+from .http_utils import send_html
 from .system import public_host,public_ip,_human_bytes,service_states
 
 def setup_page(r):
@@ -480,5 +482,5 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
         page=page.replace('__ACTIVE__',str(active))
         page=page.replace('__SERVER_DAILY__',_human_bytes(server_daily))
         page=page.replace('__SERVER_ALL__',_human_bytes(server_all))
-        return send_html(self,page)
+    return page
 
