@@ -11,7 +11,7 @@ from urllib.parse import parse_qs,urlsplit
 from http.server import BaseHTTPRequestHandler
 
 from .accounts import apply_user_action,create_user,record
-from .auth import _save_admin_credentials,_session_cookie,admin_configured,auth,verify_admin_credentials
+from .auth import _request_token,_save_admin_credentials,_session_cookie,_valid_request_token,admin_configured,auth,verify_admin_credentials
 from .config import MAINT_LOCK,PANEL_BUILD,PORT,SETUP_LOCK,SPEEDTEST_LOCK
 from .db import conn,log_event
 from .hysteria import _hysteria_online,kick_hysteria
@@ -189,11 +189,7 @@ class H(BaseHTTPRequestHandler):
             with SETUP_LOCK:
                 if admin_configured(): return send(self,{'error':'panel is already configured'},409)
                 token=str(d.get('setup_token',''))
-                cookies={}
-                for item in self.headers.get('Cookie','').split(';'):
-                    if '=' in item:
-                        k,v=item.strip().split('=',1); cookies[k]=v
-                if not token or not hmac.compare_digest(token,cookies.get('uvps_setup_nonce','')): return send(self,{'error':'invalid setup request'},403)
+                if not token or not _valid_request_token('setup',token): return send(self,{'error':'invalid setup request'},403)
                 u=str(d.get('username','')).strip()
                 p=str(d.get('password',''))
                 confirm=str(d.get('confirm',''))
@@ -213,11 +209,7 @@ class H(BaseHTTPRequestHandler):
             except Exception: return send(self,{'error':'invalid JSON'},400)
             if not admin_configured(): return send(self,{'error':'panel setup required'},503)
             token=str(d.get('login_token',''))
-            cookies={}
-            for item in self.headers.get('Cookie','').split(';'):
-                if '=' in item:
-                    k,v=item.strip().split('=',1); cookies[k]=v
-            if not token or not hmac.compare_digest(token,cookies.get('uvps_login_nonce','')): return send(self,{'error':'invalid login request'},403)
+            if not token or not _valid_request_token('login',token): return send(self,{'error':'invalid login request'},403)
             client_ip=self.client_address[0]; now=time.time()
             with LOGIN_LOCK:
                 state=LOGIN_FAILURES.get(client_ip,[0,now])
