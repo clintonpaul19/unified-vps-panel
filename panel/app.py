@@ -955,6 +955,7 @@ def service_states(names):
     return out
 
 class H(BaseHTTPRequestHandler):
+    protocol_version='HTTP/1.1'
     def setup(self):
         super().setup()
         self.connection.settimeout(15)
@@ -1530,17 +1531,10 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
             page=page.replace('__ACTIVE__',str(active))
             page=page.replace('__SERVER_DAILY__',_human_bytes(server_daily))
             page=page.replace('__SERVER_ALL__',_human_bytes(server_all))
-            b=page.encode()
-
-            self.send_response(200)
-            self.send_header('Content-Type','text/html; charset=utf-8')
-            self.send_header('Cache-Control','no-store')
-            self.send_header('X-Content-Type-Options','nosniff')
-            self.send_header('X-Frame-Options','DENY')
-            self.send_header('Referrer-Policy','no-referrer')
-            self.send_header('Content-Length',str(len(b)))
-            self.end_headers(); self.wfile.write(b); return
-        self.send_response(404); self.end_headers()
+            return send_html(self,page)
+        self.send_response(404)
+        self.send_header('Content-Length','0')
+        self.end_headers(); return
 
     def do_POST(self):
         self.path=urlsplit(self.path).path
@@ -1612,7 +1606,9 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
             if not r or not r['enabled'] or (r['expiry'] and r['expiry']<=int(time.time())): return send(self,{'ok':False})
             return send(self,{'ok':True,'id':r['username']})
         if not auth(self.headers,self.client_address[0] in ('127.0.0.1','::1')):
-            self.send_response(401); self.end_headers(); return
+            self.send_response(401)
+            self.send_header('Content-Length','0')
+            self.end_headers(); return
         try: d=body(self)
         except Exception: return send(self,{'error':'invalid JSON'},400)
         if self.path=='/api/backup':
