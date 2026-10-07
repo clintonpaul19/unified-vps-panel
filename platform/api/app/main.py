@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
 from pathlib import Path
+import os
 import secrets
 from uuid import UUID
 
@@ -38,7 +39,7 @@ from .security import hash_password, make_session, new_node_token, read_session,
 SESSION_COOKIE = "uvps_session"
 ROLE_WRITE = {"owner", "admin", "operator"}
 BOOTSTRAP_LOCK_KEY = 193847201
-WEB_DIR = Path(__file__).resolve().parents[2] / "web"
+WEB_DIR = Path(os.environ.get("UVPS_WEB_DIR", Path(__file__).resolve().parents[2] / "web")).resolve()
 STATIC_DIR = WEB_DIR / "assets"
 
 
