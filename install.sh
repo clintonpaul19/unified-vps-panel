@@ -647,6 +647,30 @@ else
   PANEL_SETUP_TEST="$PANEL_SETUP_PAGE"
 fi
 rm -f "$SETUP_COOKIE"
+# Exercise the real credential persistence path in an isolated temporary
+# location. This catches missing imports/runtime errors that a GET-only smoke
+# test cannot detect, without creating administrator credentials on the VPS.
+if ! env PYTHONPATH=/opt/unified-vps UVPS_SMOKE=1 python3 - <<'PY'
+import importlib
+import os
+import tempfile
+from pathlib import Path
+a=importlib.import_module("uvps_panel.auth")
+with tempfile.TemporaryDirectory() as td:
+    base=Path(td)
+    a.BASE=str(base)
+    a.ADMIN_FILE=str(base/"admin.json")
+    a.PANEL_ENV=str(base/"panel.env")
+    a.PANEL_ENV
+    a._save_admin_credentials("uvps-smoke","smoke-pass-123")
+    assert Path(a.ADMIN_FILE).is_file()
+    text=Path(a.ADMIN_FILE).read_text(encoding="utf-8")
+    assert "password_hash" in text and "smoke-pass-123" not in text
+PY
+then
+  echo "ERROR: panel credential persistence smoke test failed."
+  exit 1
+fi
 if echo "$PANEL_SETUP_TEST" | grep -qiE 'MAX_REQUEST_BODY|NameError|Traceback'; then
   echo "ERROR: panel first-run setup smoke test exposed a runtime exception:"
   echo "$PANEL_SETUP_TEST"
