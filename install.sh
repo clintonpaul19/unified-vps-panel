@@ -334,6 +334,14 @@ fi
 chmod 600 /etc/unified-vps/xray.key
 chmod 644 /etc/unified-vps/xray.crt
 
+# Xray uses service-local TLS copies. Create and populate them before the
+# first configuration test; otherwise xray -test would fail on a fresh install.
+mkdir -p /usr/local/etc/xray/certs
+chown root:root /usr/local/etc/xray/certs
+chmod 755 /usr/local/etc/xray/certs
+install -o xray -g xray -m 0644 /etc/unified-vps/xray.crt /usr/local/etc/xray/certs/xray.crt
+install -o xray -g xray -m 0640 /etc/unified-vps/xray.key /usr/local/etc/xray/certs/xray.key
+
 # Do not restart Xray/Hysteria from acme.sh during first installation.
 # Their final configurations are created below, after certificates are installed.
 echo "Certificate installed successfully."
@@ -482,9 +490,7 @@ haproxy -c -f /etc/haproxy/haproxy.cfg
 chown hysteria:hysteria /etc/hysteria/server.crt /etc/hysteria/server.key
 chmod 640 /etc/hysteria/server.crt /etc/hysteria/server.key
 
-# Xray reads dedicated TLS copies from its own configuration directory.
-install -o xray -g xray -m 0644 /etc/unified-vps/xray.crt /usr/local/etc/xray/certs/xray.crt
-install -o xray -g xray -m 0640 /etc/unified-vps/xray.key /usr/local/etc/xray/certs/xray.key
+# TLS copies were populated before the Xray configuration test.
 
 curl -fsSL "${UVPS_RAW_BASE}/systemd/hysteria-server.service" -o /etc/systemd/system/hysteria-server.service
 
