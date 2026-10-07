@@ -627,13 +627,12 @@ async def command_result(
     if not cmd or cmd.server_id != server.id:
         raise HTTPException(status_code=404, detail="command not found")
 
+    if cmd.status in {"succeeded", "failed", "cancelled", "expired"}:
+        return cmd
     if not cmd.lease_token or not hmac.compare_digest(cmd.lease_token, result_payload.lease_token):
         raise HTTPException(status_code=409, detail="command lease is no longer valid")
 
     status_value = result_payload.status
-    if cmd.status in {"succeeded", "failed", "cancelled", "expired"}:
-        return cmd
-
     now = datetime.now(timezone.utc)
     if not cmd.lease_until or cmd.lease_until < now:
         raise HTTPException(status_code=409, detail="command lease has expired")
@@ -643,6 +642,7 @@ async def command_result(
     else:
         cmd.finished_at = now
         cmd.lease_until = None
+        cmd.lease_token = None
 
     cmd.status = status_value
     if result_payload.result is not None:
