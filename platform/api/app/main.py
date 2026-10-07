@@ -251,6 +251,11 @@ async def bootstrap(db: AsyncSession, organization_name: str) -> User:
     return user
 
 
+@app.get("/metrics", include_in_schema=False)
+async def metrics():
+    return Response(render_metrics(), media_type="text/plain; version=0.0.4; charset=utf-8")
+
+
 @app.get("/healthz")
 async def healthz():
     return {"status": "ok", "service": "control-plane"}
