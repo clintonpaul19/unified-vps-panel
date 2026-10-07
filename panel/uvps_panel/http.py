@@ -15,7 +15,7 @@ from .config import MAINT_LOCK,PANEL_BUILD,PORT,SETUP_LOCK,SPEEDTEST_LOCK
 from .db import conn,log_event
 from .hysteria import _hysteria_online,kick_hysteria
 from .http_utils import body,send,send_html
-from .system import _active_sessions,_certificate_info,_security_info,_system_metrics,service_states
+from .system import _active_sessions,_certificate_info,_security_info,_system_metrics,public_host,service_states
 from .views import dashboard_page,login_page,setup_page
 from .cache import cached_value
 
