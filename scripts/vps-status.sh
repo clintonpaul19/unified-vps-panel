@@ -17,4 +17,3 @@ for p in 22 80 143 443 8080 8443 8880; do
   fi
 done
 if ss -lunH "sport = :53" 2>/dev/null | grep -q ':53'; then echo "UDP 53    OPEN"; else echo "UDP 53    MISSING"; fi
-if ss -lntH "sport = :6080" 2>/dev/null | grep -q ':6080'; then echo "WARNING: obsolete 6080 listener found."; else echo "Web panel: REMOVED"; fi
