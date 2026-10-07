@@ -56,7 +56,11 @@ Supported CPU types:
 
 ## Installation
 
-Run this on the VPS as **root**:
+Run this on the VPS as **root**.
+
+### Copy this command
+
+GitHub shows a **copy button** at the top-right of this code block. Tap it, paste the command into your VPS terminal, and press Enter.
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/install.sh)
