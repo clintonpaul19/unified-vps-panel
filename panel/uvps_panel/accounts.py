@@ -10,7 +10,7 @@ from .db import conn,log_event
 from .hysteria import _hysteria_usage,kick_hysteria
 from .ssh import add_ssh,del_ssh,set_ssh_enabled
 from .system import public_host
-from .xray import add_xray,del_xray,ensure_xray_client
+from .xray import _xray_usage,add_xray,del_xray,ensure_xray_client
 
 def make_uri(row):
     host=public_host(); u=row['username']; s=row['secret']; p=row['protocol']
