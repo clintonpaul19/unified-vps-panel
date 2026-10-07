@@ -49,4 +49,4 @@ class SlidingWindowLimiter:
             self._state.pop(key, None)
 
 
-login_limiter = SlidingWindowLimiter(max_attempts=8, window_seconds=600, max_keys=10000)
+from .config import settings\n\nlogin_limiter = SlidingWindowLimiter(\n    max_attempts=settings.login_rate_limit_attempts,\n    window_seconds=settings.login_rate_limit_window_seconds,\n    max_keys=10000,\n)
