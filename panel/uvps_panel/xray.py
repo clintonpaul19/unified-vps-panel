@@ -87,3 +87,19 @@ def del_xray(protocol,u):
                 ib['settings']['clients']=[x for x in ib['settings'].get('clients',[]) if x.get('email')!=u]
                 changed |= old != len(ib['settings']['clients'])
         if changed: save_xray(d)
+
+def _xray_usage():
+    try:
+        p=subprocess.run(['xray','api','statsquery','--server=127.0.0.1:10085'],capture_output=True,text=True,timeout=10)
+        if p.returncode != 0: return None
+        data=json.loads(p.stdout)
+        out={}
+        for item in data.get('stat',[]):
+            name=item.get('name','')
+            parts=name.split('>>>')
+            if len(parts)==4 and parts[0]=='user' and parts[2]=='traffic' and parts[3] in ('uplink','downlink'):
+                out.setdefault(parts[1],0)
+                out[parts[1]] += int(item.get('value',0))
+        return out
+    except Exception:
+        return None
