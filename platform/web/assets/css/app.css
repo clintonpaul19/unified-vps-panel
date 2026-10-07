@@ -1,5 +1,3 @@
-@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap");
-
 :root {
   color-scheme: dark;
   --bg: #070b10;
@@ -44,7 +42,7 @@ body {
     radial-gradient(circle at 85% -10%, rgba(56, 189, 248, 0.08), transparent 32rem),
     var(--bg);
   color: var(--text);
-  font-family: "DM Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   line-height: 1.5;
 }
 
@@ -82,18 +80,6 @@ a {
   box-shadow: var(--focus);
 }
 
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
-
 .skip-link {
   position: fixed;
   top: 10px;
@@ -111,6 +97,18 @@ a {
 
 .skip-link:focus {
   transform: translateY(0);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 #app-root,
@@ -154,11 +152,11 @@ a {
   border-radius: 10px;
   background: linear-gradient(145deg, var(--surface-3), var(--surface));
   color: var(--accent);
-  font: 700 16px/1 "Space Grotesk", sans-serif;
+  font: 700 16px/1 system-ui, sans-serif;
 }
 
 .brand-title {
-  font: 700 16px/1.1 "Space Grotesk", sans-serif;
+  font: 700 16px/1.1 system-ui, sans-serif;
   letter-spacing: -0.02em;
 }
 
@@ -276,7 +274,7 @@ a {
 .page-heading h1 {
   margin: 0;
   overflow: hidden;
-  font: 700 clamp(20px, 2vw, 26px)/1.15 "Space Grotesk", sans-serif;
+  font: 700 clamp(20px, 2vw, 26px)/1.15 system-ui, sans-serif;
   letter-spacing: -0.03em;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -343,7 +341,7 @@ a {
 .card-title,
 .section-title {
   margin: 0;
-  font: 700 16px/1.2 "Space Grotesk", sans-serif;
+  font: 700 16px/1.2 system-ui, sans-serif;
   letter-spacing: -0.02em;
 }
 
@@ -365,7 +363,7 @@ a {
 }
 
 .stat-value {
-  font: 700 clamp(28px, 3vw, 38px)/1 "Space Grotesk", sans-serif;
+  font: 700 clamp(28px, 3vw, 38px)/1 system-ui, sans-serif;
   letter-spacing: -0.04em;
 }
 
@@ -389,7 +387,7 @@ a {
 .server-name {
   margin: 0;
   overflow: hidden;
-  font: 700 16px/1.25 "Space Grotesk", sans-serif;
+  font: 700 16px/1.25 system-ui, sans-serif;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -451,11 +449,14 @@ a {
   background: currentColor;
 }
 
-.status-online {
+.status-online,
+.status-succeeded,
+.status-success {
   color: var(--success);
 }
 
-.status-degraded {
+.status-degraded,
+.status-warning {
   color: var(--warning);
 }
 
@@ -475,12 +476,8 @@ a {
   color: var(--info);
 }
 
-.status-succeeded,
-.status-success {
-  color: var(--success);
-}
-
-.status-cancelled {
+.status-cancelled,
+.status-unknown {
   color: var(--muted-strong);
 }
 
@@ -727,7 +724,7 @@ a {
 
 .empty-title {
   margin: 2px 0 0;
-  font: 700 15px/1.2 "Space Grotesk", sans-serif;
+  font: 700 15px/1.2 system-ui, sans-serif;
 }
 
 .empty-message {
@@ -884,7 +881,7 @@ a {
 
 .modal-title {
   margin: 0;
-  font: 700 17px/1.2 "Space Grotesk", sans-serif;
+  font: 700 17px/1.2 system-ui, sans-serif;
 }
 
 .modal-description {
@@ -933,7 +930,7 @@ a {
 
 .auth-card h1 {
   margin: 0;
-  font: 700 28px/1.05 "Space Grotesk", sans-serif;
+  font: 700 28px/1.05 system-ui, sans-serif;
   letter-spacing: -0.04em;
 }
 
@@ -955,13 +952,6 @@ a {
 
 .backdrop {
   display: none;
-}
-
-.pagination {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  padding-top: 12px;
 }
 
 .detail-grid {
