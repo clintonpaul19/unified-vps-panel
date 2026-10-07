@@ -4,9 +4,11 @@ set -u
 # Hysteria receives its own root-owned copies below.
 install -o xray -g xray -m 0644 /etc/unified-vps/xray.crt /etc/unified-vps/xray.crt.tmp 2>/dev/null && mv -f /etc/unified-vps/xray.crt.tmp /etc/unified-vps/xray.crt 2>/dev/null || true
 install -o xray -g xray -m 0640 /etc/unified-vps/xray.key /etc/unified-vps/xray.key.tmp 2>/dev/null && mv -f /etc/unified-vps/xray.key.tmp /etc/unified-vps/xray.key 2>/dev/null || true
-chown xray:xray /etc/unified-vps/xray.crt /etc/unified-vps/xray.key 2>/dev/null || true
+chown root:root /etc/unified-vps/xray.crt /etc/unified-vps/xray.key 2>/dev/null || true
 chmod 0644 /etc/unified-vps/xray.crt 2>/dev/null || true
-chmod 0640 /etc/unified-vps/xray.key 2>/dev/null || true
+chmod 0600 /etc/unified-vps/xray.key 2>/dev/null || true
+install -o xray -g xray -m 0644 /etc/unified-vps/xray.crt /usr/local/etc/xray/certs/xray.crt 2>/dev/null || true
+install -o xray -g xray -m 0640 /etc/unified-vps/xray.key /usr/local/etc/xray/certs/xray.key 2>/dev/null || true
 install -m 0644 /etc/unified-vps/xray.crt /etc/hysteria/server.crt 2>/dev/null || true
 install -m 0640 /etc/unified-vps/xray.key /etc/hysteria/server.key 2>/dev/null || true
 chown hysteria:hysteria /etc/hysteria/server.crt /etc/hysteria/server.key 2>/dev/null || true
