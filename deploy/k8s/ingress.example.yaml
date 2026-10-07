@@ -1,0 +1,22 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: unified-vps-api
+  namespace: unified-vps
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - control.example.com
+      secretName: control-example-com-tls
+  rules:
+    - host: control.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: unified-vps-api
+                port:
+                  name: http
