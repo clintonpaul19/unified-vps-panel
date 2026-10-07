@@ -33,6 +33,7 @@ for x in d["accounts"]:
         print(json.dumps(x,separators=(",",":"))); raise SystemExit(0)
 raise SystemExit(1)
 PY
+}
 state_change(){
   local mode="$1" user="$2" obj="$3" tmp
   tmp="$(mktemp "$BASE/state.XXXXXX")"
@@ -100,7 +101,9 @@ lines=["listen: 0.0.0.0:53","tls:",f"  cert: {cert}",f"  key: {key}","auth:","  
 if users:
     for u,p in users.items(): lines.append(f"    {json.dumps(u)}: {json.dumps(p)}")
 else:
-    lines.append("    no-users: disabled")
+    # Random unreachable credentials prevent a known default login while
+    # keeping Hysteria's UDP/53 listener available before the first account.
+    lines.append(f"    disabled-{os.urandom(6).hex()}: {os.urandom(18).hex()}")
 lines.append("speedTest: true")
 tmp=path+".tmp"
 with open(tmp,"w",encoding="utf-8") as f: f.write("\n".join(lines)+"\n")
