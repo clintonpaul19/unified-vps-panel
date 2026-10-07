@@ -18,6 +18,7 @@ from starlette.middleware.gzip import GZipMiddleware
 from .config import settings
 from .db import Base, SessionLocal, engine
 from .middleware import RequestContextMiddleware
+from .metrics import render as render_metrics
 from .models import AuditEvent, Command, Membership, Organization, Server, ServerToken, User
 from .pagination import Cursor, InvalidCursor, decode_cursor, encode_cursor
 from .schemas import (
