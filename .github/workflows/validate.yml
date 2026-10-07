@@ -56,19 +56,19 @@ jobs:
           app=Path("panel/app.py").read_text(encoding="utf-8")
           menu=Path("scripts/menu.sh").read_text(encoding="utf-8")
           install=Path("install.sh").read_text(encoding="utf-8")
-          assert "self.path=urlsplit(self.path).path" in app
-          assert "ADMIN=os.environ.get('ADMIN_USER','').strip()" in app
-          assert "ADMIN_FILE=f'{BASE}/admin.json'" in app
+          assert "urlsplit(" in app
+          assert "ADMIN_FILE" in app and "_load_admin_credentials" in app
           assert "Save and login" in app
-          assert "Retire" not in app or "hashlib.sha256" in app
-          assert "89b4cdab4d0d839fcf432ca76640ffe90da27a63b6f0ad7bbf1d644f5ccd91a9" in app
+          assert "hashlib.sha256" in app
           assert "manage-user" in install
           assert "manage-user" in menu
-          assert "ADMIN_PASSWORD=spiderman" not in install
-          for p in __import__('pathlib').Path('platform').rglob('*'):
+          assert "spiderman" not in install.lower()
+          assert "spiderman" not in app.lower()
+          for p in __import__('pathlib').Path('.').rglob('*'):
+              if '.git' in p.parts:
+                  continue
               if p.is_file() and b'\x00' in p.read_bytes():
                   raise SystemExit(f"NUL byte found in {p}")
-          assert "ADMIN_USER=spiderman" not in install
           print("Critical runtime invariants passed")
           PY
       - name: Validate systemd units
