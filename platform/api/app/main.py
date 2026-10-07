@@ -34,6 +34,7 @@ from .schemas import (
     UserOut,
 )
 from .security import hash_password, make_session, new_node_token, read_session, token_hash, verify_password
+from .rate_limit import login_limiter
 
 
 SESSION_COOKIE = "uvps_session"
@@ -55,8 +56,8 @@ async def lifespan(_: FastAPI):
 app = FastAPI(
     title=settings.app_name,
     version="0.4.0",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url="/docs" if settings.api_docs_enabled else None,
+    redoc_url="/redoc" if settings.api_docs_enabled else None,
     lifespan=lifespan,
 )
 app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=5)
@@ -79,6 +80,23 @@ def parse_cursor(value: str | None, kind: str) -> Cursor | None:
 
 def normalize_limit(limit: int) -> int:
     return max(1, min(limit, settings.max_page_size))
+
+
+CSRF_COOKIE = "uvps_csrf"
+
+
+def ensure_csrf_cookie(request: Request, response: Response) -> None:
+    if not request.cookies.get(CSRF_COOKIE):
+        token = secrets.token_urlsafe(32)
+        response.set_cookie(
+            CSRF_COOKIE,
+            token,
+            httponly=False,
+            secure=settings.cookie_secure,
+            samesite="strict",
+            max_age=settings.session_ttl_seconds,
+            path="/",
+        )
 
 
 def set_page_headers(response: Response, limit: int, next_cursor: str | None) -> None:
@@ -198,7 +216,7 @@ async def record_event(
             actor_user_id=actor_user_id,
             server_id=server_id,
             event_type=event_type,
-            metadata=metadata,
+            event_metadata=metadata,
         )
     )
 
@@ -218,7 +236,7 @@ async def bootstrap(db: AsyncSession, organization_name: str) -> User:
     ).strip("-")[:70] or "unified-vps"
     org = Organization(
         name=organization_name,
-        slug=f"{slug_base}-{hashlib.sha1(email.encode()).hexdigest()[:8]}",
+        slug=f"{slug_base}-{secrets.token_hex(4)}",
     )
     user = User(email=email, password_hash=hash_password(password))
     db.add_all([org, user])
@@ -254,14 +272,23 @@ async def bootstrap_route(
 @app.post("/v1/auth/login")
 async def login(
     body: LoginRequest,
+    request: Request,
     response: Response,
     db: AsyncSession = Depends(get_db),
 ):
+    client_ip = request.client.host if request.client else "unknown"
+    if not login_limiter.allow(client_ip):
+        raise HTTPException(
+            status_code=429,
+            detail="too many login attempts; try again later",
+            headers={"Retry-After": str(settings.login_rate_limit_retry_after_seconds)},
+        )
     user = await db.scalar(
         select(User).where(User.email == body.email.lower()).limit(1)
     )
     if not user or not user.is_active or not verify_password(user.password_hash, body.password):
         raise HTTPException(status_code=401, detail="invalid credentials")
+    login_limiter.reset(client_ip)
     user.last_login_at = datetime.now(timezone.utc)
     await db.commit()
     response.set_cookie(
@@ -273,6 +300,7 @@ async def login(
         max_age=settings.session_ttl_seconds,
         path="/",
     )
+    ensure_csrf_cookie(request, response)
     return {"user": UserOut.model_validate(user).model_dump()}
 
 
@@ -285,11 +313,18 @@ async def logout(response: Response):
         httponly=True,
         samesite="lax",
     )
+    response.delete_cookie(
+        CSRF_COOKIE,
+        path="/",
+        secure=settings.cookie_secure,
+        samesite="strict",
+    )
     return {"ok": True}
 
 
 @app.get("/v1/me")
-async def me(user: User = Depends(current_user)):
+async def me(request: Request, response: Response, user: User = Depends(current_user)):
+    ensure_csrf_cookie(request, response)
     return UserOut.model_validate(user)
 
 
