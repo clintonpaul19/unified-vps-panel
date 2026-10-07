@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone, timedelta
+from collections.abc import AsyncIterator
+from datetime import datetime, timezone
 import hashlib
 from uuid import UUID
 
@@ -9,7 +10,7 @@ from sqlalchemy import and_, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .config import settings
-from .db import Base, engine, session
+from .db import Base, engine, SessionLocal
 from .models import AuditEvent, Command, Membership, Organization, Server, ServerToken, User
 from .schemas import BootstrapRequest, CommandCreate, CommandOut, HeartbeatIn, LoginRequest, ServerCreate, ServerOut, UserOut
 from .security import hash_password, make_session, new_node_token, read_session, token_hash, verify_password
@@ -26,10 +27,9 @@ async def lifespan(_: FastAPI):
 
 app=FastAPI(title=settings.app_name, version="0.1.0", docs_url="/docs", redoc_url="/redoc", lifespan=lifespan)
 
-async def get_db() -> AsyncSession:
-    async for db in session():
-        return db
-    raise RuntimeError("database session unavailable")
+async def get_db() -> AsyncIterator[AsyncSession]:
+    async with SessionLocal() as db:
+        yield db
 
 async def current_user(request: Request, db: AsyncSession=Depends(get_db)) -> User:
     sid=request.cookies.get(SESSION_COOKIE)
@@ -147,9 +147,71 @@ async def heartbeat(server_id: UUID, body: HeartbeatIn, request: Request, db: As
     server.public_ipv6=body.public_ipv6 or server.public_ipv6
     server.status=body.status
     server.last_seen_at=datetime.now(timezone.utc)
-    await db.execute(select(Command.id).where(and_(Command.server_id==server.id,Command.status=="queued")).limit(1))
     await db.commit()
     return {"ok":True,"server_id":str(server.id)}
+
+@app.get("/v1/servers/{server_id}/commands/next", response_model=CommandOut | None)
+async def next_command(server_id: UUID, request: Request, db: AsyncSession=Depends(get_db)):
+    server=await authenticated_agent(db,server_id,request.headers.get("Authorization"))
+    result=await db.execute(
+        select(Command)
+        .where(and_(Command.server_id==server.id,Command.status=="queued"))
+        .order_by(Command.created_at)
+        .with_for_update(skip_locked=True)
+        .limit(1)
+    )
+    cmd=result.scalar_one_or_none()
+    if not cmd:
+        await db.commit()
+        return None
+    cmd.status="sent"
+    await db.commit()
+    await db.refresh(cmd)
+    return cmd
+
+@app.post("/v1/servers/{server_id}/commands/{command_id}/result", response_model=CommandOut)
+async def command_result(
+    server_id: UUID,
+    command_id: UUID,
+    request: Request,
+    result_payload: dict,
+    db: AsyncSession=Depends(get_db),
+):
+    server=await authenticated_agent(db,server_id,request.headers.get("Authorization"))
+    cmd=await db.get(Command,command_id)
+    if not cmd or cmd.server_id!=server.id:
+        raise HTTPException(status_code=404,detail="command not found")
+    status_value=result_payload.get("status")
+    if status_value not in {"running","succeeded","failed"}:
+        raise HTTPException(status_code=400,detail="status must be running, succeeded or failed")
+    now=datetime.now(timezone.utc)
+    cmd.status=status_value
+    if status_value=="running" and cmd.started_at is None:
+        cmd.started_at=now
+    if status_value in {"succeeded","failed"}:
+        cmd.finished_at=now
+    if "result" in result_payload and isinstance(result_payload["result"],dict):
+        cmd.result=result_payload["result"]
+    if status_value=="failed":
+        cmd.error=str(result_payload.get("error","command failed"))[:2000]
+    await db.commit()
+    await db.refresh(cmd)
+    return cmd
+
+@app.post("/v1/servers/{server_id}/commands/{command_id}/cancel", response_model=CommandOut)
+async def cancel_command(server_id: UUID, command_id: UUID, user: User=Depends(current_user), db: AsyncSession=Depends(get_db)):
+    org=await org_for_user(db,user)
+    if not await write_access(db,user,org):
+        raise HTTPException(status_code=403,detail="write access required")
+    cmd=await db.get(Command,command_id)
+    if not cmd or cmd.organization_id!=org.id or cmd.server_id!=server_id or cmd.status not in {"queued","sent"}:
+        raise HTTPException(status_code=404,detail="cancellable command not found")
+    cmd.status="cancelled"
+    cmd.finished_at=datetime.now(timezone.utc)
+    await record_event(db,org.id,user.id,server_id,"command.cancelled",{"command_id":str(command_id)})
+    await db.commit()
+    await db.refresh(cmd)
+    return cmd
 
 @app.post("/v1/servers/{server_id}/commands", response_model=CommandOut)
 async def create_command(server_id: UUID, body: CommandCreate,user: User=Depends(current_user),db: AsyncSession=Depends(get_db),):
