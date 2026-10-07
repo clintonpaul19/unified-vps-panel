@@ -595,10 +595,12 @@ async def next_command(
             cmd.status = "expired"
             cmd.finished_at = now
             cmd.lease_until = None
+            cmd.lease_token = None
             continue
 
         cmd.status = "sent"
         cmd.lease_until = now + timedelta(seconds=settings.command_lease_seconds)
+        cmd.lease_token = secrets.token_urlsafe(48)
         cmd.attempt_count += 1
         await db.commit()
         return cmd
