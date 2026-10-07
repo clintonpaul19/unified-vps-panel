@@ -8,10 +8,16 @@ import random
 import socket
 import subprocess
 import time
+from urllib.parse import urlsplit
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 BASE = os.environ["UVPS_CONTROL_PLANE_URL"].rstrip("/")
+_parts = urlsplit(BASE)
+if not _parts.netloc:
+    raise RuntimeError("UVPS_CONTROL_PLANE_URL must include a hostname")
+if _parts.scheme != "https" and os.environ.get("UVPS_ALLOW_INSECURE_HTTP", "").lower() != "true":
+    raise RuntimeError("UVPS_CONTROL_PLANE_URL must use HTTPS")
 SERVER_ID = os.environ["UVPS_SERVER_ID"]
 TOKEN = os.environ["UVPS_NODE_TOKEN"]
 INTERVAL = max(float(os.environ.get("UVPS_HEARTBEAT_INTERVAL", "30")), 5.0)
