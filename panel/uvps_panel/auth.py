@@ -214,30 +214,33 @@ def _valid_request_token(scope: str, token: str) -> bool:
 
 def _session_cookie(username: str) -> str:
     issued = str(int(time.time()))
-    payload = f"{username}|{issued}"
+    payload = f"{username}|{issued}".encode("utf-8")
+    encoded = _b64(payload)
     sig = hmac.new(
         f"{ADMIN}\0{PASSWORD_HASH}".encode("utf-8"),
-        payload.encode("utf-8"),
+        payload,
         hashlib.sha256,
     ).hexdigest()
-    return f"{payload}|{sig}"
+    return f"{encoded}.{sig}"
 
 
 def _session_valid(cookie: str) -> bool:
     if not admin_configured() or not cookie:
         return False
     try:
-        username, issued_text, sig = cookie.split("|", 2)
+        encoded, sig = cookie.split(".", 1)
+        payload = _unb64(encoded)
+        username, issued_text = payload.decode("utf-8").split("|", 1)
         issued = int(issued_text)
         if username != ADMIN or issued < 0 or time.time() - issued > SESSION_TTL:
             return False
         expected = hmac.new(
             f"{ADMIN}\0{PASSWORD_HASH}".encode("utf-8"),
-            f"{username}|{issued}".encode("utf-8"),
+            payload,
             hashlib.sha256,
         ).hexdigest()
         return hmac.compare_digest(sig, expected)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, UnicodeError):
         return False
 
 
