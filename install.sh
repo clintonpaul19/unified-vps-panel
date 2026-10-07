@@ -169,7 +169,8 @@ chmod 600 "$BASE/accounts.json"
 
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /usr/local/bin/menu --render
 systemctl daemon-reload
-systemctl enable --now nginx haproxy unified-vps-wstunnel-ssh unified-vps-ws-payload-ssh
+systemctl enable --now nginx haproxy unified-vps-wstunnel-ssh unified-vps-ws-payload-ssh hysteria-server
+systemctl enable xray >/dev/null 2>&1 || true
 systemctl restart xray hysteria-server
 
 curl -fsSL "${RAW}/config/fail2ban-unified-vps.local" -o /etc/fail2ban/jail.d/unified-vps.conf
