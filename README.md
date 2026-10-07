@@ -64,7 +64,7 @@ Main functions:
 - Trojan: TLS on TCP 443/8443
 - Hysteria 2: UDP 53
 
-Hysteria 2 supports `userpass` authentication with username/password pairs. citeturn542970search0turn542970search2
+Hysteria 2 supports `userpass` authentication with username/password pairs.
 
 ## Account storage
 
