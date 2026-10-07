@@ -10,7 +10,7 @@ main{width:min(1100px,94vw);margin:40px auto}.top{display:flex;justify-content:s
 <body><main>
 <div id="login" class="card"><h1>Unified VPS</h1><p class="sub">Control plane sign in</p><form id="loginForm"><input id="email" type="email" placeholder="Email" required><input id="password" type="password" placeholder="Password" required><button>Sign in</button><div id="loginMsg" class="sub"></div></form></div>
 <div id="app" class="hidden">
-<div class="top"><div><h1>Unified VPS</h1><div class="sub" id="me"></div></div><button id="logout">Sign out</button></div>
+<div class="top"><div><h1>Unified VPS</h1><div class="sub" id="me"></div></div><div style="display:flex;gap:8px;align-items:center"><select id="orgSelect" style="display:none"></select><button id="logout">Sign out</button></div></div>
 <div class="grid"><div class="card"><div class="sub">Servers</div><div class="stat" id="serverCount">0</div></div><div class="card"><div class="sub">Online</div><div class="stat" id="onlineCount">0</div></div></div>
 <div class="card" style="margin-top:14px"><h2>Register server</h2><form id="serverForm"><input id="serverName" placeholder="Server name" maxlength="120" required><input id="serverHost" placeholder="Hostname"><input id="serverIp" placeholder="Public IPv4"><button>Register</button><div id="serverMsg" class="sub"></div></form></div><div class="card" style="margin-top:14px"><h2>Servers</h2><div id="servers"></div></div>
 <div class="card" style="margin-top:14px"><h2>Recent events</h2><div id="events"></div></div>
