@@ -35,6 +35,9 @@ rm -f /etc/systemd/system/unified-vps-sslh-xray.service
 
 # Remove the old panel port rule and keep only tunnel ports.
 while iptables -D INPUT -p tcp --dport 6080 -j ACCEPT 2>/dev/null; do :; done
+# UDP/53 is the only port 53 transport. Remove the legacy TCP/53 rule from
+# older installations so it is not unnecessarily exposed.
+while iptables -D INPUT -p tcp --dport 53 -j ACCEPT 2>/dev/null; do :; done
 for p in 22 80 143 443 8080 8443 8880; do
   iptables -C INPUT -p tcp --dport "$p" -j ACCEPT 2>/dev/null || iptables -A INPUT -p tcp --dport "$p" -j ACCEPT
 done
@@ -129,7 +132,13 @@ fi
 "$ACME" --install-cert -d "$DOMAIN"   --fullchain-file "$BASE/xray.crt"   --key-file "$BASE/xray.key"   --reloadcmd "/usr/local/sbin/unified-vps-cert-reload"
 /usr/local/sbin/unified-vps-cert-reload
 
-# UDP/53 belongs to Hysteria 2. Prevent systemd-resolved from owning the port.
+# UDP/53 belongs to Hysteria 2. Prevent old UDP helpers or systemd-resolved
+# from owning the port.
+for legacy in udp-custom udp-mini; do
+  if systemctl list-unit-files --type=service --no-legend 2>/dev/null | awk '{print $1}' | grep -qx "$legacy.service"; then
+    systemctl disable --now "$legacy.service" 2>/dev/null || true
+  fi
+done
 if systemctl is-enabled --quiet systemd-resolved 2>/dev/null || systemctl is-active --quiet systemd-resolved 2>/dev/null; then
   systemctl disable --now systemd-resolved.service 2>/dev/null || true
 fi
