@@ -194,12 +194,19 @@ mkdir -p /usr/local/etc/xray
 if [ ! -s /usr/local/etc/xray/config.json ]; then
   printf '{}\n' >/usr/local/etc/xray/config.json
 fi
-if ! command -v xray >/dev/null 2>&1; then bash -c "$(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install; fi
-# Never run Xray as the generic "nobody" account. Use a dedicated, unprivileged
-# service account so certificate/config permissions can be restrictive without
-# depending on the filesystem layout or supplementary groups of other services.
+# Create the dedicated unprivileged Xray account before installation so the
+# upstream installer can generate its service with the correct User= directly.
 if ! getent passwd xray >/dev/null 2>&1; then
   useradd --system --no-create-home --shell /usr/sbin/nologin xray
+fi
+if ! command -v xray >/dev/null 2>&1; then
+  bash -c "$(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install -u xray
+fi
+# Existing Xray installations may still have been created with User=nobody.
+# Normalize the generated unit and keep a drop-in as a defense against package
+# updates restoring the old account.
+if [ -f /etc/systemd/system/xray.service ]; then
+  sed -i -E 's/^[[:space:]]*User=[^[:space:]]+$/User=xray/' /etc/systemd/system/xray.service
 fi
 mkdir -p /etc/systemd/system/xray.service.d
 cat >/etc/systemd/system/xray.service.d/20-unified-vps-user.conf <<'EOF'
@@ -213,6 +220,9 @@ XRAY_GROUP="xray"
 curl -fsSL "${UVPS_RAW_BASE}/config/xray.json" -o /usr/local/etc/xray/config.json
 chmod 640 /usr/local/etc/xray/config.json
 chown "$XRAY_USER:$XRAY_GROUP" /usr/local/etc/xray/config.json
+mkdir -p /usr/local/etc/xray/certs
+chown root:root /usr/local/etc/xray/certs
+chmod 755 /usr/local/etc/xray/certs
 
 # Install wstunnel for SSH-over-WebSocket. HAProxy handles cleartext WS on
 # 80/8880, while Xray's TLS fallback handles WSS on 443/8443.
@@ -333,8 +343,9 @@ XRAY_USER="${XRAY_USER:-xray}"
 XRAY_GROUP="$(systemctl show xray.service -p Group --value 2>/dev/null || true)"
 XRAY_GROUP="${XRAY_GROUP:-$XRAY_USER}"
 if id "$XRAY_USER" >/dev/null 2>&1; then
-  chown "$XRAY_USER:$XRAY_GROUP" /etc/unified-vps/xray.key /etc/unified-vps/xray.crt 2>/dev/null || true
-  chmod 640 /etc/unified-vps/xray.key /etc/unified-vps/xray.crt 2>/dev/null || true
+  chown root:root /etc/unified-vps/xray.key /etc/unified-vps/xray.crt 2>/dev/null || true
+  chmod 600 /etc/unified-vps/xray.key 2>/dev/null || true
+  chmod 644 /etc/unified-vps/xray.crt 2>/dev/null || true
 fi
 
 echo "Testing Xray configuration..."
@@ -470,6 +481,10 @@ haproxy -c -f /etc/haproxy/haproxy.cfg
 
 chown hysteria:hysteria /etc/hysteria/server.crt /etc/hysteria/server.key
 chmod 640 /etc/hysteria/server.crt /etc/hysteria/server.key
+
+# Xray reads dedicated TLS copies from its own configuration directory.
+install -o xray -g xray -m 0644 /etc/unified-vps/xray.crt /usr/local/etc/xray/certs/xray.crt
+install -o xray -g xray -m 0640 /etc/unified-vps/xray.key /usr/local/etc/xray/certs/xray.key
 
 curl -fsSL "${UVPS_RAW_BASE}/systemd/hysteria-server.service" -o /etc/systemd/system/hysteria-server.service
 
