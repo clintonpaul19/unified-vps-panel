@@ -17,11 +17,19 @@ main{width:min(1100px,94vw);margin:40px auto}.top{display:flex;justify-content:s
 </div></main>
 <script>
 const $=id=>document.getElementById(id);
-async function api(path,opt={}){const r=await fetch(path,{...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});let j={};try{j=await r.json()}catch{}if(!r.ok)throw new Error(j.detail||'Request failed');return j}
+let activeOrgId="";
+async function api(path,opt={}){
+ const headers={'Content-Type':'application/json',...(opt.headers||{})};
+ if(activeOrgId)headers['X-Organization-ID']=activeOrgId;
+ const r=await fetch(path,{...opt,headers});let j={};try{j=await r.json()}catch{}if(!r.ok)throw new Error(j.detail||'Request failed');return j}
 function showLogin(){ $('login').classList.remove('hidden');$('app').classList.add('hidden') }
 async function load(){
  try{
   const me=await api('/v1/me'); $('me').textContent=me.email;
+  const orgs=await api('/v1/organizations');
+  if(!orgs.length)throw new Error('No organization membership');
+  if(!orgs.some(o=>o.id===activeOrgId))activeOrgId=orgs[0].id;
+  const orgSelect=$('orgSelect'); orgSelect.innerHTML=orgs.map(o=>'<option value="'+esc(o.id)+'">'+esc(o.name)+'</option>').join(''); orgSelect.value=activeOrgId; orgSelect.style.display=orgs.length>1?'block':'none';
   const servers=await api('/v1/servers'); $('serverCount').textContent=servers.length;$('onlineCount').textContent=servers.filter(s=>s.status==='online').length;
   $('servers').innerHTML=servers.length?servers.map(s=>'<div class="row"><div><b>'+esc(s.name)+'</b><div class="sub">'+esc(s.hostname||'No heartbeat yet')+'</div></div><span class="pill '+(s.status==='online'?'ok':'')+'">'+esc(s.status)+'</span></div>').join(''):'<div class="sub">No servers registered.</div>';
   const events=await api('/v1/events');$('events').innerHTML=events.length?events.map(e=>'<div class="row"><div><b>'+esc(e.event_type)+'</b><div class="sub">'+esc(JSON.stringify(e.metadata))+'</div></div><div class="sub">'+new Date(e.created_at).toLocaleString()+'</div></div>').join(''):'<div class="sub">No events.</div>';
@@ -30,6 +38,7 @@ async function load(){
 }
 $('loginForm').onsubmit=async e=>{e.preventDefault();$('loginMsg').textContent='';try{await api('/v1/auth/login',{method:'POST',body:JSON.stringify({email:$('email').value,password:$('password').value})});await load()}catch(err){$('loginMsg').textContent=err.message}};
 $('logout').onclick=async()=>{await api('/v1/auth/logout',{method:'POST'});showLogin()};
+$('orgSelect').onchange=()=>{activeOrgId=$('orgSelect').value;load()};
 $('serverForm').onsubmit=async e=>{e.preventDefault();$('serverMsg').textContent='';try{const r=await api('/v1/servers',{method:'POST',body:JSON.stringify({name:$('serverName').value,hostname:$('serverHost').value||null,public_ipv4:$('serverIp').value||null})});$('serverMsg').textContent='Registered. Save this node token now: '+r.node_token;$('serverForm').reset();await load()}catch(err){$('serverMsg').textContent=err.message}};
 function esc(v){return String(v).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 load();
