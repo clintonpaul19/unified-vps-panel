@@ -65,8 +65,7 @@ def dashboard_page():
         if protocol in XRAY_TAGS:
             uris=[]
             for port in ('80','443'):
-                uri=html.escape(x['uris'].get(port,''),quote=True)
-                uris.append(f'<div class="copyline"><code>{uri}</code><button class="copy-btn" data-copy="{uri}" type="button">Copy {port}</button></div>')
+                uris.append(f'<div class="copyline"><code>Credential hidden</code><button class="copy-btn" data-copy-id="{xid}" data-copy-key="{port}" type="button">Copy {port}</button></div>')
             connection='<div class="uri-stack">'+''.join(uris)+'</div>'
         elif protocol=='SSH':
             parts=[]
@@ -75,8 +74,7 @@ def dashboard_page():
                 parts.append(f'<div class="copyline"><code>{uri}</code><button class="copy-btn" data-copy="{uri}" type="button">Copy</button></div>')
             connection=f'<div class="sshmeta"><span>Host: {html.escape(x["host"],quote=True)}</span><span>Path: {html.escape(x["uris"].get("Path","/ssh"),quote=True)}</span></div><div class="uri-stack">{"".join(parts)}</div>'
         else:
-            uri=html.escape(next(iter(x['uris'].values()),''),quote=True)
-            connection=f'<div class="copyline"><code>{uri}</code><button class="copy-btn" data-copy="{uri}" type="button">Copy URI</button></div>'
+            connection=f'<div class="copyline"><code>Credential hidden</code><button class="copy-btn" data-copy-id="{xid}" data-copy-key="53" type="button">Copy URI</button></div>'
         expiry_class='warn' if x['expiry'] and x['expiry']<=time.time()+7*86400 else ''
         expiry_notice='<span class="muted warn">Expires soon</span>' if expiry_class else ''
         rows_html.append(
@@ -84,7 +82,7 @@ def dashboard_page():
             f'<td><input class="rowcheck" type="checkbox" value="{xid}"></td><td><div class="usercell"><div class="avatar">{html.escape(x["username"][0].upper())}</div><div><strong>{username}</strong><span class="muted">{html.escape(protocol)}</span></div></div></td>'
             f'<td>{state_badge("active" if enabled else "disabled")}</td>'
             f'<td><span class="pill">{html.escape(str(x["port"]))}</span></td>'
-            f'<td><button class="secret-btn" data-secret="{secret}" type="button">Reveal</button></td>'
+            f'<td><button class="secret-btn" data-user-id="{xid}" type="button">Reveal</button></td>
             f'<td><span id="alltime-{xid}">{usage_text}</span><span class="muted"> / {quota}</span><span id="daily-{xid}" class="muted">{daily_text}</span></td>'
             f'<td><span class="muted {expiry_class}">{html.escape(expiry)}</span>{expiry_notice}</td>'
             f'<td>{connection}</td>'
@@ -261,9 +259,31 @@ try{ok=document.execCommand("copy")}catch(e){ok=false}ta.remove();
   }
   if(ok){const old=button.textContent;button.textContent="Copied";setTimeout(()=>button.textContent=old,1200)}else{toast("Copy blocked — URI selected for manual copy.")}
 }
+async function fetchCredential(id){
+  const r=await fetch("/api/users/secret?id="+encodeURIComponent(id),{credentials:"same-origin"});
+  const j=await r.json();
+  if(!r.ok) throw new Error(j.error||"Credential request failed");
+  return j;
+}
 document.addEventListener("click",async e=>{
-  const copy=e.target.closest("[data-copy]"); if(copy){await copyText(copy.dataset.copy,copy);return}
-  const reveal=e.target.closest(".secret-btn"); if(reveal){if(reveal.dataset.revealed==="1"){reveal.textContent="Reveal";reveal.dataset.revealed="0"}else{reveal.textContent=reveal.dataset.secret;reveal.dataset.revealed="1"}return}
+  const copy=e.target.closest("[data-copy-id]"); if(copy){
+    try{
+      const j=await fetchCredential(copy.dataset.copyId);
+      const value=j.uris?.[copy.dataset.copyKey] || "";
+      if(!value) throw new Error("URI unavailable");
+      await copyText(value,copy);
+    }catch(err){toast(err.message||"Copy failed")}
+    return
+  }
+  const reveal=e.target.closest(".secret-btn"); if(reveal){
+    if(reveal.dataset.revealed==="1"){reveal.textContent="Reveal";reveal.dataset.revealed="0";return}
+    try{
+      const j=await fetchCredential(reveal.dataset.userId);
+      reveal.textContent=j.secret||"Unavailable";
+      reveal.dataset.revealed="1";
+    }catch(err){toast(err.message||"Reveal failed")}
+    return
+  }
   const act=e.target.closest("[data-action]"); if(act){
 const id=act.dataset.id, action=act.dataset.action;
 const r=await fetch("/api/users/action",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:Number(id),action:action})});
