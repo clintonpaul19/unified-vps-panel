@@ -13,10 +13,11 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate Python files
         run: |
-          python3 -m py_compile panel/app.py scripts/ws-payload-ssh.py platform/api/app/*.py platform/agent/agent.py
+          python3 -m py_compile panel/app.py panel/uvps_panel/*.py scripts/ws-payload-ssh.py platform/api/app/*.py platform/agent/agent.py
           python3 - <<'PY'
           import ast
-          for p in ('panel/app.py','scripts/ws-payload-ssh.py',*__import__('pathlib').Path('platform/api/app').glob('*.py'), 'platform/agent/agent.py'):
+          from pathlib import Path
+          for p in (Path('panel/app.py'), *Path('panel/uvps_panel').glob('*.py'), Path('scripts/ws-payload-ssh.py'), *Path('platform/api/app').glob('*.py'), Path('platform/agent/agent.py')):
               ast.parse(open(p, encoding='utf-8').read(), filename=p)
           PY
       - name: Validate configuration files
@@ -54,12 +55,18 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           app=Path("panel/app.py").read_text(encoding="utf-8")
+          package=Path("panel/uvps_panel")
           menu=Path("scripts/menu.sh").read_text(encoding="utf-8")
           install=Path("install.sh").read_text(encoding="utf-8")
-          assert "urlsplit(" in app
-          assert "ADMIN_FILE" in app and "_load_admin_credentials" in app
-          assert "Save and login" in app
-          assert "hashlib.sha256" in app
+          assert len(app.splitlines()) < 60
+          assert (package / "main.py").exists()
+          assert (package / "http.py").exists()
+          assert (package / "accounts.py").exists()
+          auth=(package / "auth.py").read_text(encoding="utf-8")
+          views=(package / "views.py").read_text(encoding="utf-8")
+          assert "ADMIN_FILE" in auth and "_load_admin_credentials" in auth
+          assert "Save and login" in views
+          assert "hashlib.sha256" in auth
           assert "manage-user" in install
           assert "manage-user" in menu
           assert "spiderman" not in install.lower()
