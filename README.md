@@ -389,4 +389,8 @@ For production use, test the installation on a fresh VPS first and keep backups 
 
 ## License
 
-See the repository for the current license information.
+This project is licensed under the **MIT License**.
+
+You are free to use, copy, modify, publish, distribute, and sell the software, provided that the original copyright notice and license are included.
+
+See [LICENSE](LICENSE) for the full license text.
