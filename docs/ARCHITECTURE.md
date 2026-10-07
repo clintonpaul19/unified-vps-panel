@@ -1,5 +1,7 @@
 # Unified VPS Platform — Production Architecture
 
+The normative production design for the current control-plane implementation is documented in docs/PRODUCTION_ARCHITECTURE.md. This file remains the higher-level product architecture; the new document describes the concrete API, schema, pagination, container and caching boundaries.
+
 ## Product boundary
 
 Unified VPS is split into two planes:
