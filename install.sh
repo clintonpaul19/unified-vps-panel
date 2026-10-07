@@ -192,12 +192,24 @@ if [ ! -s /usr/local/etc/xray/config.json ]; then
   printf '{}\n' >/usr/local/etc/xray/config.json
 fi
 if ! command -v xray >/dev/null 2>&1; then bash -c "$(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install; fi
+# Never run Xray as the generic "nobody" account. Use a dedicated, unprivileged
+# service account so certificate/config permissions can be restrictive without
+# depending on the filesystem layout or supplementary groups of other services.
+if ! getent passwd xray >/dev/null 2>&1; then
+  useradd --system --no-create-home --shell /usr/sbin/nologin xray
+fi
+mkdir -p /etc/systemd/system/xray.service.d
+cat >/etc/systemd/system/xray.service.d/20-unified-vps-user.conf <<'EOF'
+[Service]
+User=xray
+Group=xray
+EOF
+systemctl daemon-reload
+XRAY_USER="xray"
+XRAY_GROUP="xray"
 curl -fsSL "${UVPS_RAW_BASE}/config/xray.json" -o /usr/local/etc/xray/config.json
 chmod 640 /usr/local/etc/xray/config.json
-XRAY_USER="$(systemctl show xray.service -p User --value 2>/dev/null || true)"
-XRAY_USER="${XRAY_USER:-nobody}"
-XRAY_GROUP="$(id -gn "$XRAY_USER" 2>/dev/null || true)"
-if [ -n "$XRAY_GROUP" ]; then chown "$XRAY_USER:$XRAY_GROUP" /usr/local/etc/xray/config.json; fi
+chown "$XRAY_USER:$XRAY_GROUP" /usr/local/etc/xray/config.json
 
 # Install wstunnel for SSH-over-WebSocket. HAProxy handles cleartext WS on
 # 80/8880, while Xray's TLS fallback handles WSS on 443/8443.
@@ -314,13 +326,12 @@ chmod 644 /etc/unified-vps/xray.crt
 echo "Certificate installed successfully."
 
 XRAY_USER="$(systemctl show xray.service -p User --value 2>/dev/null || true)"
-XRAY_USER="${XRAY_USER:-nobody}"
+XRAY_USER="${XRAY_USER:-xray}"
+XRAY_GROUP="$(systemctl show xray.service -p Group --value 2>/dev/null || true)"
+XRAY_GROUP="${XRAY_GROUP:-$XRAY_USER}"
 if id "$XRAY_USER" >/dev/null 2>&1; then
-  XRAY_GROUP="$(id -gn "$XRAY_USER" 2>/dev/null || true)"
-  if [ -n "$XRAY_GROUP" ]; then
-    chown "$XRAY_USER:$XRAY_GROUP" /etc/unified-vps/xray.key /etc/unified-vps/xray.crt 2>/dev/null || true
-  fi
-  chmod 640 /etc/unified-vps/xray.key 2>/dev/null || true
+  chown "$XRAY_USER:$XRAY_GROUP" /etc/unified-vps/xray.key /etc/unified-vps/xray.crt 2>/dev/null || true
+  chmod 640 /etc/unified-vps/xray.key /etc/unified-vps/xray.crt 2>/dev/null || true
 fi
 
 echo "Testing Xray configuration..."
