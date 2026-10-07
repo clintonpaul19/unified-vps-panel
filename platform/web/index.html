@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Unified VPS Control Plane</title>
+<style>
+:root{color-scheme:dark;--bg:#08110d;--card:#0e1b14;--line:#20362a;--muted:#9ab0a1;--ok:#4ade80;--bad:#fb7185}
+*{box-sizing:border-box}body{margin:0;font:14px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:#ecfdf3}
+main{width:min(1100px,94vw);margin:40px auto}.top{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:24px}.sub{color:var(--muted)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px}.stat{font-size:28px;font-weight:800}.row{display:flex;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}.row:last-child{border-bottom:0}button,input{font:inherit;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:#09150e;color:#ecfdf3}button{cursor:pointer;background:#153b26}form{display:grid;gap:10px;max-width:360px}.hidden{display:none}.pill{padding:3px 8px;border-radius:999px;border:1px solid var(--line)}.ok{color:var(--ok)}.bad{color:var(--bad)}
+</style></head>
+<body><main>
+<div id="login" class="card"><h1>Unified VPS</h1><p class="sub">Control plane sign in</p><form id="loginForm"><input id="email" type="email" placeholder="Email" required><input id="password" type="password" placeholder="Password" required><button>Sign in</button><div id="loginMsg" class="sub"></div></form></div>
+<div id="app" class="hidden">
+<div class="top"><div><h1>Unified VPS</h1><div class="sub" id="me"></div></div><button id="logout">Sign out</button></div>
+<div class="grid"><div class="card"><div class="sub">Servers</div><div class="stat" id="serverCount">0</div></div><div class="card"><div class="sub">Online</div><div class="stat" id="onlineCount">0</div></div></div>
+<div class="card" style="margin-top:14px"><h2>Servers</h2><div id="servers"></div></div>
+<div class="card" style="margin-top:14px"><h2>Recent events</h2><div id="events"></div></div>
+</div></main>
+<script>
+const $=id=>document.getElementById(id);
+async function api(path,opt={}){const r=await fetch(path,{...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});let j={};try{j=await r.json()}catch{}if(!r.ok)throw new Error(j.detail||'Request failed');return j}
+function showLogin(){ $('login').classList.remove('hidden');$('app').classList.add('hidden') }
+async function load(){
+ try{
+  const me=await api('/v1/me'); $('me').textContent=me.email;
+  const servers=await api('/v1/servers'); $('serverCount').textContent=servers.length;$('onlineCount').textContent=servers.filter(s=>s.status==='online').length;
+  $('servers').innerHTML=servers.length?servers.map(s=>'<div class="row"><div><b>'+esc(s.name)+'</b><div class="sub">'+esc(s.hostname||'No heartbeat yet')+'</div></div><span class="pill '+(s.status==='online'?'ok':'')+'">'+esc(s.status)+'</span></div>').join(''):'<div class="sub">No servers registered.</div>';
+  const events=await api('/v1/events');$('events').innerHTML=events.length?events.map(e=>'<div class="row"><div><b>'+esc(e.event_type)+'</b><div class="sub">'+esc(JSON.stringify(e.metadata))+'</div></div><div class="sub">'+new Date(e.created_at).toLocaleString()+'</div></div>').join(''):'<div class="sub">No events.</div>';
+  $('login').classList.add('hidden');$('app').classList.remove('hidden');
+ }catch(e){showLogin()}
+}
+$('loginForm').onsubmit=async e=>{e.preventDefault();$('loginMsg').textContent='';try{await api('/v1/auth/login',{method:'POST',body:JSON.stringify({email:$('email').value,password:$('password').value})});await load()}catch(err){$('loginMsg').textContent=err.message}};
+$('logout').onclick=async()=>{await api('/v1/auth/logout',{method:'POST'});showLogin()};
+function esc(v){return String(v).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+load();
+</script></body></html>
