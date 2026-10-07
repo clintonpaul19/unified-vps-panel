@@ -1364,17 +1364,12 @@ $("#bulkEnable").onclick=()=>bulk("enable");$("#bulkDisable").onclick=()=>bulk("
 $("#backupNow").onclick=async()=>{const r=await fetch("/api/backup",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"create"})});const j=await r.json();toast(r.ok?"Backup created":(j.error||"Backup failed"));refreshEvents()};
 $("#restoreLatest").onclick=async()=>{if(!confirm("Restore the latest backup and restart core services?"))return;const r=await fetch("/api/backup",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"restore"})});const j=await r.json();toast(r.ok?"Restore complete":(j.error||"Restore failed"));if(r.ok)setTimeout(()=>location.reload(),2500)};
 $("#renewCert").onclick=async()=>{if(!confirm("Force certificate renewal now?"))return;const r=await fetch("/api/certificate/renew",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});const j=await r.json();toast(r.ok?"Certificate renewed":(j.error||"Renewal failed"));refreshSecurity()};
-async function refreshExpiry(){
-  try{
-    const r=await fetch("/api/users",{cache:"no-store"});if(!r.ok)throw new Error("HTTP "+r.status);const rows=await r.json(), box=document.getElementById("expiryList");if(!box)return;
-    const soon=rows.filter(x=>x.days_remaining!==null&&x.days_remaining<=7);
-    const esc=v=>String(v??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch]));
-    box.innerHTML=soon.length?soon.map(x=>"<div class='service-card'><span>"+esc(x.username)+" • "+esc(x.protocol)+"</span><strong class='"+(x.days_remaining<=1?"dangertext":"warn")+"'>"+(x.days_remaining===0?"Expires today":esc(x.days_remaining)+" days")+"</strong></div>").join(""):"<div class='muted'>No accounts expire within seven days.</div>";
-  }catch(e){
-    const box=document.getElementById("expiryList"); if(box)box.innerHTML="<div class='muted'>Unable to load account expiry information.</div>";
-  }
+function renderExpiry(rows){
+  const box=document.getElementById("expiryList");if(!box)return;
+  const soon=(rows||[]).filter(x=>x.days_remaining!==null&&x.days_remaining<=7);
+  const esc=v=>String(v??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch]));
+  box.innerHTML=soon.length?soon.map(x=>"<div class='service-card'><span>"+esc(x.username)+" • "+esc(x.protocol)+"</span><strong class='"+(x.days_remaining<=1?"dangertext":"warn")+"'>"+(x.days_remaining===0?"Expires today":esc(x.days_remaining)+" days")+"</strong></div>").join(""):"<div class='muted'>No accounts expire within seven days.</div>";
 }
-refreshExpiry();setInterval(refreshExpiry,30000);
 $("#speedtest").onclick=async()=>{
   const out=$("#speedout");out.style.display="block";out.textContent="Running Ookla Speedtest…";
   try{
@@ -1392,16 +1387,17 @@ function fmtBytes(n){
 async function refreshUsage(){
   try{
     const r=await fetch("/api/usage",{cache:"no-store"}); if(!r.ok)throw new Error("HTTP "+r.status);
-    const j=await r.json();
+    const j=await r.json(),accounts=j.accounts||[];
     const sd=document.getElementById("serverDaily"), sa=document.getElementById("serverAll");
     if(sd)sd.textContent=fmtBytes(j.server.daily_bytes);
     if(sa)sa.textContent=fmtBytes(j.server.all_time_bytes);
-    for(const a of j.accounts||[]){
+    for(const a of accounts){
       const all=document.getElementById("alltime-"+a.id), daily=document.getElementById("daily-"+a.id);
       if(a.protocol==="SSH") continue;
       if(all)all.textContent=fmtBytes(a.all_time_bytes);
       if(daily)daily.textContent="Today: "+fmtBytes(a.daily_bytes);
     }
+    renderExpiry(accounts);
     const stamp=document.getElementById("usageStamp");
     if(stamp)stamp.textContent="Usage updated "+new Date((j.updated_at||Date.now()/1000)*1000).toLocaleTimeString();
   }catch(e){
@@ -1409,8 +1405,6 @@ async function refreshUsage(){
     if(sd)sd.textContent="Unavailable"; if(sa)sa.textContent="Unavailable"; if(st)st.textContent="Usage unavailable";
   }
 }
-refreshUsage();
-setInterval(refreshUsage,10000);
 
 function fmtRate(n){return fmtBytes(Number(n||0))+"/s"}
 async function refreshMetrics(){
@@ -1442,9 +1436,9 @@ async function refreshSessions(){
 }
 async function refreshSecurity(){
   try{
-    const [s,c]=await Promise.all([fetch("/api/security",{cache:"no-store"}),fetch("/api/certificate",{cache:"no-store"})]);
-    if(!s.ok||!c.ok)throw new Error("security API unavailable");
-    const j=await s.json(), cert=await c.json();
+    const r=await fetch("/api/security",{cache:"no-store"});
+    if(!r.ok)throw new Error("security API unavailable");
+    const j=await r.json(), cert=j.certificate||{ok:false,error:"Certificate unavailable"};
     const fs=document.getElementById("f2bState"), cs=document.getElementById("certState");
     if(fs)fs.textContent=(j.fail2ban||"unknown").toUpperCase()+" • "+(j.banned||0)+" banned";
     if(cs){cs.textContent=cert.ok?(cert.days_remaining+" days remaining"):"Unavailable";cs.className=cert.ok&&cert.days_remaining>14?"metric-good":(cert.days_remaining>=0?"warn":"dangertext")}
@@ -1490,8 +1484,25 @@ async function refreshChart(){
     const canvas=document.getElementById("usageChart"); if(canvas){const ctx=canvas.getContext("2d");ctx.clearRect(0,0,canvas.width,canvas.height);ctx.font="13px system-ui";ctx.fillText("Usage history unavailable",12,40);}
   }
 }
-refreshMetrics();refreshSessions();refreshSecurity();refreshEvents();refreshChart();
-setInterval(refreshMetrics,10000);setInterval(refreshSessions,10000);setInterval(refreshSecurity,30000);setInterval(refreshEvents,15000);setInterval(refreshChart,60000);
+const pollers=[];
+function startPoll(fn,interval){
+  let running=false,timer=0;
+  const run=async()=>{
+    if(document.hidden){timer=window.setTimeout(run,interval);return}
+    if(running)return;
+    running=true;
+    try{await fn()}finally{running=false;timer=window.setTimeout(run,interval)}
+  };
+  const wake=()=>{if(!document.hidden){window.clearTimeout(timer);run()}};
+  pollers.push(wake);run();
+}
+startPoll(refreshUsage,10000);
+startPoll(refreshMetrics,10000);
+startPoll(refreshSessions,15000);
+startPoll(refreshSecurity,30000);
+startPoll(refreshEvents,30000);
+startPoll(refreshChart,60000);
+document.addEventListener("visibilitychange",()=>{if(!document.hidden)pollers.forEach(wake=>wake())});
 document.getElementById("refreshSessions").onclick=refreshSessions;
 </script>
 </body></html>"""
