@@ -55,6 +55,7 @@ const store = createStore({
 
 let renderQueued = false;
 let routeRequestId = 0;
+let loginBusy = false;
 let refreshTimer = 0;
 
 function parseRoute() {
@@ -232,10 +233,9 @@ async function bootstrapSession() {
       setAuthAnonymous();
     } else {
       store.update({
-        auth: "authenticated",
-        authError: error.message,
+        auth: "anonymous",
+        authError: error.message || "Unable to reach the control plane.",
       });
-      startRefresh();
       queueRender();
     }
   }
@@ -246,8 +246,10 @@ async function handleLogin(event) {
   const form = event.currentTarget;
   const email = form.querySelector("#login-email")?.value?.trim();
   const password = form.querySelector("#login-password")?.value || "";
-  store.update({ auth: "signing-in", authError: "" });
-  queueRender();
+  if (loginBusy) return;
+  loginBusy = true;
+  const submitButton = form.querySelector("button[type='submit']");
+  if (submitButton) submitButton.disabled = true;
 
   try {
     await api.post("/v1/auth/login", { email, password });
@@ -266,6 +268,9 @@ async function handleLogin(event) {
   } catch (error) {
     store.update({ auth: "anonymous", authError: error.message });
     queueRender();
+  } finally {
+    loginBusy = false;
+    if (submitButton) submitButton.disabled = false;
   }
 }
 
