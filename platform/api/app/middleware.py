@@ -4,6 +4,8 @@ import logging
 import time
 from uuid import uuid4
 
+from .metrics import record_request
+
 from .config import settings
 
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -53,6 +55,7 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
             raise
 
         elapsed_ms = (time.perf_counter() - started) * 1000
+        record_request(request.method, response.status_code, elapsed_ms / 1000.0)
         response.headers["X-Request-ID"] = request_id
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
