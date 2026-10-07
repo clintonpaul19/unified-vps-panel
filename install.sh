@@ -84,6 +84,19 @@ echo "Generated ACME email: $ACME_EMAIL"
 apt-get update
 apt-get install -y ca-certificates curl jq openssl iproute2 iptables iptables-persistent sqlite3 python3 openssh-server dnsutils lsof procps psmisc socat nginx haproxy cron fail2ban
 
+# Pin every repository-owned installer asset to one immutable commit. This
+# prevents raw.githubusercontent.com edge caching or a mid-install commit from
+# mixing incompatible versions of install.sh, panel modules, systemd units,
+# scripts, and configuration files.
+UVPS_REPO="clintonpaul19/unified-vps-panel"
+UVPS_INSTALL_REF="${UVPS_INSTALL_REF:-main}"
+UVPS_SHA="$(curl -fsSL --retry 3 --retry-delay 1 "https://api.github.com/repos/${UVPS_REPO}/commits/${UVPS_INSTALL_REF}" | jq -r '.sha // empty')"
+[[ "$UVPS_SHA" =~ ^[0-9a-fA-F]{40}$ ]] || { echo "ERROR: could not resolve Unified VPS Panel revision '$UVPS_INSTALL_REF'."; exit 1; }
+UVPS_RAW_BASE="https://raw.githubusercontent.com/${UVPS_REPO}/${UVPS_SHA}"
+echo "Pinned installer assets to commit: $UVPS_SHA"
+uvps_fetch() { curl -fsSL --retry 3 --retry-delay 1 "${UVPS_RAW_BASE}/$1"; }
+
+
 # Automatic daily maintenance reboot. Runs at 04:00 in the VPS local timezone.
 # Keep this in /etc/cron.d so it is installed consistently on fresh VPS instances.
 mkdir -p /etc/cron.d
@@ -117,13 +130,13 @@ sleep 1
 mkdir -p /opt/unified-vps /etc/unified-vps /etc/hysteria /var/log/unified-vps /usr/local/etc/xray /etc/fail2ban/jail.d
 
 # Install the maintenance, watchdog and backup components.
-curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/unified-vps-watchdog.sh" -o /usr/local/sbin/unified-vps-watchdog
-curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/systemd/unified-vps-watchdog.service" -o /etc/systemd/system/unified-vps-watchdog.service
-curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/systemd/unified-vps-watchdog.timer" -o /etc/systemd/system/unified-vps-watchdog.timer
-curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/unified-vps-backup.sh" -o /usr/local/sbin/unified-vps-backup
-curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/systemd/unified-vps-backup.service" -o /etc/systemd/system/unified-vps-backup.service
-curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/systemd/unified-vps-backup.timer" -o /etc/systemd/system/unified-vps-backup.timer
-curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/config/fail2ban-unified-vps.local" -o /etc/fail2ban/jail.d/unified-vps.local
+curl -fsSL "${UVPS_RAW_BASE}/scripts/unified-vps-watchdog.sh" -o /usr/local/sbin/unified-vps-watchdog
+curl -fsSL "${UVPS_RAW_BASE}/systemd/unified-vps-watchdog.service" -o /etc/systemd/system/unified-vps-watchdog.service
+curl -fsSL "${UVPS_RAW_BASE}/systemd/unified-vps-watchdog.timer" -o /etc/systemd/system/unified-vps-watchdog.timer
+curl -fsSL "${UVPS_RAW_BASE}/scripts/unified-vps-backup.sh" -o /usr/local/sbin/unified-vps-backup
+curl -fsSL "${UVPS_RAW_BASE}/systemd/unified-vps-backup.service" -o /etc/systemd/system/unified-vps-backup.service
+curl -fsSL "${UVPS_RAW_BASE}/systemd/unified-vps-backup.timer" -o /etc/systemd/system/unified-vps-backup.timer
+curl -fsSL "${UVPS_RAW_BASE}/config/fail2ban-unified-vps.local" -o /etc/fail2ban/jail.d/unified-vps.local
 chmod 755 /usr/local/sbin/unified-vps-watchdog /usr/local/sbin/unified-vps-backup
 DIAG_ACTIVE=1
 # Open the required ports without flushing or bypassing an existing firewall.
@@ -179,7 +192,7 @@ if [ ! -s /usr/local/etc/xray/config.json ]; then
   printf '{}\n' >/usr/local/etc/xray/config.json
 fi
 if ! command -v xray >/dev/null 2>&1; then bash -c "$(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install; fi
-curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/config/xray.json" -o /usr/local/etc/xray/config.json
+curl -fsSL "${UVPS_RAW_BASE}/config/xray.json" -o /usr/local/etc/xray/config.json
 chmod 640 /usr/local/etc/xray/config.json
 XRAY_USER="$(systemctl show xray.service -p User --value 2>/dev/null || true)"
 XRAY_USER="${XRAY_USER:-nobody}"
@@ -206,16 +219,16 @@ chmod 640 "$tmp_xray"
 if [ -n "${XRAY_GROUP:-}" ]; then chown "${XRAY_USER}:${XRAY_GROUP}" "$tmp_xray"; fi
 mv "$tmp_xray" /usr/local/etc/xray/config.json
 
-curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/systemd/unified-vps-wstunnel-ssh.service" -o /etc/systemd/system/unified-vps-wstunnel-ssh.service
+curl -fsSL "${UVPS_RAW_BASE}/systemd/unified-vps-wstunnel-ssh.service" -o /etc/systemd/system/unified-vps-wstunnel-ssh.service
 systemctl daemon-reload
 systemctl enable --now unified-vps-wstunnel-ssh.service
 
 # Install the legacy payload bridge. It accepts both the minimal
 # GET/Host/Upgrade payload used by tunnel clients and a normal HTTPS GET.
 # Normal GET requests receive HTTP 200; WebSocket upgrades are proxied to SSH.
-curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/ws-payload-ssh.py" -o /opt/unified-vps/ws-payload-ssh.py
+curl -fsSL "${UVPS_RAW_BASE}/scripts/ws-payload-ssh.py" -o /opt/unified-vps/ws-payload-ssh.py
 chmod 755 /opt/unified-vps/ws-payload-ssh.py
-curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/systemd/unified-vps-ws-payload-ssh.service" -o /etc/systemd/system/unified-vps-ws-payload-ssh.service
+curl -fsSL "${UVPS_RAW_BASE}/systemd/unified-vps-ws-payload-ssh.service" -o /etc/systemd/system/unified-vps-ws-payload-ssh.service
 systemctl daemon-reload
 systemctl enable --now unified-vps-ws-payload-ssh.service
 
@@ -231,7 +244,7 @@ systemctl mask hysteria-server.service 2>/dev/null || true
 curl -fsSL https://get.acme.sh | sh -s email="$ACME_EMAIL"
 "$HOME/.acme.sh/acme.sh" --set-default-ca --server letsencrypt
 
-curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/unified-vps-cert-reload" -o /usr/local/sbin/unified-vps-cert-reload
+curl -fsSL "${UVPS_RAW_BASE}/scripts/unified-vps-cert-reload" -o /usr/local/sbin/unified-vps-cert-reload
 chmod 755 /usr/local/sbin/unified-vps-cert-reload
 
 # Issue the certificate. Prefer HTTP-01 on TCP/80, then fall back to
@@ -438,13 +451,13 @@ nginx -t
 # HAProxy is the public transport multiplexer. It preserves raw SSH,
 # detects cleartext HTTP/WebSocket traffic on 80/8880, and sends TLS traffic
 # on 443/8443 to Xray without terminating TLS itself.
-curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/config/haproxy.cfg" -o /etc/haproxy/haproxy.cfg
+curl -fsSL "${UVPS_RAW_BASE}/config/haproxy.cfg" -o /etc/haproxy/haproxy.cfg
 haproxy -c -f /etc/haproxy/haproxy.cfg
 
 chown hysteria:hysteria /etc/hysteria/server.crt /etc/hysteria/server.key
 chmod 640 /etc/hysteria/server.crt /etc/hysteria/server.key
 
-curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/systemd/hysteria-server.service" -o /etc/systemd/system/hysteria-server.service
+curl -fsSL "${UVPS_RAW_BASE}/systemd/hysteria-server.service" -o /etc/systemd/system/hysteria-server.service
 
 # The web panel stores its administrator credentials in a root-only local
 # file. Legacy environment credentials are migrated only when they are not
@@ -497,16 +510,16 @@ fi
 printf '%s\n%s\nPANEL_PORT=6080\nSERVER_DOMAIN=%s\nACME_EMAIL=%s\nHY2_STATS_SECRET=%s\nSSH_WS_PATH=ssh\nSSH_WS_PORT=443\n' "$PANEL_ADMIN_USER" "$PANEL_ADMIN_PASSWORD" "$DOMAIN" "$ACME_EMAIL" "$HY2_STATS_SECRET" > /etc/unified-vps/panel.env
 chmod 600 /etc/unified-vps/panel.env
 
-curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/panel/app.py" -o /opt/unified-vps/panel.py
+curl -fsSL "${UVPS_RAW_BASE}/panel/app.py" -o /opt/unified-vps/panel.py
 mkdir -p /opt/unified-vps/uvps_panel
 PANEL_MODULES="__init__.py config.py db.py cache.py auth.py http_utils.py xray.py ssh.py hysteria.py system.py accounts.py telemetry.py views.py http.py main.py"
 for module in $PANEL_MODULES; do
-  curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/panel/uvps_panel/$module" -o "/opt/unified-vps/uvps_panel/$module"
+  curl -fsSL "${UVPS_RAW_BASE}/panel/uvps_panel/$module" -o "/opt/unified-vps/uvps_panel/$module"
 done
-curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/systemd/unified-vps-panel.service" -o /etc/systemd/system/unified-vps-panel.service
-curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/menu.sh" -o /usr/local/bin/menu
-curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/vps-status.sh" -o /usr/local/bin/vps-status
-curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/main/scripts/manage-user.sh" -o /usr/local/sbin/manage-user
+curl -fsSL "${UVPS_RAW_BASE}/systemd/unified-vps-panel.service" -o /etc/systemd/system/unified-vps-panel.service
+curl -fsSL "${UVPS_RAW_BASE}/scripts/menu.sh" -o /usr/local/bin/menu
+curl -fsSL "${UVPS_RAW_BASE}/scripts/vps-status.sh" -o /usr/local/bin/vps-status
+curl -fsSL "${UVPS_RAW_BASE}/scripts/manage-user.sh" -o /usr/local/sbin/manage-user
 chmod 755 /usr/local/bin/menu /usr/local/bin/vps-status /usr/local/sbin/manage-user
 
 systemctl daemon-reload
