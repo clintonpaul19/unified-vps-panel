@@ -1,42 +1,45 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-REPO=clintonpaul19/unified-vps-panel
-BASE=/etc/unified-vps
+REPO="clintonpaul19/unified-vps-panel"
+BASE="/etc/unified-vps"
 
-[[ $EUID -eq 0 ]] || { echo "Run as root." >&2; exit 1; }
+die(){ echo "ERROR: $*" >&2; exit 1; }
+[[ ${EUID:-99} -eq 0 ]] || die "Run as root."
 
 echo "=== Unified VPS Tunnels ==="
 read -r -p "Domain pointing to this VPS: " DOMAIN
 DOMAIN="$(printf '%s' "$DOMAIN" | sed -E 's#^https?://##; s#/.*$##')"
-[[ "$DOMAIN" == *.* && "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]] || { echo "Invalid domain."; exit 1; }
+[[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]] || die "Invalid domain."
 
 apt-get update
 apt-get install -y ca-certificates curl openssl iproute2 iptables iptables-persistent python3 openssh-server dnsutils lsof procps psmisc nginx haproxy cron fail2ban jq
 
-mkdir -p "$BASE" /etc/hysteria /usr/local/etc/xray/certs /opt/unified-vps /etc/systemd/system
+UVPS_SHA="$(curl -fsSL "https://api.github.com/repos/${REPO}/commits/main" | jq -r '.sha // empty')"
+[[ "$UVPS_SHA" =~ ^[0-9a-fA-F]{40}$ ]] || die "Could not resolve repository revision."
+RAW="https://raw.githubusercontent.com/${REPO}/${UVPS_SHA}"
+echo "Pinned repository revision: $UVPS_SHA"
+
+mkdir -p "$BASE" /opt/unified-vps /etc/hysteria /usr/local/etc/xray/certs
 chmod 700 "$BASE"
-printf 'DOMAIN=%s\n' "$DOMAIN" > "$BASE/config.env"
+printf 'DOMAIN=%s\n' "$DOMAIN" >"$BASE/config.env"
 chmod 600 "$BASE/config.env"
 
-# Remove all web-panel state and services from older Unified VPS releases.
+# Remove the retired web panel completely.
 systemctl disable --now unified-vps-panel.service 2>/dev/null || true
 rm -f /etc/systemd/system/unified-vps-panel.service
-rm -f /usr/local/sbin/manage-user /usr/local/bin/menu
+rm -f /usr/local/bin/menu /usr/local/bin/tunnel /usr/local/sbin/manage-user /usr/local/bin/vps-status
 rm -rf /opt/unified-vps/uvps_panel /opt/unified-vps/panel.py
 rm -f "$BASE/admin.json" "$BASE/panel.db" "$BASE/panel.env"
-rm -rf /opt/unified-vps/backups /var/log/unified-vps
 for u in unified-vps-backup.service unified-vps-backup.timer unified-vps-watchdog.service unified-vps-watchdog.timer; do
   systemctl disable --now "$u" 2>/dev/null || true
   rm -f "/etc/systemd/system/$u"
 done
 rm -f /etc/systemd/system/multi-user.target.wants/unified-vps-panel.service
-rm -f /etc/systemd/system/unified-vps-sslh-xray.service
+systemctl daemon-reload
 
-# Remove the old panel port rule and keep only tunnel ports.
+# Tunnel firewall only. TCP 6080 is removed.
 while iptables -D INPUT -p tcp --dport 6080 -j ACCEPT 2>/dev/null; do :; done
-# UDP/53 is the only port 53 transport. Remove the legacy TCP/53 rule from
-# older installations so it is not unnecessarily exposed.
 while iptables -D INPUT -p tcp --dport 53 -j ACCEPT 2>/dev/null; do :; done
 for p in 22 80 143 443 8080 8443 8880; do
   iptables -C INPUT -p tcp --dport "$p" -j ACCEPT 2>/dev/null || iptables -A INPUT -p tcp --dport "$p" -j ACCEPT
@@ -66,9 +69,6 @@ getent passwd xray >/dev/null 2>&1 || useradd --system --no-create-home --shell 
 if ! command -v xray >/dev/null 2>&1; then
   bash -c "$(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install -u xray
 fi
-if [[ -f /etc/systemd/system/xray.service ]]; then
-  sed -i -E 's/^[[:space:]]*User=[^[:space:]]+$/User=xray/' /etc/systemd/system/xray.service
-fi
 mkdir -p /etc/systemd/system/xray.service.d
 cat >/etc/systemd/system/xray.service.d/20-unified-vps-user.conf <<'EOF'
 [Service]
@@ -83,25 +83,35 @@ if ! command -v hysteria >/dev/null 2>&1; then
 fi
 getent passwd hysteria >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin hysteria
 
-# WebSocket SSH helpers.
-WSTUNNEL_VERSION=10.6.2
+# SSH WebSocket transport.
+WSTUNNEL_VERSION="10.6.2"
 case "$(dpkg --print-architecture)" in
-  amd64) WSTUNNEL_ARCH=amd64 ;;
-  arm64) WSTUNNEL_ARCH=arm64 ;;
-  *) echo "Unsupported architecture."; exit 1 ;;
+  amd64) WSTUNNEL_ARCH="amd64" ;;
+  arm64) WSTUNNEL_ARCH="arm64" ;;
+  *) die "Unsupported architecture." ;;
 esac
-TARBALL="wstunnel_$WSTUNNEL_VERSION"_linux_"$WSTUNNEL_ARCH".tar.gz"
-curl -fsSL "https://github.com/erebe/wstunnel/releases/download/v$WSTUNNEL_VERSION/$TARBALL" -o "/tmp/$TARBALL"
-tar -xzf "/tmp/$TARBALL" -C /tmp
+WSTUNNEL_FILE="wstunnel_${WSTUNNEL_VERSION}_linux_${WSTUNNEL_ARCH}.tar.gz"
+curl -fsSL "https://github.com/erebe/wstunnel/releases/download/v${WSTUNNEL_VERSION}/${WSTUNNEL_FILE}" -o "/tmp/${WSTUNNEL_FILE}"
+tar -xzf "/tmp/${WSTUNNEL_FILE}" -C /tmp
 install -m 0755 /tmp/wstunnel /usr/local/bin/wstunnel
-rm -f "/tmp/$TARBALL" /tmp/wstunnel
-
-curl -fsSL "https://raw.githubusercontent.com/$REPO/main/scripts/ws-payload-ssh.py" -o /opt/unified-vps/ws-payload-ssh.py
+rm -f "/tmp/${WSTUNNEL_FILE}" /tmp/wstunnel
+curl -fsSL "${RAW}/scripts/ws-payload-ssh.py" -o /opt/unified-vps/ws-payload-ssh.py
 chmod 755 /opt/unified-vps/ws-payload-ssh.py
-curl -fsSL "https://raw.githubusercontent.com/$REPO/main/systemd/unified-vps-wstunnel-ssh.service" -o /etc/systemd/system/unified-vps-wstunnel-ssh.service
-curl -fsSL "https://raw.githubusercontent.com/$REPO/main/systemd/unified-vps-ws-payload-ssh.service" -o /etc/systemd/system/unified-vps-ws-payload-ssh.service
+curl -fsSL "${RAW}/systemd/unified-vps-wstunnel-ssh.service" -o /etc/systemd/system/unified-vps-wstunnel-ssh.service
+curl -fsSL "${RAW}/systemd/unified-vps-ws-payload-ssh.service" -o /etc/systemd/system/unified-vps-ws-payload-ssh.service
 
-# TLS certificate. Create the reload hook before registering the certificate.
+# UDP/53 must belong to Hysteria.
+for legacy in udp-custom udp-mini; do
+  systemctl disable --now "$legacy.service" 2>/dev/null || true
+done
+systemctl disable --now systemd-resolved.service 2>/dev/null || true
+if [[ -L /etc/resolv.conf ]] || grep -q '127\.0\.0\.53' /etc/resolv.conf 2>/dev/null; then
+  rm -f /etc/resolv.conf
+  printf '%s\n' 'nameserver 1.1.1.1' 'nameserver 8.8.8.8' >/etc/resolv.conf
+  chmod 644 /etc/resolv.conf
+fi
+
+# TLS certificate reload hook.
 cat >/usr/local/sbin/unified-vps-cert-reload <<'EOF'
 #!/usr/bin/env bash
 set -u
@@ -111,47 +121,27 @@ install -o xray -g xray -m 0644 "$BASE/xray.crt" /usr/local/etc/xray/certs/xray.
 install -o xray -g xray -m 0640 "$BASE/xray.key" /usr/local/etc/xray/certs/xray.key 2>/dev/null || true
 install -o hysteria -g hysteria -m 0644 "$BASE/xray.crt" /etc/hysteria/server.crt 2>/dev/null || true
 install -o hysteria -g hysteria -m 0640 "$BASE/xray.key" /etc/hysteria/server.key 2>/dev/null || true
-systemctl try-restart xray hysteria-server 2>/dev/null || true
+systemctl try-restart xray.service 2>/dev/null || true
+systemctl try-restart hysteria-server.service 2>/dev/null || true
 EOF
 chmod 755 /usr/local/sbin/unified-vps-cert-reload
 
 if ! command -v acme.sh >/dev/null 2>&1; then
-  curl -fsSL https://get.acme.sh | sh -s email="acme-$(openssl rand -hex 8)@$DOMAIN"
+  curl -fsSL https://get.acme.sh | sh -s email="acme-$(openssl rand -hex 8)@${DOMAIN}"
 fi
-ACME="$HOME/.acme.sh/acme.sh"
-[[ -x "$ACME" || -s "$ACME" ]] || { echo "acme.sh installation failed."; exit 1; }
+ACME="${HOME}/.acme.sh/acme.sh"
+[[ -s "$ACME" ]] || die "acme.sh installation failed."
 
-CERT_REUSE=0
-if [[ -s "$BASE/xray.crt" ]] && openssl x509 -in "$BASE/xray.crt" -noout -checkend 2592000 >/dev/null 2>&1    && openssl x509 -in "$BASE/xray.crt" -noout -checkhost "$DOMAIN" >/dev/null 2>&1; then
-  CERT_REUSE=1
-  echo "Existing TLS certificate is valid for at least 30 days; reusing it."
+if [[ ! -s "$BASE/xray.crt" ]] || ! openssl x509 -in "$BASE/xray.crt" -noout -checkend 2592000 >/dev/null 2>&1 || ! openssl x509 -in "$BASE/xray.crt" -noout -checkhost "$DOMAIN" >/dev/null 2>&1; then
+  "$ACME" --issue --standalone -d "$DOMAIN" --pre-hook "systemctl stop haproxy nginx" --post-hook "systemctl start nginx"
 fi
-if [[ "$CERT_REUSE" -ne 1 ]]; then
-  "$ACME" --issue --standalone -d "$DOMAIN"     --pre-hook "systemctl stop haproxy nginx"     --post-hook "systemctl start nginx"
-fi
-"$ACME" --install-cert -d "$DOMAIN"   --fullchain-file "$BASE/xray.crt"   --key-file "$BASE/xray.key"   --reloadcmd "/usr/local/sbin/unified-vps-cert-reload"
+"$ACME" --install-cert -d "$DOMAIN" --fullchain-file "$BASE/xray.crt" --key-file "$BASE/xray.key" --reloadcmd "/usr/local/sbin/unified-vps-cert-reload"
 /usr/local/sbin/unified-vps-cert-reload
 
-# UDP/53 belongs to Hysteria 2. Prevent old UDP helpers or systemd-resolved
-# from owning the port.
-for legacy in udp-custom udp-mini; do
-  if systemctl list-unit-files --type=service --no-legend 2>/dev/null | awk '{print $1}' | grep -qx "$legacy.service"; then
-    systemctl disable --now "$legacy.service" 2>/dev/null || true
-  fi
-done
-if systemctl is-enabled --quiet systemd-resolved 2>/dev/null || systemctl is-active --quiet systemd-resolved 2>/dev/null; then
-  systemctl disable --now systemd-resolved.service 2>/dev/null || true
-fi
-if [[ -L /etc/resolv.conf ]] || grep -q '127\.0\.0\.53' /etc/resolv.conf 2>/dev/null; then
-  rm -f /etc/resolv.conf
-  printf '%s\n' 'nameserver 1.1.1.1' 'nameserver 8.8.8.8' > /etc/resolv.conf
-  chmod 644 /etc/resolv.conf
-fi
-
-# Local HTTP fallback only.
+# Local fallback site only; never a management interface.
 rm -f /etc/nginx/sites-enabled/* /etc/nginx/conf.d/* 2>/dev/null || true
 mkdir -p /var/www/html
-printf '%s\n' '<!doctype html><html><body><h1>Unified VPS</h1><p>Online.</p></body></html>' >/var/www/html/index.html
+printf '%s\n' '<!doctype html><html><body><h1>Unified VPS</h1></body></html>' >/var/www/html/index.html
 cat >/etc/nginx/nginx.conf <<'EOF'
 user www-data;
 worker_processes auto;
@@ -166,25 +156,23 @@ http {
 EOF
 nginx -t
 
-curl -fsSL "https://raw.githubusercontent.com/$REPO/main/config/haproxy.cfg" -o /etc/haproxy/haproxy.cfg
+curl -fsSL "${RAW}/config/haproxy.cfg" -o /etc/haproxy/haproxy.cfg
 haproxy -c -f /etc/haproxy/haproxy.cfg
 
-# Install the one terminal tunnel manager.
-curl -fsSL "https://raw.githubusercontent.com/$REPO/main/scripts/tunnel.sh" -o /usr/local/bin/tunnel
-chmod 755 /usr/local/bin/tunnel
-ln -sfn /usr/local/bin/tunnel /usr/local/bin/menu
-if [[ ! -f "$BASE/accounts.json" ]]; then
-  printf '%s\n' '{"accounts":[]}' > "$BASE/accounts.json"
-fi
+# Terminal-only menu and status command.
+curl -fsSL "${RAW}/scripts/menu.sh" -o /usr/local/bin/menu
+curl -fsSL "${RAW}/scripts/vps-status.sh" -o /usr/local/bin/vps-status
+chmod 755 /usr/local/bin/menu /usr/local/bin/vps-status
+ln -sfn /usr/local/bin/menu /usr/local/bin/tunnel
+if [[ ! -f "$BASE/accounts.json" ]]; then printf '%s\n' '{"accounts":[]}' >"$BASE/accounts.json"; fi
 chmod 600 "$BASE/accounts.json"
 
-# Render and start.
-PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /usr/local/bin/tunnel --render
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /usr/local/bin/menu --render
 systemctl daemon-reload
 systemctl enable --now nginx haproxy unified-vps-wstunnel-ssh unified-vps-ws-payload-ssh
 systemctl restart xray hysteria-server
 
-curl -fsSL "https://raw.githubusercontent.com/$REPO/main/config/fail2ban-unified-vps.local" -o /etc/fail2ban/jail.d/unified-vps.conf
+curl -fsSL "${RAW}/config/fail2ban-unified-vps.local" -o /etc/fail2ban/jail.d/unified-vps.conf
 systemctl enable --now fail2ban
 systemctl restart fail2ban
 
@@ -197,14 +185,16 @@ chmod 644 /etc/cron.d/unified-vps-daily-reboot
 
 # Final validation.
 sshd -t
-xray -test -config "$XRAY_CFG"
+xray -test -config /usr/local/etc/xray/config.json
 nginx -t
 haproxy -c -f /etc/haproxy/haproxy.cfg
 for s in ssh nginx haproxy xray hysteria-server unified-vps-wstunnel-ssh unified-vps-ws-payload-ssh fail2ban; do
   systemctl is-active --quiet "$s" || { echo "FAILED: $s"; systemctl status "$s" --no-pager -l || true; exit 1; }
 done
-for p in 22 80 143 443 8080 8443 8880; do ss -lntH "sport = :$p" 2>/dev/null | grep -q ":$p" || { echo "Missing TCP $p"; exit 1; }; done
-ss -lunH "sport = :53" 2>/dev/null | grep -q ':53' || { echo "Missing UDP 53"; exit 1; }
+for p in 22 80 143 443 8080 8443 8880; do
+  ss -lntH "sport = :$p" 2>/dev/null | grep -q ":$p" || die "Missing TCP $p"
+done
+ss -lunH "sport = :53" 2>/dev/null | grep -q ':53' || die "Missing UDP 53"
 
 echo
 echo "=============================================="
