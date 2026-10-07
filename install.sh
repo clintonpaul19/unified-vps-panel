@@ -128,6 +128,9 @@ sleep 1
 
 
 mkdir -p /opt/unified-vps /etc/unified-vps /etc/hysteria /var/log/unified-vps /usr/local/etc/xray /etc/fail2ban/jail.d
+# Xray must be able to traverse this directory to read its TLS files; keep the
+# directory non-writable to non-root users and protect sensitive files individually.
+chmod 755 /etc/unified-vps
 
 # Install the maintenance, watchdog and backup components.
 curl -fsSL "${UVPS_RAW_BASE}/scripts/unified-vps-watchdog.sh" -o /usr/local/sbin/unified-vps-watchdog
