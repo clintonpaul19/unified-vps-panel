@@ -671,7 +671,7 @@ then
   echo "ERROR: panel credential persistence smoke test failed."
   exit 1
 fi
-if echo "$PANEL_SETUP_TEST" | grep -qiE 'MAX_REQUEST_BODY|NameError|Traceback'; then
+if echo "$PANEL_SETUP_TEST" | grep -qiE 'MAX_REQUEST_BODY|NameError|Traceback|not defined|invalid response'; then
   echo "ERROR: panel first-run setup smoke test exposed a runtime exception:"
   echo "$PANEL_SETUP_TEST"
   exit 1
