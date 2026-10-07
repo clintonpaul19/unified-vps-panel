@@ -29,6 +29,8 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         self.path=urlsplit(self.path).path
         if self.path=='/health':
+            if self.client_address[0] not in ('127.0.0.1','::1'):
+                return send(self,{'ok':True,'service':'unified-vps-panel'})
             service_names=('ssh','nginx','haproxy','xray','hysteria-server','unified-vps-wstunnel-ssh','unified-vps-ws-payload-ssh','unified-vps-panel')
             services=service_states(service_names)
             wanted={22,80,143,443,8080,8443,8880,6080}
