@@ -14,6 +14,7 @@ jobs:
       - name: Validate Python files
         run: |
           python3 -m py_compile panel/app.py panel/uvps_panel/*.py scripts/ws-payload-ssh.py platform/api/app/*.py platform/agent/agent.py
+          python3 platform/api/tests/test_pagination.py
           PYTHONPATH="$PWD" python3 -c 'from panel.uvps_panel.main import main; from panel.uvps_panel.http import H; print("node panel import smoke test passed")'
           python3 - <<'PY'
           import ast
