@@ -94,6 +94,6 @@ class AuditEvent(Base):
     actor_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     server_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("servers.id", ondelete="SET NULL"))
     event_type: Mapped[str] = mapped_column(String(80))
-    metadata: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    event_metadata: Mapped[dict] = mapped_column("metadata", JSONB, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False, index=True)
     __table_args__ = (Index("idx_audit_org_created", "organization_id", "created_at"),)
