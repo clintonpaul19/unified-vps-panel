@@ -7,10 +7,10 @@ import subprocess
 import tarfile
 import threading
 import time
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs,urlsplit
 from http.server import BaseHTTPRequestHandler
 
-from .accounts import apply_user_action,create_user
+from .accounts import apply_user_action,create_user,record
 from .auth import _session_cookie,admin_configured,auth,verify_admin_credentials
 from .config import MAINT_LOCK,PANEL_BUILD,PORT,SETUP_LOCK,SPEEDTEST_LOCK
 from .db import conn,log_event
@@ -27,7 +27,9 @@ class H(BaseHTTPRequestHandler):
         self.connection.settimeout(15)
 
     def do_GET(self):
-        self.path=urlsplit(self.path).path
+        parsed=urlsplit(self.path)
+        self.path=parsed.path
+        self.query=parsed.query
         if self.path=='/health':
             if self.client_address[0] not in ('127.0.0.1','::1'):
                 return send(self,{'ok':True,'service':'unified-vps-panel'})
@@ -72,6 +74,19 @@ class H(BaseHTTPRequestHandler):
                 return send(self,{'error':'authentication required'},401)
             return _login_page(self)
             self.send_response(401); self.send_header('WWW-Authenticate','Basic realm="Unified VPS"'); self.end_headers(); return
+
+        if self.path=='/api/users/secret':
+            try:
+                values=parse_qs(getattr(self,'query',''),keep_blank_values=False)
+                uid=int(values.get('id',['0'])[0])
+            except (TypeError,ValueError):
+                return send(self,{'error':'invalid id'},400)
+            c=conn()
+            row=c.execute('select * from users where id=?',(uid,)).fetchone()
+            c.close()
+            if not row:
+                return send(self,{'error':'not found'},404)
+            return send(self,record(row))
 
         if self.path=='/api/users':
             c=conn(); rows=[record(x) for x in c.execute('select * from users order by id desc')]; c.close()
