@@ -2,7 +2,7 @@ import html
 import os
 import secrets
 import time
-from .config import PANEL_BUILD,PORT,SSH_PORTS
+from .config import PANEL_BUILD,PORT,SSH_PORTS,XRAY_TAGS
 from .accounts import record
 from .db import conn
 from .http_utils import send_html
