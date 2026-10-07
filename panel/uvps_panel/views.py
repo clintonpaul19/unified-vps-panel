@@ -482,5 +482,4 @@ document.getElementById("refreshSessions").onclick=refreshSessions;
     page=page.replace('__ACTIVE__',str(active))
     page=page.replace('__SERVER_DAILY__',_human_bytes(server_daily))
     page=page.replace('__SERVER_ALL__',_human_bytes(server_all))
-return page
-
+    return page
