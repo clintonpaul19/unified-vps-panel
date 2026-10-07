@@ -48,7 +48,7 @@ if [[ "$(printf '%s:%s' "$ADMIN_USER" "$ADMIN_PASSWORD" | sha256sum | awk '{prin
 fi
 API="http://127.0.0.1:${PANEL_PORT}"
 AUTH=(-u "${ADMIN_USER}:${ADMIN_PASSWORD}")
-PANEL_VERSION="1.5.1"
+PANEL_VERSION="1.6.0"
 REBOOT_CRON="/etc/cron.d/unified-vps-daily-reboot"
 
 if [[ -z "$ADMIN_USER" || -z "$ADMIN_PASSWORD" ]]; then
@@ -641,15 +641,16 @@ speedtest_menu(){
 }
 
 update_script(){
-  local tmp_menu tmp_app tmp_panel_unit tmp_manage tmp_haproxy tmp_payload tmp_wstunnel_unit tmp_hysteria_unit tmp_cert_hook tmp_status tmp_watch tmp_watch_unit tmp_watch_timer tmp_backup tmp_backup_unit tmp_backup_timer tmp_f2b
-  local tmpdir snapshot_sha rollback_dir rollback_app rollback_unit build preflight_log preflight_rc
+  local tmp_menu tmp_app tmp_manifest tmp_package tmp_panel_unit tmp_manage tmp_haproxy tmp_payload tmp_wstunnel_unit tmp_hysteria_unit tmp_cert_hook tmp_status tmp_watch tmp_watch_unit tmp_watch_timer tmp_backup tmp_backup_unit tmp_backup_timer tmp_f2b
+  local tmpdir snapshot_sha rollback_dir rollback_app rollback_unit rollback_package expected_build preflight_log preflight_rc build rollback_build
   tmpdir="$(mktemp -d)"
   rollback_dir="$(mktemp -d /run/unified-vps-update.XXXXXX)"
-  tmp_menu="$tmpdir/menu"; tmp_app="$tmpdir/app.py"; tmp_panel_unit="$tmpdir/panel.service"; tmp_manage="$tmpdir/manage-user.sh"
+  tmp_menu="$tmpdir/menu"; tmp_app="$tmpdir/app.py"; tmp_manifest="$tmpdir/MANIFEST.txt"; tmp_package="$tmpdir/uvps_panel"
+  tmp_panel_unit="$tmpdir/panel.service"; tmp_manage="$tmpdir/manage-user.sh"
   tmp_haproxy="$tmpdir/haproxy.cfg"; tmp_payload="$tmpdir/ws-payload-ssh.py"; tmp_wstunnel_unit="$tmpdir/wstunnel.service"; tmp_hysteria_unit="$tmpdir/hysteria.service"
   tmp_cert_hook="$tmpdir/cert-reload"; tmp_status="$tmpdir/vps-status"; tmp_watch="$tmpdir/watchdog"; tmp_watch_unit="$tmpdir/watchdog.service"; tmp_watch_timer="$tmpdir/watchdog.timer"
   tmp_backup="$tmpdir/backup"; tmp_backup_unit="$tmpdir/backup.service"; tmp_backup_timer="$tmpdir/backup.timer"; tmp_f2b="$tmpdir/fail2ban.local"
-  rollback_app="$rollback_dir/panel.py"; rollback_unit="$rollback_dir/unified-vps-panel.service"
+  rollback_app="$rollback_dir/panel.py"; rollback_unit="$rollback_dir/unified-vps-panel.service"; rollback_package="$rollback_dir/uvps_panel"
 
   cleanup_update(){ rm -rf "$tmpdir" "$rollback_dir"; }
   trap cleanup_update RETURN
@@ -671,6 +672,7 @@ update_script(){
 
   if ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/$snapshot_sha/scripts/menu.sh" -o "$tmp_menu" ||
      ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/$snapshot_sha/panel/app.py" -o "$tmp_app" ||
+     ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/$snapshot_sha/panel/uvps_panel/MANIFEST.txt" -o "$tmp_manifest" ||
      ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/$snapshot_sha/systemd/unified-vps-panel.service" -o "$tmp_panel_unit" ||
      ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/$snapshot_sha/scripts/manage-user.sh" -o "$tmp_manage" ||
      ! curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/$snapshot_sha/config/haproxy.cfg" -o "$tmp_haproxy" ||
@@ -691,8 +693,23 @@ update_script(){
     return 1
   fi
 
+  mkdir -p "$tmp_package"
+  while IFS= read -r module || [[ -n "$module" ]]; do
+    [[ -z "$module" ]] && continue
+    [[ "$module" =~ ^[A-Za-z0-9_.-]+.py$ ]] || {
+      echo "Validation failed: invalid panel module name '$module'."
+      pause
+      return 1
+    }
+    curl -fsSL "https://raw.githubusercontent.com/clintonpaul19/unified-vps-panel/$snapshot_sha/panel/uvps_panel/$module" -o "$tmp_package/$module" || {
+      echo "Update download failed for panel module: $module"
+      pause
+      return 1
+    }
+  done < "$tmp_manifest"
+
   if ! (bash -n "$tmp_menu" && bash -n "$tmp_manage" && bash -n "$tmp_cert_hook" && bash -n "$tmp_status" && bash -n "$tmp_watch" && bash -n "$tmp_backup") ||
-     ! python3 -m py_compile "$tmp_app" "$tmp_payload" ||
+     ! python3 -m py_compile "$tmp_app" "$tmp_payload" "$tmp_package"/*.py ||
      ! haproxy -c -f "$tmp_haproxy" ||
      ! systemd-analyze verify "$tmp_panel_unit" "$tmp_wstunnel_unit" "$tmp_hysteria_unit" "$tmp_watch_unit" "$tmp_watch_timer" "$tmp_backup_unit" "$tmp_backup_timer"; then
     echo "Validation failed. Nothing was installed."
@@ -700,7 +717,7 @@ update_script(){
     return 1
   fi
 
-  expected_build="$(python3 -c 'import re,sys; s=open(sys.argv[1],encoding="utf-8").read(); m=re.search(r"^PANEL_BUILD[[:space:]]*=[[:space:]]*[\x27\"]([^\x27\"]+)[\x27\"]",s,re.M); print(m.group(1) if m else "")' "$tmp_app")"
+  expected_build="$(python3 -c 'import re,sys; s=open(sys.argv[1],encoding="utf-8").read(); m=re.search(r"^PANEL_BUILD[[:space:]]*=[[:space:]]*[\x27\"]([^\x27\"]+)[\x27\"]",s,re.M); print(m.group(1) if m else "")' "$tmp_package/config.py")"
   if [[ -z "$expected_build" ]]; then
     echo "Validation failed: downloaded panel build marker is missing."
     pause
@@ -711,8 +728,13 @@ update_script(){
   # replacement until the very end so a failure cannot leave the admin command broken.
   cp -f /opt/unified-vps/panel.py "$rollback_app" 2>/dev/null || true
   cp -f /etc/systemd/system/unified-vps-panel.service "$rollback_unit" 2>/dev/null || true
+  if [[ -d /opt/unified-vps/uvps_panel ]]; then
+    cp -a /opt/unified-vps/uvps_panel "$rollback_package"
+  fi
 
   install -m 0644 "$tmp_app" /opt/unified-vps/panel.py
+  rm -rf /opt/unified-vps/uvps_panel
+  mv "$tmp_package" /opt/unified-vps/uvps_panel
   install -m 0644 "$tmp_panel_unit" /etc/systemd/system/unified-vps-panel.service
   install -m 0755 "$tmp_manage" /usr/local/sbin/manage-user
   install -m 0644 "$tmp_haproxy" /etc/haproxy/haproxy.cfg
@@ -729,10 +751,23 @@ update_script(){
   install -m 0644 "$tmp_backup_timer" /etc/systemd/system/unified-vps-backup.timer
   install -m 0644 "$tmp_f2b" /etc/fail2ban/jail.d/unified-vps.local
 
+  rollback_panel(){
+    if [[ -s "$rollback_app" ]]; then install -m 0644 "$rollback_app" /opt/unified-vps/panel.py; fi
+    if [[ -d "$rollback_package" ]]; then
+      rm -rf /opt/unified-vps/uvps_panel
+      mv "$rollback_package" /opt/unified-vps/uvps_panel
+    else
+      rm -rf /opt/unified-vps/uvps_panel
+    fi
+    if [[ -s "$rollback_unit" ]]; then install -m 0644 "$rollback_unit" /etc/systemd/system/unified-vps-panel.service; fi
+    systemctl daemon-reload
+    systemctl restart unified-vps-panel || true
+  }
+
   systemctl daemon-reload
   systemctl enable --now fail2ban unified-vps-watchdog.timer unified-vps-backup.timer
 
-  # Importing panel.py must have no production side effects during validation.
+  # Importing panel.py and its package must have no production side effects during validation.
   preflight_log="$rollback_dir/preflight.log"
   set +e
   timeout 4s env PANEL_PREFLIGHT=1 PANEL_BIND=127.0.0.1 PANEL_PORT=0 python3 /opt/unified-vps/panel.py >"$preflight_log" 2>&1
@@ -741,10 +776,7 @@ update_script(){
   if [[ "$preflight_rc" -ne 124 ]]; then
     echo "Update failed: panel preflight failed (code $preflight_rc)."
     tail -n 30 "$preflight_log" 2>/dev/null || true
-    if [[ -s "$rollback_app" ]]; then install -m 0644 "$rollback_app" /opt/unified-vps/panel.py; fi
-    if [[ -s "$rollback_unit" ]]; then install -m 0644 "$rollback_unit" /etc/systemd/system/unified-vps-panel.service; fi
-    systemctl daemon-reload
-    systemctl restart unified-vps-panel || true
+    rollback_panel
     pause
     return 1
   fi
@@ -760,10 +792,7 @@ update_script(){
   if [[ "$build" != "$expected_build" ]]; then
     echo "Panel update failed: active build is '$build' (expected '$expected_build')."
     echo "Rolling back the panel files to the previous working version..."
-    if [[ -s "$rollback_app" ]]; then install -m 0644 "$rollback_app" /opt/unified-vps/panel.py; fi
-    if [[ -s "$rollback_unit" ]]; then install -m 0644 "$rollback_unit" /etc/systemd/system/unified-vps-panel.service; fi
-    systemctl daemon-reload
-    systemctl restart unified-vps-panel || true
+    rollback_panel
     rollback_build="$(curl -fsS --max-time 5 -D - -o /dev/null "http://127.0.0.1:${PANEL_PORT}/health" 2>/dev/null | sed -n 's/^X-UVPS-Build:[[:space:]]*//Ip' | tr -d '\r' || true)"
     echo "Panel rollback completed. Active panel build: ${rollback_build:-unavailable}."
     pause
@@ -785,7 +814,7 @@ update_script(){
   # its parsed function body; future invocations use this validated snapshot.
   install -m 0755 "$tmp_menu" /usr/local/bin/menu
   echo "Update complete. Active panel build: $build"
-  echo "Installed snapshot: ${snapshot_sha}"
+  echo "Installed snapshot: $snapshot_sha"
   pause
 }
 server_info(){
