@@ -47,7 +47,7 @@ class Server(Base):
     metrics: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     __table_args__ = (
         UniqueConstraint("organization_id", "name", name="uq_server_org_name"),
         Index("idx_servers_org_updated", "organization_id", "updated_at"),
