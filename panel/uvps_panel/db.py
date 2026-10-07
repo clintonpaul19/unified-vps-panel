@@ -14,8 +14,13 @@ def init_db():
     with DB_INIT_LOCK:
         if DB_INITIALIZED:
             return
-        os.makedirs(BASE, exist_ok=True)
+        os.makedirs(BASE, exist_ok=True, mode=0o700)
+        os.chmod(BASE, 0o700)
         c=sqlite3.connect(DB, timeout=5)
+        try:
+            os.chmod(DB, 0o600)
+        except OSError:
+            pass
         try:
             c.execute('pragma journal_mode=WAL')
             c.execute('pragma synchronous=NORMAL')
@@ -58,6 +63,11 @@ def init_db():
 def conn():
     init_db()
     c=sqlite3.connect(DB, timeout=5)
+    try:
+        os.chmod(BASE, 0o700)
+        os.chmod(DB, 0o600)
+    except OSError:
+        pass
     c.row_factory=sqlite3.Row
     c.execute('pragma busy_timeout=5000')
     c.execute('pragma foreign_keys=ON')
