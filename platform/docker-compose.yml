@@ -24,9 +24,11 @@ services:
       db:
         condition: service_healthy
     environment:
+      ENVIRONMENT: development
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/unified_vps
       SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET}
       COOKIE_SECURE: "false"
+      AUTO_CREATE_SCHEMA: "false"
       BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-admin@example.com}
       BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:?set BOOTSTRAP_ADMIN_PASSWORD}
     ports:

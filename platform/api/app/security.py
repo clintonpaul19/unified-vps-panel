@@ -30,11 +30,13 @@ def session_serializer() -> URLSafeTimedSerializer:
     return URLSafeTimedSerializer(settings.session_secret, salt="unified-vps-session")
 
 def make_session(user_id: str) -> str:
-    return session_serializer().dumps({"uid": user_id, "iat": int(datetime.now(timezone.utc).timestamp())})
+    issued = int(datetime.now(timezone.utc).timestamp())
+    return session_serializer().dumps({"uid": user_id, "iat": issued, "sid": secrets.token_urlsafe(16)})
 
 def read_session(value: str) -> str | None:
     try:
         data = session_serializer().loads(value, max_age=settings.session_ttl_seconds)
-        return str(data["uid"])
+        uid = data.get("uid")
+        return str(uid) if uid else None
     except (BadSignature, SignatureExpired, KeyError, TypeError, ValueError):
         return None

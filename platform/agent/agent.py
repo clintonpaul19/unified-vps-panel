@@ -1,97 +1,83 @@
 #!/usr/bin/env python3
-"""Minimal Unified VPS node agent.
+"""Minimal outbound-only Unified VPS node agent."""
 
-The agent never accepts arbitrary shell text. It pulls typed command names from the
-control plane and executes only handlers defined in COMMAND_HANDLERS.
-"""
-
-import json, os, platform, socket, subprocess, time
-from urllib.error import URLError, HTTPError
+import json, os, platform, random, socket, subprocess, time
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-BASE=os.environ["UVPS_CONTROL_PLANE_URL"].rstrip("/")
-SERVER_ID=os.environ["UVPS_SERVER_ID"]
-TOKEN=os.environ["UVPS_NODE_TOKEN"]
-INTERVAL=float(os.environ.get("UVPS_HEARTBEAT_INTERVAL","15"))
+BASE = os.environ["UVPS_CONTROL_PLANE_URL"].rstrip("/")
+SERVER_ID = os.environ["UVPS_SERVER_ID"]
+TOKEN = os.environ["UVPS_NODE_TOKEN"]
+INTERVAL = max(float(os.environ.get("UVPS_HEARTBEAT_INTERVAL", "30")), 5.0)
 
-SERVICE_ALLOWLIST={
-    "ssh","nginx","haproxy","xray","hysteria-server",
-    "unified-vps-panel","unified-vps-wstunnel-ssh","unified-vps-ws-payload-ssh",
+SERVICE_ALLOWLIST = {
+    "ssh", "nginx", "haproxy", "xray", "hysteria-server",
+    "unified-vps-panel", "unified-vps-wstunnel-ssh", "unified-vps-ws-payload-ssh",
 }
 
 def request(path, method="GET", payload=None):
-    body=None if payload is None else json.dumps(payload).encode()
-    req=Request(f"{BASE}{path}",data=body,method=method,headers={
-        "Authorization":f"Bearer {TOKEN}",
-        "Content-Type":"application/json",
-        "User-Agent":"unified-vps-agent/0.1",
-    })
-    with urlopen(req,timeout=8) as r:
-        raw=r.read().decode()
-        return json.loads(raw) if raw else {}
+    body = None if payload is None else json.dumps(payload, separators=(",", ":")).encode()
+    req = Request(f"{BASE}{path}", data=body, method=method, headers={"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json", "User-Agent": "unified-vps-agent/0.2"})
+    with urlopen(req, timeout=8) as response:
+        raw = response.read()
+        return json.loads(raw.decode()) if raw else {}
+
+def uptime_seconds():
+    try:
+        with open("/proc/uptime", encoding="utf-8") as fh:
+            return float(fh.read().split()[0])
+    except Exception:
+        return 0.0
 
 def heartbeat():
-    payload={
-        "agent_version":"0.1.0",
-        "hostname":socket.gethostname(),
-        "status":"online",
-        "metrics":{
-            "os":platform.platform(),
-            "python":platform.python_version(),
-            "loadavg":os.getloadavg(),
-        },
-    }
-    return request(f"/v1/servers/{SERVER_ID}/heartbeat","POST",payload)
+    try: loadavg = list(os.getloadavg())
+    except (AttributeError, OSError): loadavg = [0.0, 0.0, 0.0]
+    return request(f"/v1/servers/{SERVER_ID}/heartbeat", "POST", {"agent_version": "0.2.0", "hostname": socket.gethostname(), "status": "online", "metrics": {"os": platform.platform(), "python": platform.python_version(), "loadavg": loadavg, "uptime_seconds": uptime_seconds()}})
 
 def run_service_restart(payload):
-    unit=str(payload.get("service",""))
-    if unit not in SERVICE_ALLOWLIST:
-        raise ValueError("service is not allowlisted")
-    p=subprocess.run(["systemctl","restart",unit],capture_output=True,text=True,timeout=30)
-    if p.returncode:
-        raise RuntimeError((p.stderr or p.stdout or "restart failed")[-1000:])
-    return {"service":unit,"ok":True}
+    unit = str(payload.get("service", ""))
+    if unit not in SERVICE_ALLOWLIST: raise ValueError("service is not allowlisted")
+    process = subprocess.run(["systemctl", "restart", unit], capture_output=True, text=True, timeout=30, check=False)
+    if process.returncode: raise RuntimeError((process.stderr or process.stdout or "restart failed")[-1000:])
+    return {"service": unit, "ok": True}
 
 def run_health_report(_payload):
-    return {
-        "hostname":socket.gethostname(),
-        "platform":platform.platform(),
-        "loadavg":os.getloadavg(),
-        "uptime_seconds":time.monotonic(),
-    }
+    try: loadavg = list(os.getloadavg())
+    except (AttributeError, OSError): loadavg = [0.0, 0.0, 0.0]
+    return {"hostname": socket.gethostname(), "platform": platform.platform(), "loadavg": loadavg, "uptime_seconds": uptime_seconds()}
 
-COMMAND_HANDLERS={
-    "service.restart":run_service_restart,
-    "health.report":run_health_report,
-}
+COMMAND_HANDLERS = {"service.restart": run_service_restart, "health.report": run_health_report}
 
-def report(command, status, result=None, error=None):
-    payload={"status":status}
-    if result is not None: payload["result"]=result
-    if error is not None: payload["error"]=error
-    return request(f"/v1/servers/{SERVER_ID}/commands/{command['id']}/result","POST",payload)
+def report(command, status_value, result=None, error=None):
+    payload = {"status": status_value}
+    if result is not None: payload["result"] = result
+    if error is not None: payload["error"] = error
+    return request(f"/v1/servers/{SERVER_ID}/commands/{command['id']}/result", "POST", payload)
 
 def main():
+    failures = 0
     while True:
         try:
             heartbeat()
+            failures = 0
             while True:
-                cmd=request(f"/v1/servers/{SERVER_ID}/commands/next")
-                if not cmd:
-                    break
-                handler=COMMAND_HANDLERS.get(cmd.get("command_type"))
+                command = request(f"/v1/servers/{SERVER_ID}/commands/next")
+                if not command: break
+                handler = COMMAND_HANDLERS.get(command.get("command_type"))
                 if not handler:
-                    report(cmd,"failed",error="unsupported command type")
+                    report(command, "failed", error="unsupported command type")
                     continue
-                report(cmd,"running")
+                report(command, "running")
                 try:
-                    result=handler(cmd.get("payload") or {})
-                    report(cmd,"succeeded",result=result)
+                    result = handler(command.get("payload") or {})
+                    report(command, "succeeded", result=result)
                 except Exception as exc:
-                    report(cmd,"failed",error=str(exc)[:2000])
-        except (HTTPError,URLError,TimeoutError,OSError,ValueError) as exc:
-            print(f"agent loop error: {exc}",flush=True)
-        time.sleep(INTERVAL)
+                    report(command, "failed", error=str(exc)[:2000])
+        except (HTTPError, URLError, TimeoutError, OSError, ValueError) as exc:
+            print(f"agent loop error: {exc}", flush=True)
+            failures = min(failures + 1, 6)
+        delay = min(INTERVAL * (2 ** failures), 300.0) + random.uniform(0, min(5.0, INTERVAL / 3))
+        time.sleep(delay)
 
-if __name__=="__main__":
+if __name__ == "__main__":
     main()
