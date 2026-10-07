@@ -303,3 +303,9 @@ See:
 - `docs/ARCHITECTURE.md`
 - `docs/API.md`
 - `platform/README.md`
+
+## Architecture review and refactoring
+
+The repository now includes `docs/ARCHITECTURE_REVIEW.md`, which documents the existing node-local architecture, end-to-end data flow, critical bottlenecks, scalability risks and the staged refactoring plan.
+
+The control plane under `platform/` is the scalable multi-tenant boundary. The existing node-local panel remains the compatibility layer for SSH, Xray, Hysteria 2, transports, account management and VPS maintenance.
