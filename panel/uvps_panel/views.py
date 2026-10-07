@@ -82,7 +82,7 @@ def dashboard_page():
             f'<td><input class="rowcheck" type="checkbox" value="{xid}"></td><td><div class="usercell"><div class="avatar">{html.escape(x["username"][0].upper())}</div><div><strong>{username}</strong><span class="muted">{html.escape(protocol)}</span></div></div></td>'
             f'<td>{state_badge("active" if enabled else "disabled")}</td>'
             f'<td><span class="pill">{html.escape(str(x["port"]))}</span></td>'
-            f'<td><button class="secret-btn" data-user-id="{xid}" type="button">Reveal</button></td>
+            f'<td><button class="secret-btn" data-user-id="{xid}" type="button">Reveal</button></td>'
             f'<td><span id="alltime-{xid}">{usage_text}</span><span class="muted"> / {quota}</span><span id="daily-{xid}" class="muted">{daily_text}</span></td>'
             f'<td><span class="muted {expiry_class}">{html.escape(expiry)}</span>{expiry_notice}</td>'
             f'<td>{connection}</td>'
