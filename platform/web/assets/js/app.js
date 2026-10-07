@@ -314,7 +314,7 @@ async function loadCurrentRoute() {
 
 async function loadOverview(force = false) {
   const current = store.get();
-  if (current.serversLoading && !force) return;
+  if (current.serversLoading) return;
   const requestId = ++routeRequestId;
   store.update({ serversLoading: true, eventsLoading: true, serversError: "", eventsError: "" });
   queueRender();
